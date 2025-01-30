@@ -151,7 +151,6 @@ partial_columns = df.columns[df.isna().any(axis=0)]
 print(f"{all_missing_columns=}")
 print(f"{full_columns=}")
 print(f"{partial_columns=}")
-
 # Compute the billed and used resource time in seconds
 df["billed"] = df["elapsed_time"] * df["billing"]
 df["used"] = df["elapsed_time"] * df["gres_gpu"]
@@ -192,7 +191,7 @@ print("DRAC clusters:")
 print(compute_gpu_hours_per_duration(df_drac))
 
 
-def compute_jobs_per_gpu_hours(df):
+def compute_jobs_per_gpu_hours(df: pd.DataFrame):
     categories = {
         "< 1 GPUhour": (0, 3600),
         "1-24 GPUhours": (3600, 24 * 3600),
@@ -216,7 +215,7 @@ print("DRAC clusters:")
 print(compute_jobs_per_gpu_hours(df_drac))
 
 
-def compute_gpu_hours_per_gpu_count(df):
+def compute_gpu_hours_per_gpu_count(df: pd.DataFrame):
     categories = {
         "1 GPU": (1, 2),
         "2-4 GPUs": (2, 5),
