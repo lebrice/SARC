@@ -1,0 +1,206 @@
+import dataclasses
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+import pickle
+import tempfile
+from typing import Callable, Concatenate, ParamSpec, TypeVar
+
+import flatten_dict
+import pandas as pd
+import simple_parsing
+from tqdm import tqdm
+
+from sarc.client.job import SlurmJob, count_jobs, get_jobs
+from sarc.config import MTL
+
+P = ParamSpec("P")
+Out = TypeVar("Out")
+T = TypeVar("T")
+
+# Clusters we want to compare
+
+
+@dataclasses.dataclass(frozen=True, unsafe_hash=True)
+class Args:
+    """Configuration options for this script."""
+
+    start: datetime = simple_parsing.field(
+        default=(
+            datetime.now(tz=MTL).replace(hour=0, minute=0, second=0, microsecond=0)
+            - timedelta(days=30)
+        ),
+        type=datetime.fromisoformat,
+    )
+    """ Start date. """
+
+    end: datetime = simple_parsing.field(
+        default=datetime.now(tz=MTL).replace(hour=0, minute=0, second=0, microsecond=0),
+        type=datetime.fromisoformat,
+    )
+    """ End date. """
+
+    user: str | None = None
+    """ Which user to query information for. Leave blank to get a global compute profile."""
+
+    # clusters: list[str] = dataclasses.field(default_factory=list)
+    # """ Which clusters to query information for. Leave blank to get data from all clusters."""
+
+    cache_dir: Path = dataclasses.field(
+        default=Path(os.environ.get("SCRATCH", tempfile.gettempdir())), hash=False
+    )
+    """ Directory where temporary files will be stored."""
+
+    verbose: int = simple_parsing.field(
+        alias="-v", action="count", default=0, hash=False
+    )
+
+    def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
+        user_portion = self.user or "all"
+        # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
+        return (
+            self.cache_dir
+            / f"compute_profile-{user_portion}-{self.start}-{self.end}-{label}"
+        ).with_suffix(extension)
+
+
+def cached(label: str):
+    def _wrapper(fn: Callable[Concatenate[Args, P], Out]):
+        def _wrapped(config: Args, *args: P.args, **kwargs: P.kwargs) -> Out:
+            cached_results_file = config.unique_path(label=label)
+            # Check if the results are already cached.
+            if cached_results_file.exists():
+                with open(cached_results_file, "rb") as f:
+                    return pickle.load(f)
+
+            # run the function.
+            result = fn(config, *args, **kwargs)
+
+            with open(cached_results_file, "wb") as f:
+                pickle.dump(result, f)
+            return result
+
+        return _wrapped
+
+    return _wrapper
+
+
+@cached(label="jobs_list")
+def get_jobs_list(config: Args) -> list[SlurmJob]:
+    #  Fetch all jobs from the clusters
+    # Precompute the total number of jobs to display a progress bar since get_jobs is a generator.
+    total = count_jobs(user=config.user, start=config.start, end=config.end)
+    return list(
+        tqdm(
+            get_jobs(user=config.user, start=config.start, end=config.end),
+            total=total,
+            desc="Gathering jobs",
+            unit="jobs",
+        )
+    )
+
+
+@cached(label="jobs_df")
+def get_jobs_dataframe(config: Args) -> pd.DataFrame:
+    # Fetch all jobs from the clusters
+    job_dicts = [
+        flatten_dict.flatten(job.dict(), reducer="dot") for job in get_jobs_list(config)
+    ]
+    df = pd.json_normalize(job_dicts)
+    df = df.convert_dtypes()
+    assert isinstance(df, pd.DataFrame)
+
+    return df
+
+
+config = simple_parsing.parse(Args)
+df = get_jobs_dataframe(config)
+breakpoint()
+
+# Compute the billed and used resource time in seconds
+df["billed"] = df["elapsed_time"] * df["billing"]
+df["used"] = df["elapsed_time"] * df["gres_gpu"]
+
+df_mila = df[df["cluster_name"] == "mila"]
+df_drac = df[df["cluster_name"] != "mila"]
+
+print("Number of jobs:")
+print("Mila-cluster", df_mila.shape[0])
+print("DRAC clusters", df_drac.shape[0])
+
+print("GPU hours:")
+print("Mila-cluster", df_mila["used"].sum() / (3600))
+print("DRAC clusters", df_drac["used"].sum() / (3600))
+
+
+def compute_gpu_hours_per_duration(df: pd.DataFrame):
+    categories = {
+        "< 1hour": (0, 3600),
+        "1-24 hours": (3600, 24 * 3600),
+        "1-28 days": (24 * 3600, 28 * 24 * 3600),
+        ">= 28 days": (28 * 24 * 3600, None),
+    }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
+    for key, (min_time, max_time) in categories.items():
+        condition = df["elapsed_time"] >= min_time
+        if max_time is not None:
+            condition *= df["elapsed_time"] < max_time
+        categories_df[key] = condition.astype(bool) * df["used"]
+
+    return categories_df[list(categories_df.keys())].sum() / df["used"].sum()
+
+
+print("GPU hours per job duration")
+print("Mila-cluster:")
+print(compute_gpu_hours_per_duration(df_mila))
+print("DRAC clusters:")
+print(compute_gpu_hours_per_duration(df_drac))
+
+
+def compute_jobs_per_gpu_hours(df):
+    categories = {
+        "< 1 GPUhour": (0, 3600),
+        "1-24 GPUhours": (3600, 24 * 3600),
+        "1-28 GPUdays": (24 * 3600, 28 * 24 * 3600),
+        ">= 28 GPUdays": (28 * 24 * 3600, None),
+    }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
+    for key, (min_time, max_time) in categories.items():
+        condition = df["used"] >= min_time
+        if max_time is not None:
+            condition *= df["used"] < max_time
+        categories_df[key] = condition.astype(bool) * df["used"]
+
+    return categories_df.sum() / df["used"].sum()
+
+
+print("Binned GPU hours")
+print("Mila-cluster:")
+print(compute_jobs_per_gpu_hours(df_mila))
+print("DRAC clusters:")
+print(compute_jobs_per_gpu_hours(df_drac))
+
+
+def compute_gpu_hours_per_gpu_count(df):
+    categories = {
+        "1 GPU": (1, 2),
+        "2-4 GPUs": (2, 5),
+        "5-8 GPUs": (5, 9),
+        "9-32 GPUs": (9, 33),
+        ">= 33 PUdays": (33, None),
+    }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
+    for key, (min_time, max_time) in categories.items():
+        condition = df["gres_gpu"] >= min_time
+        if max_time is not None:
+            condition *= df["gres_gpu"] < max_time
+        categories_df[key] = condition.astype(bool) * df["used"]
+
+    return categories_df.sum() / df["used"].sum()
+
+
+print("GPU hours per gpu job count")
+print("Mila-cluster:")
+print(compute_gpu_hours_per_gpu_count(df_mila))
+print("DRAC clusters:")
+print(compute_gpu_hours_per_gpu_count(df_drac))
