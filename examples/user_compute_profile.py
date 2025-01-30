@@ -161,15 +161,18 @@ def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
         "stored_statistics.gpu_sm_occupancy.mean",
     ]
 
-    return (
+    partial_df = (
         df
         # drop columns that have only NANs.
-        .dropna(axis=1, how="all")
+        .dropna(axis="columns", how="all")
         # Drop rows that have nas in any of the absolutely required columns.
-        .dropna(axis=0, how="any", subset=required_full_columns)
+        .dropna(axis="index", how="any", subset=required_full_columns)
         # Drop rows that have nas in all of the partially required columns.
-        .dropna(axis=0, how="all", subset=partial_columns)
+        .dropna(axis="index", how="all", subset=partial_columns)
     )
+    # todo: use fillna, get averages, etc etc.
+    filled_df = partial_df
+    return filled_df
 
 
 config = simple_parsing.parse(Args)
