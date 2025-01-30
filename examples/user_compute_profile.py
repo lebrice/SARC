@@ -1,24 +1,28 @@
 import dataclasses
+import logging
 import os
-from datetime import datetime, timedelta
-from pathlib import Path
 import pickle
 import tempfile
-from typing import Callable, Concatenate, ParamSpec, TypeVar
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable, TypeVar
 
-import flatten_dict
 import pandas as pd
+import rich.logging
 import simple_parsing
 from tqdm import tqdm
 
-from sarc.client.job import SlurmJob, count_jobs, get_jobs
+from sarc.client.job import count_jobs, get_jobs
 from sarc.config import MTL
 
-P = ParamSpec("P")
+logger = logging.getLogger(__name__)
 Out = TypeVar("Out")
 T = TypeVar("T")
 
-# Clusters we want to compare
+
+def midnight(dt: datetime) -> datetime:
+    """Returns the start of the given day (hour 00:00)."""
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @dataclasses.dataclass(frozen=True, unsafe_hash=True)
@@ -26,16 +30,13 @@ class Args:
     """Configuration options for this script."""
 
     start: datetime = simple_parsing.field(
-        default=(
-            datetime.now(tz=MTL).replace(hour=0, minute=0, second=0, microsecond=0)
-            - timedelta(days=30)
-        ),
+        default=(midnight(datetime.now(tz=MTL)) - timedelta(days=30)),
         type=datetime.fromisoformat,
     )
     """ Start date. """
 
     end: datetime = simple_parsing.field(
-        default=datetime.now(tz=MTL).replace(hour=0, minute=0, second=0, microsecond=0),
+        default=midnight(datetime.now(tz=MTL)),
         type=datetime.fromisoformat,
     )
     """ End date. """
@@ -52,30 +53,48 @@ class Args:
     """ Directory where temporary files will be stored."""
 
     verbose: int = simple_parsing.field(
-        alias="-v", action="count", default=0, hash=False
+        alias=["-v", "--verbose"], action="count", default=0, hash=False
     )
 
     def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
         user_portion = self.user or "all"
         # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
+        start_portion = (
+            self.start.strftime("%Y-%m-%d")
+            if self.start == midnight(self.start)
+            else str(self.start).replace(" ", "_")
+        )
+        end_portion = (
+            self.end.strftime("%Y-%m-%d")
+            if self.end == midnight(self.end)
+            else str(self.end).replace(" ", "_")
+        )
         return (
             self.cache_dir
-            / f"compute_profile-{user_portion}-{self.start}-{self.end}-{label}"
+            / f"compute_profile-{user_portion}-{start_portion}-{end_portion}-{label}"
         ).with_suffix(extension)
 
 
-def cached(label: str):
-    def _wrapper(fn: Callable[Concatenate[Args, P], Out]):
-        def _wrapped(config: Args, *args: P.args, **kwargs: P.kwargs) -> Out:
+def cached(label: str = ""):
+    def _wrapper(fn: Callable[[Args], Out]):
+        def _wrapped(config: Args) -> Out:
             cached_results_file = config.unique_path(label=label)
             # Check if the results are already cached.
             if cached_results_file.exists():
+                logger.info(
+                    f"Loading previous cached results of running `{fn.__name__}({config})` "
+                    f"from {cached_results_file}"
+                )
                 with open(cached_results_file, "rb") as f:
                     return pickle.load(f)
-
+            else:
+                logger.debug(
+                    f"Previous results not found at path {cached_results_file}"
+                )
             # run the function.
-            result = fn(config, *args, **kwargs)
+            result = fn(config)
 
+            logger.debug(f"Cached results written to {cached_results_file}")
             with open(cached_results_file, "wb") as f:
                 pickle.dump(result, f)
             return result
@@ -85,37 +104,53 @@ def cached(label: str):
     return _wrapper
 
 
-@cached(label="jobs_list")
-def get_jobs_list(config: Args) -> list[SlurmJob]:
+@cached(label="jobs_df")
+def get_jobs_dataframe(config: Args) -> pd.DataFrame:
     #  Fetch all jobs from the clusters
     # Precompute the total number of jobs to display a progress bar since get_jobs is a generator.
+    # Fetch all jobs from the clusters
     total = count_jobs(user=config.user, start=config.start, end=config.end)
-    return list(
-        tqdm(
+    job_dicts = [
+        job.dict()
+        for job in tqdm(
             get_jobs(user=config.user, start=config.start, end=config.end),
             total=total,
             desc="Gathering jobs",
             unit="jobs",
         )
-    )
-
-
-@cached(label="jobs_df")
-def get_jobs_dataframe(config: Args) -> pd.DataFrame:
-    # Fetch all jobs from the clusters
-    job_dicts = [
-        flatten_dict.flatten(job.dict(), reducer="dot") for job in get_jobs_list(config)
     ]
     df = pd.json_normalize(job_dicts)
     df = df.convert_dtypes()
     assert isinstance(df, pd.DataFrame)
-
     return df
 
 
+def _setup_logging(verbose: int):
+    logging.basicConfig(
+        handlers=[rich.logging.RichHandler()],
+        format="%(message)s",
+        level=logging.ERROR,
+    )
+
+    if verbose == 0:
+        logger.setLevel("WARNING")
+    elif verbose == 1:
+        logger.setLevel("INFO")
+    else:
+        logger.setLevel("DEBUG")
+
+
 config = simple_parsing.parse(Args)
+_setup_logging(config.verbose)
+print(f"Configuration: {config}")
 df = get_jobs_dataframe(config)
-breakpoint()
+
+all_missing_columns = df.columns[(df.isna().all(axis=0))]
+full_columns = df.columns[df.notna().all(axis=0)]
+partial_columns = df.columns[df.isna().any(axis=0)]
+print(f"{all_missing_columns=}")
+print(f"{full_columns=}")
+print(f"{partial_columns=}")
 
 # Compute the billed and used resource time in seconds
 df["billed"] = df["elapsed_time"] * df["billing"]
