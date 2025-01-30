@@ -145,6 +145,8 @@ def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
     print("Sparsity of each column:")
     print(sparsity_pct.to_string())
 
+    # Required columns. If a job has any of these missing, we drop that job.
+    # We don't include the required fields of SlurmJob here, they already can't be None.
     required_full_columns = [
         "elapsed_time",
         "requested.mem",
