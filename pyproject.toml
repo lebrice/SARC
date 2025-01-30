@@ -55,7 +55,10 @@ dev = [
     "tox-uv>=1.25.0",
     "pytest-httpserver>=1.1.0",
 ]
-examples = ["seaborn>=0.13.2,<0.14"]
+examples = [
+    "rich>=14.0.0",
+    "seaborn>=0.13.2,<0.14",
+]
 
 [tool.uv]
 default-groups = [
