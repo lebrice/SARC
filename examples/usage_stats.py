@@ -1,11 +1,12 @@
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 from tqdm import tqdm
 
-from sarc.client.job import get_jobs
-from sarc.config import MTL, config
+from sarc.client.job import count_jobs, get_jobs
+from sarc.config import MTL
 
 # Clusters we want to compare
 clusters = ["mila", "narval", "beluga", "cedar", "graham"]
@@ -25,7 +26,9 @@ include_fields = {
 }
 
 
-def get_jobs_dataframe(filename, start, end) -> pd.DataFrame:
+def get_jobs_dataframe(
+    filename: str | Path, start: datetime, end: datetime
+) -> pd.DataFrame:
     if filename and os.path.exists(filename):
         return pd.read_pickle(filename)
 
@@ -37,13 +40,7 @@ def get_jobs_dataframe(filename, start, end) -> pd.DataFrame:
         # Precompute the total number of jobs to display a progress bar
         # get_jobs is a generator so we don't get the total unless we pre-fetch all jobs
         # beforehand.
-        total = config().mongo.database_instance.jobs.count_documents(
-            {
-                "cluster_name": cluster,
-                "end_time": {"$gte": start},
-                "start_time": {"$lt": end},
-            }
-        )
+        total = count_jobs(cluster=cluster, start=start, end=end)
 
         for job in tqdm(
             get_jobs(cluster=cluster, start=start, end=end),
@@ -67,7 +64,7 @@ def get_jobs_dataframe(filename, start, end) -> pd.DataFrame:
                 job.start_time = start
             if job.end_time > end:
                 job.end_time = end
-            job.elapsed_time = (job.end_time - job.start_time).total_seconds()
+            job.elapsed_time = int((job.end_time - job.start_time).total_seconds())
 
             # We only care about jobs that actually ran.
             if job.elapsed_time <= 0:
@@ -95,7 +92,7 @@ def get_jobs_dataframe(filename, start, end) -> pd.DataFrame:
 start = datetime(year=2022, month=1, day=1, tzinfo=MTL)
 end = datetime(year=2023, month=1, day=1, tzinfo=MTL)
 df = get_jobs_dataframe(
-    f"total_usage_demo_jobs.pkl",
+    "total_usage_demo_jobs.pkl",
     start=start,
     end=end,
 )
@@ -116,20 +113,21 @@ print("Mila-cluster", df_mila["used"].sum() / (3600))
 print("DRAC clusters", df_drac["used"].sum() / (3600))
 
 
-def compute_gpu_hours_per_duration(df):
+def compute_gpu_hours_per_duration(df: pd.DataFrame):
     categories = {
         "< 1hour": (0, 3600),
         "1-24 hours": (3600, 24 * 3600),
         "1-28 days": (24 * 3600, 28 * 24 * 3600),
         ">= 28 days": (28 * 24 * 3600, None),
     }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
     for key, (min_time, max_time) in categories.items():
         condition = df["elapsed_time"] >= min_time
         if max_time is not None:
             condition *= df["elapsed_time"] < max_time
-        df[key] = condition.astype(bool) * df["used"]
+        categories_df[key] = condition.astype(bool) * df["used"]
 
-    return df[list(categories.keys())].sum() / df["used"].sum()
+    return categories_df[list(categories_df.keys())].sum() / df["used"].sum()
 
 
 print("GPU hours per job duration")
@@ -146,13 +144,14 @@ def compute_jobs_per_gpu_hours(df):
         "1-28 GPUdays": (24 * 3600, 28 * 24 * 3600),
         ">= 28 GPUdays": (28 * 24 * 3600, None),
     }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
     for key, (min_time, max_time) in categories.items():
         condition = df["used"] >= min_time
         if max_time is not None:
             condition *= df["used"] < max_time
-        df[key] = condition.astype(bool) * df["used"]
+        categories_df[key] = condition.astype(bool) * df["used"]
 
-    return df[list(categories.keys())].sum() / df["used"].sum()
+    return categories_df.sum() / df["used"].sum()
 
 
 print("Binned GPU hours")
@@ -170,13 +169,14 @@ def compute_gpu_hours_per_gpu_count(df):
         "9-32 GPUs": (9, 33),
         ">= 33 PUdays": (33, None),
     }
+    categories_df = pd.DataFrame(columns=list(categories.keys()))
     for key, (min_time, max_time) in categories.items():
         condition = df["gres_gpu"] >= min_time
         if max_time is not None:
             condition *= df["gres_gpu"] < max_time
-        df[key] = condition.astype(bool) * df["used"]
+        categories_df[key] = condition.astype(bool) * df["used"]
 
-    return df[list(categories.keys())].sum() / df["used"].sum()
+    return categories_df.sum() / df["used"].sum()
 
 
 print("GPU hours per gpu job count")

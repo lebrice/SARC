@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from tqdm import tqdm
 
-from sarc.client.job import get_jobs
+from sarc.client.job import count_jobs, get_jobs
 from sarc.config import ScraperConfig, _config_class, config
 
 
@@ -13,17 +13,18 @@ def load_job_series(filename=None) -> pd.DataFrame:
         return pd.read_pickle(filename)
 
     cluster = "mila"
-    total = config().mongo.database_instance.jobs.count_documents(
-        {
-            "cluster_name": cluster,
-            "end_time": {"$gte": datetime(year=2023, month=2, day=10)},
-        }
+    start = datetime(year=2023, month=2, day=10)
+    # end = datetime(year=2023, month=2, day=10)
+    total = count_jobs(
+        cluster=cluster,
+        start=start,
+        # end=end,
     )
 
-    df = None
+    df: pd.DataFrame | None = None
 
     # Fetch all jobs from the clusters
-    for job in tqdm(get_jobs(cluster=cluster, start="2023-02-10"), total=total):
+    for job in tqdm(get_jobs(cluster=cluster, start=start), total=total):
         if job.duration < timedelta(seconds=60):
             continue
 
