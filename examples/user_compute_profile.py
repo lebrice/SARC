@@ -140,20 +140,51 @@ def _setup_logging(verbose: int):
         logger.setLevel("DEBUG")
 
 
+def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
+    sparsity_pct = df.isna().mean().sort_values(ascending=False)
+    print("Sparsity of each column:")
+    print(sparsity_pct.to_string())
+
+    required_full_columns = [
+        "elapsed_time",
+        "requested.mem",
+        "requested.node",
+        "requested.cpu",
+    ]
+    # Columns for which we can tolerate some missing values.
+    partial_columns = [
+        "stored_statistics.gpu_memory.mean",
+        # "stored_statistics.gpu_utilization_fp16.mean",
+        # "stored_statistics.gpu_utilization_fp32.mean",
+        "stored_statistics.gpu_sm_occupancy.mean",
+    ]
+
+    return (
+        df
+        # drop columns that have only NANs.
+        .dropna(axis=1, how="all")
+        # Drop rows that have nas in any of the absolutely required columns.
+        .dropna(axis=0, how="any", subset=required_full_columns)
+        # Drop rows that have nas in all of the partially required columns.
+        .dropna(axis=0, how="all", subset=partial_columns)
+    )
+
+
 config = simple_parsing.parse(Args)
 _setup_logging(config.verbose)
 print(f"Configuration: {config}")
 df = get_jobs_dataframe(config)
 
-all_missing_columns = df.columns[(df.isna().all(axis=0))]
-full_columns = df.columns[df.notna().all(axis=0)]
-partial_columns = df.columns[df.isna().any(axis=0)]
-print(f"{all_missing_columns=}")
-print(f"{full_columns=}")
-print(f"{partial_columns=}")
+filtered_df = filter_df(df, config)
+
+print(
+    f"Filtered out {len(df) - len(filtered_df)} ({(len(df) - len(filtered_df)) / len(df) * 100:.2f}%) of jobs."
+)
+df = filtered_df
+
 # Compute the billed and used resource time in seconds
-df["billed"] = df["elapsed_time"] * df["billing"]
-df["used"] = df["elapsed_time"] * df["gres_gpu"]
+df["billed"] = df["elapsed_time"] * df["allocated.billing"]
+df["used"] = df["elapsed_time"] * df["allocated.gres_gpu"]
 
 df_mila = df[df["cluster_name"] == "mila"]
 df_drac = df[df["cluster_name"] != "mila"]
@@ -225,9 +256,9 @@ def compute_gpu_hours_per_gpu_count(df: pd.DataFrame):
     }
     categories_df = pd.DataFrame(columns=list(categories.keys()))
     for key, (min_time, max_time) in categories.items():
-        condition = df["gres_gpu"] >= min_time
+        condition = df["allocated.gres_gpu"] >= min_time
         if max_time is not None:
-            condition *= df["gres_gpu"] < max_time
+            condition *= df["allocated.gres_gpu"] < max_time
         categories_df[key] = condition.astype(bool) * df["used"]
 
     return categories_df.sum() / df["used"].sum()
