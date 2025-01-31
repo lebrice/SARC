@@ -5,7 +5,7 @@ import pickle
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 import pandas as pd
 import rich.logging
@@ -75,38 +75,29 @@ class Args:
         ).with_suffix(extension)
 
 
-def cached(label: str = ""):
-    def _wrapper(fn: Callable[[Args], Out]):
-        def _wrapped(config: Args) -> Out:
-            cached_results_file = config.unique_path(label=label)
-            # Check if the results are already cached.
-            if cached_results_file.exists():
-                logger.info(
-                    f"Loading previous cached results of running `{fn.__name__}({config})` "
-                    f"from {cached_results_file}"
-                )
-                with open(cached_results_file, "rb") as f:
-                    return pickle.load(f)
-            else:
-                logger.debug(
-                    f"Previous results not found at path {cached_results_file}"
-                )
-            # run the function.
-            result = fn(config)
-
-            logger.debug(f"Cached results written to {cached_results_file}")
-            with open(cached_results_file, "wb") as f:
-                pickle.dump(result, f)
-            return result
-
-        return _wrapped
-
-    return _wrapper
-
-
-@cached(label="jobs_df")
 def get_jobs_dataframe(config: Args) -> pd.DataFrame:
     #  Fetch all jobs from the clusters
+
+    cached_results_file = config.unique_path()
+    # Check if the results are already cached.
+    if cached_results_file.exists():
+        logger.info(f"Loading previous cached results from {cached_results_file}")
+        with open(cached_results_file, "rb") as f:
+            df = pickle.load(f)
+            assert isinstance(df, pd.DataFrame)
+            return df
+    elif (
+        generic_config_path := dataclasses.replace(config, user=None).unique_path()
+    ).exists():
+        # Can reuse the results for all users and filter out our user:
+        logger.info(
+            f"Loading previous cached results for all users at {generic_config_path}"
+        )
+        with open(generic_config_path, "rb") as f:
+            generic_df = pickle.load(f)
+            assert isinstance(generic_df, pd.DataFrame)
+            return generic_df[generic_df["user"] == config.user]
+
     # Precompute the total number of jobs to display a progress bar since get_jobs is a generator.
     # Fetch all jobs from the clusters
     total = count_jobs(user=config.user, start=config.start, end=config.end)
@@ -122,6 +113,8 @@ def get_jobs_dataframe(config: Args) -> pd.DataFrame:
     df = pd.json_normalize(job_dicts)
     df = df.convert_dtypes()
     assert isinstance(df, pd.DataFrame)
+    logger.debug(f"Cached results written to {cached_results_file}")
+    df.to_pickle(cached_results_file)
     return df
 
 
