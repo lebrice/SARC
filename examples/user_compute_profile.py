@@ -12,7 +12,7 @@ import rich.logging
 import simple_parsing
 from tqdm import tqdm
 
-from sarc.client.job import count_jobs, get_jobs
+from sarc.client.job import JobStatistics, count_jobs, get_jobs
 from sarc.config import MTL
 
 logger = logging.getLogger(__name__)
@@ -150,11 +150,12 @@ def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
     partial_columns = [
         "stored_statistics.gpu_memory.mean",
         # "stored_statistics.gpu_utilization_fp16.mean",
+        # "stored_statistics.gpu_utilization_fp16.mean",
         # "stored_statistics.gpu_utilization_fp32.mean",
         "stored_statistics.gpu_sm_occupancy.mean",
     ]
 
-    partial_df = (
+    df = (
         df
         # drop columns that have only NANs.
         .dropna(axis="columns", how="all")
@@ -164,8 +165,24 @@ def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
         .dropna(axis="index", how="all", subset=partial_columns)
     )
     # todo: use fillna, get averages, etc etc.
-    filled_df = partial_df
-    return filled_df
+    # TODO: Weird GPU utilization, e.g. jobid 2234959
+    for col in df.columns:
+        data = df[col]
+        if data.isna().all():
+            raise NotImplementedError(f"Column {col} is all NANs!")
+        if "utilization" in col and 0 <= df[col].dropna().median() <= 1:
+            outliers = df[(df[col] < 0) | (df[col] > 1)]["job_id"]
+            logger.info(
+                f"Clipping {len(outliers)} outliers ({len(outliers) / len(df):.2%}) "
+                f"in column {col} (outside of [0-1] range)."
+            )
+            df[col] = df[col].clip(0, 1)
+    assert (
+        df["stored_statistics.gpu_utilization.mean"]
+        .between(0, 1, inclusive="both")
+        .all()
+    )
+    return df
 
 
 config = simple_parsing.parse(Args)
@@ -192,8 +209,42 @@ print("Mila-cluster", df_mila.shape[0])
 print("DRAC clusters", df_drac.shape[0])
 
 print("GPU hours:")
-print("Mila-cluster", df_mila["used"].sum() / (3600))
-print("DRAC clusters", df_drac["used"].sum() / (3600))
+print("Mila-cluster", df_mila["used"].fillna(0).sum() / (3600))
+print("DRAC clusters", df_drac["used"].fillna(0).sum() / (3600))
+
+from sarc.client.job import Statistics
+
+
+def get_mean_stats(df: pd.DataFrame, metric: str) -> Statistics:
+    fields = list(Statistics.__fields__.keys())
+    columns = [f"stored_statistics.{metric}.{f}" for f in fields]
+    # drop any rows where there are some missing values
+    data = df.dropna(how="any", subset=columns, axis=0)
+    if not len(data):
+        raise RuntimeError(
+            f"Not a single row in the dataframe has no NANs in the stored statistics for metric {metric}!"
+        )
+    # todo: does it actually make sense to take the mean of these values
+    # (std, min, max, q05, etc?) or should I combine them in a smarter way?
+    stuff = {field: data[column].mean() for field, column in zip(fields, columns)}
+
+    # unused_key = f"stored_statistics.{metric}.unused"
+    # unused = stuff.pop(unused_key, 0)
+    # if isinstance(unused, float):
+    #     assert unused.is_integer()
+    return Statistics(**stuff)  # type: ignore
+
+
+def get_mean_job_stats(df: pd.DataFrame) -> JobStatistics:
+    return JobStatistics(
+        **{k: get_mean_stats(df, k) for k in JobStatistics.__fields__.keys()}
+    )
+
+
+gpu_util_metrics = get_mean_stats(df, "gpu_utilization")
+print(gpu_util_metrics)
+mean_job_stats = get_mean_job_stats(df)
+print(mean_job_stats)
 
 
 def compute_gpu_hours_per_duration(df: pd.DataFrame):
