@@ -12,7 +12,7 @@ import rich.logging
 import simple_parsing
 from tqdm import tqdm
 
-from sarc.client.job import JobStatistics, count_jobs, get_jobs
+from sarc.client.job import JobStatistics, Statistics, count_jobs, get_jobs
 from sarc.config import MTL
 
 logger = logging.getLogger(__name__)
@@ -134,99 +134,137 @@ def _setup_logging(verbose: int):
 
 
 def filter_df(df: pd.DataFrame, config: Args) -> pd.DataFrame:
-    sparsity_pct = df.isna().mean().sort_values(ascending=False)
-    print("Sparsity of each column:")
-    print(sparsity_pct.to_string())
+    # sparsity_pct = df.isna().mean().sort_values(ascending=False)
+    # print("Sparsity of each column:")
+    # print(sparsity_pct.to_string())
 
     # Required columns. If a job has any of these missing, we drop that job.
     # We don't include the required fields of SlurmJob here, they already can't be None.
     required_full_columns = [
-        "elapsed_time",
+        # "elapsed_time",
         "requested.mem",
         "requested.node",
         "requested.cpu",
     ]
-    # Columns for which we can tolerate some missing values.
-    partial_columns = [
-        "stored_statistics.gpu_memory.mean",
-        # "stored_statistics.gpu_utilization_fp16.mean",
-        # "stored_statistics.gpu_utilization_fp16.mean",
-        # "stored_statistics.gpu_utilization_fp32.mean",
-        "stored_statistics.gpu_sm_occupancy.mean",
-    ]
+
+    df["elapsed_time"] = pd.to_timedelta(df["elapsed_time"], unit="s")
+
+    df = df[df["elapsed_time"] > timedelta(minutes=1)]
+    df = df[df["elapsed_time"] < timedelta(days=30)]
+
+    # https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+    df.loc[:, "requested.gres_gpu"] = df["requested.gres_gpu"].fillna(0)
+    df.loc[:, "allocated.gres_gpu"] = df["allocated.gres_gpu"].fillna(0)
+
+    # df[df["requested.gres_gpu"] > 0 & df["stored_statistics.gpu_utilization.mean"].isna()] =
+    # df["stored_statistics.gpu_utilization.mean"] = df["stored_statistics.gpu_utilization.mean"].fillna(
 
     df = (
         df
         # drop columns that have only NANs.
-        .dropna(axis="columns", how="all")
+        # .dropna(axis="columns", how="all")
         # Drop rows that have nas in any of the absolutely required columns.
         .dropna(axis="index", how="any", subset=required_full_columns)
         # Drop rows that have nas in all of the partially required columns.
-        .dropna(axis="index", how="all", subset=partial_columns)
+        # .dropna(axis="index", how="all", subset=partial_columns)
     )
-    # todo: use fillna, get averages, etc etc.
-    # TODO: Weird GPU utilization, e.g. jobid 2234959
-    for col in df.columns:
-        data = df[col]
-        if data.isna().all():
-            raise NotImplementedError(f"Column {col} is all NANs!")
-        if "utilization" in col and 0 <= df[col].dropna().median() <= 1:
-            outliers = df[(df[col] < 0) | (df[col] > 1)]["job_id"]
-            logger.info(
-                f"Clipping {len(outliers)} outliers ({len(outliers) / len(df):.2%}) "
-                f"in column {col} (outside of [0-1] range)."
+
+    # Replace outliers with NAs for the jobs with insanely high GPU utilization. (H100 GPU bug).
+    stored_gpu_stats_columns = [
+        c for c in df.columns if c.startswith("stored_statistics.") and "gpu" in c
+    ]
+    columns_with_potential_outliers = [
+        c
+        for c in df.columns
+        if c.startswith(
+            (
+                "stored_statistics.gpu_utilization",
+                "stored_statistics.gpu_power.",
+                "stored_statistics.gpu_memory.",
             )
-            df[col] = df[col].clip(0, 1)
+        )
+    ]
+    outliers: pd.Series | None = None
+    for col in columns_with_potential_outliers:
+        if "utilization" in col:
+            new_outliers = (utilization := df[col]).notna() & (
+                (utilization < 0) | (utilization > 1)
+            )
+        elif "gpu_power" in col:
+            new_outliers = (power := df[col]).notna() & (power > 10e5)
+        elif "gpu_memory" in col:
+            new_outliers = (mem_util := df[col]).notna() & (
+                (mem_util < 0) | (mem_util > 1)
+            )
+        else:
+            raise NotImplementedError(col)
+        if outliers is None:
+            outliers = new_outliers
+        else:
+            outliers |= new_outliers
+    assert outliers is not None
+    n_outliers = outliers.sum()
+    logger.info(
+        f"GPU utilization metrics had {n_outliers} outliers "
+        f"({n_outliers / len(outliers):.2%})."
+    )
+    # Replace the outlier metrics with NA.
+    # TODO: They will then be filled in with the mean of the other correct jobs for that user on that cluster.
+    df.loc[
+        outliers,
+        stored_gpu_stats_columns,
+    ] = pd.NA
+
+    across_clusters_mean_job_stats = get_mean_job_stats(df)
+
+    for cluster_name in df["cluster_name"].unique():
+        cluster_mask = df["cluster_name"] == cluster_name
+        cluster_mean_job_statistics = get_mean_job_stats(df[cluster_mask])
+
+        # TODO: fill in with the cluster-local mean when available, otherwise use the "across-cluster" mean.
+        stats_to_use = (
+            cluster_mean_job_statistics.dict() | across_clusters_mean_job_stats.dict()
+        )
+
+        # idea: For all jobs that have a GPU allocated, but the `stored_statistics.gpu_utilization` is missing,
+        # fill in the missing values with the mean of the available stored statistics (*for that same cluster*).
+        missing_gpu_stats = (
+            cluster_mask
+            & (df["allocated.gres_gpu"] > 0)
+            & df[stored_gpu_stats_columns].isna().any(axis=1)
+        )
+
+        # Assign the average of the available statistics to the missing ones.
+        # TODO: This assignment will probably fail. We might need to flatten the JobStatistics to an array first.
+        df[missing_gpu_stats] = stats_to_use
+
     assert (
         df["stored_statistics.gpu_utilization.mean"]
         .between(0, 1, inclusive="both")
         .all()
     )
+
     return df
 
 
-config = simple_parsing.parse(Args)
-_setup_logging(config.verbose)
-print(f"Configuration: {config}")
-df = get_jobs_dataframe(config)
-
-filtered_df = filter_df(df, config)
-
-print(
-    f"Filtered out {len(df) - len(filtered_df)} ({(len(df) - len(filtered_df)) / len(df) * 100:.2f}%) of jobs."
-)
-df = filtered_df
-
-# Compute the billed and used resource time in seconds
-df["billed"] = df["elapsed_time"] * df["allocated.billing"]
-df["used"] = df["elapsed_time"] * df["allocated.gres_gpu"]
-
-df_mila = df[df["cluster_name"] == "mila"]
-df_drac = df[df["cluster_name"] != "mila"]
-
-print("Number of jobs:")
-print("Mila-cluster", df_mila.shape[0])
-print("DRAC clusters", df_drac.shape[0])
-
-print("GPU hours:")
-print("Mila-cluster", df_mila["used"].fillna(0).sum() / (3600))
-print("DRAC clusters", df_drac["used"].fillna(0).sum() / (3600))
-
-from sarc.client.job import Statistics
-
-
-def get_mean_stats(df: pd.DataFrame, metric: str) -> Statistics:
+def get_mean_stats(df: pd.DataFrame, metric: str) -> Statistics | None:
     fields = list(Statistics.__fields__.keys())
     columns = [f"stored_statistics.{metric}.{f}" for f in fields]
     # drop any rows where there are some missing values
     data = df.dropna(how="any", subset=columns, axis=0)
     if not len(data):
-        raise RuntimeError(
-            f"Not a single row in the dataframe has no NANs in the stored statistics for metric {metric}!"
+        logger.warning(
+            RuntimeWarning(
+                f"Statistics for 'stored_statistics.{metric}' are all missing!"
+            )
         )
+        return None
     # todo: does it actually make sense to take the mean of these values
     # (std, min, max, q05, etc?) or should I combine them in a smarter way?
-    stuff = {field: data[column].mean() for field, column in zip(fields, columns)}
+    stuff = {
+        field: (data[column].max() if field.endswith("max") else data[column].mean())
+        for field, column in zip(fields, columns)
+    }
 
     # unused_key = f"stored_statistics.{metric}.unused"
     # unused = stuff.pop(unused_key, 0)
@@ -235,16 +273,17 @@ def get_mean_stats(df: pd.DataFrame, metric: str) -> Statistics:
     return Statistics(**stuff)  # type: ignore
 
 
+def try_get_mean_stats(df: pd.DataFrame, metric: str):
+    try:
+        return get_mean_stats(df, metric)
+    except KeyError:
+        return None
+
+
 def get_mean_job_stats(df: pd.DataFrame) -> JobStatistics:
     return JobStatistics(
-        **{k: get_mean_stats(df, k) for k in JobStatistics.__fields__.keys()}
+        **{k: try_get_mean_stats(df, k) for k in JobStatistics.__fields__.keys()}
     )
-
-
-gpu_util_metrics = get_mean_stats(df, "gpu_utilization")
-print(gpu_util_metrics)
-mean_job_stats = get_mean_job_stats(df)
-print(mean_job_stats)
 
 
 def compute_gpu_hours_per_duration(df: pd.DataFrame):
@@ -264,13 +303,6 @@ def compute_gpu_hours_per_duration(df: pd.DataFrame):
     return categories_df[list(categories_df.keys())].sum() / df["used"].sum()
 
 
-print("GPU hours per job duration")
-print("Mila-cluster:")
-print(compute_gpu_hours_per_duration(df_mila))
-print("DRAC clusters:")
-print(compute_gpu_hours_per_duration(df_drac))
-
-
 def compute_jobs_per_gpu_hours(df: pd.DataFrame):
     categories = {
         "< 1 GPUhour": (0, 3600),
@@ -286,13 +318,6 @@ def compute_jobs_per_gpu_hours(df: pd.DataFrame):
         categories_df[key] = condition.astype(bool) * df["used"]
 
     return categories_df.sum() / df["used"].sum()
-
-
-print("Binned GPU hours")
-print("Mila-cluster:")
-print(compute_jobs_per_gpu_hours(df_mila))
-print("DRAC clusters:")
-print(compute_jobs_per_gpu_hours(df_drac))
 
 
 def compute_gpu_hours_per_gpu_count(df: pd.DataFrame):
@@ -313,8 +338,56 @@ def compute_gpu_hours_per_gpu_count(df: pd.DataFrame):
     return categories_df.sum() / df["used"].sum()
 
 
-print("GPU hours per gpu job count")
-print("Mila-cluster:")
-print(compute_gpu_hours_per_gpu_count(df_mila))
-print("DRAC clusters:")
-print(compute_gpu_hours_per_gpu_count(df_drac))
+def main():
+    config = simple_parsing.parse(Args)
+    _setup_logging(config.verbose)
+    print(f"Configuration: {config}")
+    df = get_jobs_dataframe(config)
+
+    filtered_df = filter_df(df, config)
+
+    print(
+        f"Filtered out {len(df) - len(filtered_df)} ({(len(df) - len(filtered_df)) / len(df) * 100:.2f}%) of jobs."
+    )
+    df = filtered_df
+
+    # Compute the billed and used resource time in seconds
+    df["billed"] = df["elapsed_time"] * df["allocated.billing"]
+    df["used"] = df["elapsed_time"] * df["allocated.gres_gpu"]
+
+    df_mila = df[df["cluster_name"] == "mila"]
+    df_drac = df[df["cluster_name"] != "mila"]
+
+    print("Number of jobs:")
+    print("Mila-cluster", df_mila.shape[0])
+    print("DRAC clusters", df_drac.shape[0])
+
+    print("GPU hours:")
+    print("Mila-cluster", df_mila["used"].fillna(0).sum() / (3600))
+    print("DRAC clusters", df_drac["used"].fillna(0).sum() / (3600))
+
+    gpu_util_metrics = get_mean_stats(df, "gpu_utilization")
+    print(gpu_util_metrics)
+    mean_job_stats = get_mean_job_stats(df)
+    print(mean_job_stats.gpu_utilization)
+
+    print("GPU hours per job duration")
+    print("Mila-cluster:")
+    print(compute_gpu_hours_per_duration(df_mila))
+    print("DRAC clusters:")
+    print(compute_gpu_hours_per_duration(df_drac))
+    print("Binned GPU hours")
+    print("Mila-cluster:")
+    print(compute_jobs_per_gpu_hours(df_mila))
+    print("DRAC clusters:")
+    print(compute_jobs_per_gpu_hours(df_drac))
+
+    print("GPU hours per gpu job count")
+    print("Mila-cluster:")
+    print(compute_gpu_hours_per_gpu_count(df_mila))
+    print("DRAC clusters:")
+    print(compute_gpu_hours_per_gpu_count(df_drac))
+
+
+if __name__ == "__main__":
+    main()

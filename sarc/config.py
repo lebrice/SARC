@@ -1,7 +1,6 @@
 import functools
 import json
 import os
-import zoneinfo
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime
@@ -11,6 +10,7 @@ from typing import Any, Union
 
 import pydantic
 import tzlocal
+import zoneinfo
 from bson import ObjectId
 from pydantic import BaseModel as _BaseModel
 from pydantic import Extra, validator
@@ -265,7 +265,7 @@ def config():
     if (current := config_var.get()) is not None:
         return current
 
-    config_path = os.getenv("SARC_CONFIG", "config/sarc-dev.json")
+    config_path = os.getenv("SARC_CONFIG", "config/sarc-client.json")
     config_class = _config_class(os.getenv("SARC_MODE", "none"))
 
     try:
