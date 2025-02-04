@@ -244,7 +244,7 @@ def _compute_jobs_query(
     cluster: str | ClusterConfig | None = None,
     job_id: int | list[int] | None = None,
     job_state: str | SlurmState | None = None,
-    user: str | None = None,
+    user: str | list[str] | None = None,
     start: str | datetime | None = None,
     end: str | datetime | None = None,
 ) -> dict:
@@ -290,7 +290,9 @@ def _compute_jobs_query(
         # Select any job that had a status before the given end time.
         query["submit_time"] = {"$lt": end}
 
-    if user:
+    if isinstance(user, list):
+        query["user"] = {"$in": user}
+    elif user:
         query["user"] = user
 
     if job_state:
