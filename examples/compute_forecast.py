@@ -285,15 +285,25 @@ def validate_gpu_ram(df: pd.DataFrame):
         raise ValueError(f"Missing ram: {missing_ram}")
 
 
-def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
-    # Fix missing gpu_type
-
-    # Bypass the `config()` call, (I don't have the SCRAPING access).
+# todo: replace with the actual `get_node_to_gpu` function once it works with the client config.
+def _get_node_to_gpu(cluster_name: str):
     with open(Path(__file__).parent.parent / "config/node_to_gpu.json") as f:
         cluster_configs: dict[str, dict[str, str]] = json.load(f)
+    return cluster_configs[cluster_name]
+
+
+def _get_cluster_configs() -> dict[str, ClusterConfig]:
+    with open(Path(__file__).parent.parent / "config/sarc-dev.json") as f:
+        cluster_configs = {
+            k: ClusterConfig.validate(v) for k, v in json.load(f).items()
+        }
+    return cluster_configs
+
+
+def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
+    # Fix missing gpu_type
     for cluster_name in clusters:
-        # node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
-        node_to_gpu = cluster_configs[cluster_name]
+        node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
         non_mapped_gpu_types_mask = (
             (df["cluster_name"] == cluster_name)
             & (df["allocated.gpu_type"].isnull())
@@ -302,7 +312,7 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
         # NOTE: We assume uniformity of gpu types on all nodes
 
         nodes = df[non_mapped_gpu_types_mask]["nodes"].str[0]
-        # note: some nodes don't have GPUs, so we have 'allocated.gpu_type' set to `None` in that case.
+        # NOTE: some nodes don't have GPUs, so we have 'allocated.gpu_type' set to `None` in that case.
         mapping = {node: node_to_gpu.get(node) for node in nodes.unique()}
         df.loc[non_mapped_gpu_types_mask, "allocated.gpu_type"] = nodes.map(mapping)
 
@@ -342,13 +352,8 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
 
 def fix_rgu_discrepencies(df: pd.DataFrame):
     # NOTE: Fixing switch to RGU billing for a second time on Narval
-    config_path = Path(
-        os.getenv("SARC_CONFIG", Path(__file__).parent.parent / "config/sarc-dev.json")
-    )
-    cluster_configs = {
-        k: ClusterConfig.validate(v)
-        for k, v in json.loads(config_path.read_text())["clusters"].items()
-    }
+
+    cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
     # narval_config = config().clusters["narval"]
 
@@ -507,7 +512,7 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
 
 
 def compute_time_frames(
-    jobs,
+    jobs: pd.DataFrame,
     columns: list[str] | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
@@ -573,10 +578,7 @@ def compute_time_frames(
 
     data_frames = []
 
-    try:
-        total_elapsed_times = (jobs[end_column] - jobs[start_column]).dt.total_seconds()
-    except:
-        breakpoint()
+    total_elapsed_times = (jobs[end_column] - jobs[start_column]).dt.total_seconds()
 
     print(start, end)
 
@@ -592,10 +594,7 @@ def compute_time_frames(
         frame_start = frame_start.tz_localize(None)
         frame_end = frame_end.tz_localize(None)
 
-        try:
-            mask = (jobs[start_column] < frame_end) * (jobs[end_column] > frame_start)
-        except:
-            breakpoint()
+        mask = (jobs[start_column] < frame_end) * (jobs[end_column] > frame_start)
         frame = jobs[mask].copy()
         total_elapsed_times_in_frame = total_elapsed_times[mask]
         frame["elapsed_time"] = (
