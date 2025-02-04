@@ -168,42 +168,48 @@ def load_job_series(
 
     # Merge jobs with users info, only if users available.
     if users_frame.shape[0]:
-        # Get name of fields used to merge frames.
-        # We must use `fields`, as fields may have been renamed.
-        field_cluster_name = fields.get("cluster_name", "cluster_name")
-        field_job_user = fields.get("user", "user")
-
-        df_mila_mask = jobs_frame[field_cluster_name] == "mila"
-        df_drac_mask = jobs_frame[field_cluster_name] != "mila"
-
-        merged_mila = jobs_frame[df_mila_mask].merge(
-            users_frame,
-            left_on=field_job_user,
-            right_on="user.mila.username",
-            how="left",
-        )
-        merged_drac = jobs_frame[df_drac_mask].merge(
-            users_frame,
-            left_on=field_job_user,
-            right_on="user.drac.username",
-            how="left",
-        )
-
-        # Concat merged frames.
-        output = pandas.concat([merged_mila, merged_drac])
-        # Try to sort output to keep initial jobs order, by using first column from jobs frame.
-        # Sort inplace to avoid producing a supplementary frame.
-        output.sort_values(by=jobs_frame.columns[0], inplace=True, ignore_index=True)
-
-        # Replace NaN in column `user.primary_email` with corresponding value in `job.user`
-        df_primary_email_nan_mask = output["user.primary_email"].isnull()
-        output.loc[df_primary_email_nan_mask, "user.primary_email"] = output[
-            field_job_user
-        ][df_primary_email_nan_mask]
-
+        output = merge_job_and_user_dataframes(jobs_frame, users_frame, fields)
         return output
     else:
         return jobs_frame
+
+
+def merge_job_and_user_dataframes(
+    jobs_frame: pandas.DataFrame, users_frame: pandas.DataFrame, fields: dict[str, str]
+):
+    # Get name of fields used to merge frames.
+    # We must use `fields`, as fields may have been renamed.
+    field_cluster_name = fields.get("cluster_name", "cluster_name")
+    field_job_user = fields.get("user", "user")
+
+    df_mila_mask = jobs_frame[field_cluster_name] == "mila"
+    df_drac_mask = jobs_frame[field_cluster_name] != "mila"
+
+    merged_mila = jobs_frame[df_mila_mask].merge(
+        users_frame,
+        left_on=field_job_user,
+        right_on="user.mila.username",
+        how="left",
+    )
+    merged_drac = jobs_frame[df_drac_mask].merge(
+        users_frame,
+        left_on=field_job_user,
+        right_on="user.drac.username",
+        how="left",
+    )
+
+    # Concat merged frames.
+    output = pandas.concat([merged_mila, merged_drac])
+    # Try to sort output to keep initial jobs order, by using first column from jobs frame.
+    # Sort inplace to avoid producing a supplementary frame.
+    output.sort_values(by=jobs_frame.columns[0], inplace=True, ignore_index=True)
+
+    # Replace NaN in column `user.primary_email` with corresponding value in `job.user`
+    df_primary_email_nan_mask = output["user.primary_email"].isnull()
+    output.loc[df_primary_email_nan_mask, "user.primary_email"] = output[
+        field_job_user
+    ][df_primary_email_nan_mask]
+    return output
 
 
 def _get_user_data_frame() -> pandas.DataFrame:
@@ -271,7 +277,6 @@ def _select_stat(
     name: str,
     dist: dict[str, float | int] | None,
 ):
-    # BUG? Why are we selecting the median for utilization instead of the mean?
     if not dist:
         return np.nan
 
@@ -304,22 +309,15 @@ def compute_cost_and_waste(full_df: pandas.DataFrame) -> pandas.DataFrame:
 
 def _compute_cost_and_wastes(data: pandas.DataFrame, device: Literal["cpu", "gpu"]):
     device_col = {"cpu": "cpu", "gpu": "gres_gpu"}[device]
-
-    data[f"{device}_cost"] = data["elapsed_time"] * data[f"requested.{device_col}"]
-    data[f"{device}_waste"] = (1 - data[f"{device}_utilization"]) * data[
-        f"{device}_cost"
-    ]
-
-    data[f"{device}_equivalent_cost"] = (
-        data["elapsed_time"] * data[f"allocated.{device_col}"]
-    )
-    data[f"{device}_equivalent_waste"] = (1 - data[f"{device}_utilization"]) * data[
-        f"{device}_equivalent_cost"
-    ]
-
-    data[f"{device}_overbilling_cost"] = data["elapsed_time"] * (
-        data[f"allocated.{device_col}"] - data[f"requested.{device_col}"]
-    )
+    dt = data["elapsed_time"]
+    util = data[f"{device}_utilization"]
+    requested = data[f"requested.{device_col}"]
+    allocated = data[f"allocated.{device_col}"]
+    data[f"{device}_cost"] = dt * requested
+    data[f"{device}_waste"] = (1 - util) * data[f"{device}_cost"]
+    data[f"{device}_equivalent_cost"] = dt * allocated
+    data[f"{device}_equivalent_waste"] = (1 - util) * data[f"{device}_equivalent_cost"]
+    data[f"{device}_overbilling_cost"] = dt * (allocated - requested)
 
     return data
 

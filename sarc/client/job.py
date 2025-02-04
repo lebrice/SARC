@@ -317,7 +317,7 @@ def count_jobs(
     cluster: str | ClusterConfig | None = None,
     job_id: int | list[int] | None = None,
     job_state: str | SlurmState | None = None,
-    user: str | None = None,
+    user: str | list[str] | None = None,
     start: str | datetime | None = None,
     end: str | datetime | None = None,
     query_options: dict | None = None,

@@ -14,7 +14,10 @@ import rich
 import rich.logging
 import simple_parsing
 
-from sarc.client.series import compute_cost_and_waste, load_job_series
+from sarc.client.series import (
+    compute_cost_and_waste,
+    load_job_series,
+)
 from sarc.config import MTL, ClusterConfig
 from sarc.jobs.series import (
     update_cluster_job_series_rgu,
@@ -307,7 +310,7 @@ def fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
     return df
 
 
-def filter_users(df, users_file):
+def filter_users(df: pd.DataFrame, users_file: Path):
     with users_file.open("r") as file:
         users = set(file.read().splitlines())
         df = df[df["user"].isin(users)]
