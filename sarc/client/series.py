@@ -167,7 +167,7 @@ def load_job_series(
 
     # Merge jobs with users info, only if users available.
     if users_frame.shape[0]:
-        # Get name pf fields used to merge frames.
+        # Get name of fields used to merge frames.
         # We must use `fields`, as fields may have been renamed.
         field_cluster_name = fields.get("cluster_name", "cluster_name")
         field_job_user = fields.get("user", "user")

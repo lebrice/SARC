@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-import argparse
+import dataclasses
 import json
+import logging
 import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
 import pandas as pd
+import rich
+import rich.logging
+import simple_parsing
 
 from sarc.client.series import compute_cost_and_waste, load_job_series
 from sarc.config import MTL, ClusterConfig
@@ -15,6 +20,7 @@ from sarc.jobs.series import (
     update_cluster_job_series_rgu,
 )
 
+logger = logging.getLogger(__name__)
 pd.options.display.max_colwidth = 300
 pd.options.display.max_rows = 1000
 
@@ -111,81 +117,132 @@ rgus = {
 }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--start",
-        type=str,
-        default=(datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d"),
-        help="Start date to fetch data. Default corresponds to 7 days ago.",
-    )
-    parser.add_argument(
-        "--end",
-        type=str,
-        default=None,
-        help="End date to fetch data. Default corresponds to current time.",
-    )
-    parser.add_argument(
-        "--cache-file",
-        type=str,
-        default=None,
-        help="File to save loaded data as a panda array in a pickle file. Does not save anything by default.",
-    )
-    parser.add_argument(
-        "--include-plots",
-        type=str,
-        nargs="*",
-        help="Plots to include: analysis, projected, cumulative, gpu_dist, allocation_barplot, weekly_demands",
-    )
+def midnight(dt: datetime) -> datetime:
+    """Returns the start of the given day (hour 00:00)."""
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    parser.add_argument(
-        "--filter-users",
-        type=Path,
-        help="Path to a file containing a list of users to filter. One user per line. If not provided, all users are included.",
+
+@dataclasses.dataclass(frozen=True, unsafe_hash=True)
+class Options:
+    """Configuration options for this script."""
+
+    start: datetime = simple_parsing.field(
+        default=(midnight(datetime.now(tz=MTL)) - timedelta(days=30)),
+        type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
     )
+    """ Start date. """
 
-    options = parser.parse_args()
+    end: datetime = simple_parsing.field(
+        default=midnight(datetime.now(tz=MTL)),
+        type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
+    )
+    """ End date. """
 
-    if not options.include_plots:
-        options.include_plots = [
-            "analysis",
-            "projected",
-            "cumulative",
-            "gpu_dist",
-            "allocation_barplot",
-            "weekly_demands",
-        ]
+    users: list[str] = dataclasses.field(default_factory=list)
+    """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
-    start = datetime.strptime(options.start, "%Y-%m-%d").replace(tzinfo=MTL)
-    end = (
-        datetime.strptime(options.end, "%Y-%m-%d").replace(tzinfo=MTL)
-        if options.end
-        else datetime.now(tz=MTL)
+    users_file: Path | None = None
+    # clusters: list[str] = dataclasses.field(default_factory=list)
+    # """ Which clusters to query information for. Leave blank to get data from all clusters."""
+
+    cache_dir: Path = dataclasses.field(
+        default=Path(os.environ.get("SCRATCH", tempfile.gettempdir())), hash=False
+    )
+    """ Directory where temporary files will be stored."""
+
+    verbose: int = simple_parsing.field(
+        alias=["-v", "--verbose"], action="count", default=0, hash=False
     )
 
-    print(f"Looking up for data between {start} and {end}")
+    def get_users(self) -> list[str]:
+        if self.users_file:
+            assert not self.users, "can't use both user_file and users!"
+            return self.users_file.read_text().splitlines(keepends=False)
+        return self.users
 
-    if options.cache_file and os.path.exists(options.cache_file):
-        df = pd.read_pickle(options.cache_file)
-    else:
-        df = load_job_series(
-            start=start,
-            end=end,
-            clip_time=False,  # True,
-            # progress_bar=True,
+    def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
+        users = self.get_users()
+        user_portion = "+".join(sorted(users)) if users else "all"
+        # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
+        start_portion = (
+            self.start.strftime("%Y-%m-%d")
+            if self.start == midnight(self.start)
+            else str(self.start).replace(" ", "_")
         )
-        if options.cache_file:
-            df.to_pickle(options.cache_file)
+        end_portion = (
+            self.end.strftime("%Y-%m-%d")
+            if self.end == midnight(self.end)
+            else str(self.end).replace(" ", "_")
+        )
+        return (
+            self.cache_dir
+            / f"compute_profile-{user_portion}-{start_portion}-{end_portion}-{label}"
+        ).with_suffix(extension)
 
-    if options.filter_users:
-        df = filter_users(df, options.filter_users)
+
+def _setup_logging(verbose: int):
+    logging.basicConfig(
+        handlers=[rich.logging.RichHandler()],
+        format="%(message)s",
+        level=logging.ERROR,
+    )
+
+    if verbose == 0:
+        logger.setLevel("WARNING")
+    elif verbose == 1:
+        logger.setLevel("INFO")
+    else:
+        logger.setLevel("DEBUG")
+
+
+def main():
+    options = simple_parsing.parse(Options)
+    _setup_logging(options.verbose)
+    logger.debug(options)
+
+    cache_file = options.unique_path()
+    users = options.get_users()
+
+    print(
+        f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'}"
+    )
+
+    if cache_file.exists():
+        logger.info(f"Reading previous data from {cache_file}.")
+        df = pd.read_pickle(cache_file)
+        assert isinstance(df, pd.DataFrame)
+    elif (
+        options.users
+        and (
+            all_users_cache_file := dataclasses.replace(options, users=[]).unique_path()
+        ).exists()
+    ):
+        logger.info(
+            f"Reusing and filtering previous data for all users at {cache_file}."
+        )
+        df = pd.read_pickle(all_users_cache_file)
+        assert isinstance(df, pd.DataFrame)
+        df = df[df["user"].isin(users)]
+    else:
+        logger.info(
+            f"Did not find previous results at {cache_file}. Fetching job data."
+        )
+        df = load_job_series(
+            start=options.start,
+            end=options.end,
+            user=users or None,  # support querying for multiple users.
+            clip_time=False,  # True,
+        )
+        logger.info(f"Saving data to {cache_file}")
+        df.to_pickle(cache_file)
 
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
-
+    # start = options.start.astimezone(MTL)
+    # end = options.end.astimezone(MTL)
     df = fix_lost_jobs(df)
-    df = fix_unaligned_cache(df, start, end)
+    df = fix_unaligned_cache(df, options.start, options.end)
     df = remove_old_nodes(df)
 
     # Clusters we want to compare
@@ -194,10 +251,9 @@ def main():
     # Filter clusters
     df = df[df["cluster_name"].isin(clusters)]
 
-    validate_gpu_ram(df)
+    validate_gpu_ram()
     df = fix_missing_gpu_type(df, clusters)
 
-    # NOTE: This will also compute `update_job_series_rgu`
     df = fix_rgu_discrepencies(df)
 
     df = compute_cost_and_waste(df)
@@ -205,10 +261,10 @@ def main():
     # Filter out non-started jobs
     df = df[df["start_time"] != 0]
 
-    df["requested.gres_gpu"].fillna(0, inplace=True)
+    df.fillna({"requested.gres_gpu": 0}, inplace=True)
 
     print("Validate these values compared to DRAC ccdb stats.")
-    validate_data(df, start, end)
+    validate_data(df, options.start, options.end)
 
     print("Multi-GPU jobs")
     print(">1")
@@ -279,7 +335,7 @@ def remove_old_nodes(df: pd.DataFrame):
     return df
 
 
-def validate_gpu_ram(df: pd.DataFrame):
+def validate_gpu_ram():
     missing_ram = set(gpu_name_mapping.values()) - set(gpu_ram.keys())
     if missing_ram:
         raise ValueError(f"Missing ram: {missing_ram}")
@@ -295,7 +351,7 @@ def _get_node_to_gpu(cluster_name: str):
 def _get_cluster_configs() -> dict[str, ClusterConfig]:
     with open(Path(__file__).parent.parent / "config/sarc-dev.json") as f:
         cluster_configs = {
-            k: ClusterConfig.validate(v) for k, v in json.load(f).items()
+            k: ClusterConfig.validate(v) for k, v in json.load(f)["clusters"].items()
         }
     return cluster_configs
 
@@ -345,20 +401,16 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
         breakpoint()
 
     df["allocated.gpu_type"] = df["allocated.gpu_type"].map(gpu_name_mapping)
-    df["allocated.gpu_type"].fillna("unknown", inplace=True)
+    df.fillna({"allocated.gpu_type": "unknown"}, inplace=True)
 
     return df
 
 
 def fix_rgu_discrepencies(df: pd.DataFrame):
     # NOTE: Fixing switch to RGU billing for a second time on Narval
-
+    # narval_config = config().clusters["narval"]
     cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
-    # narval_config = config().clusters["narval"]
-
-    # with open(narval_config.gpu_to_rgu_billing, "r", encoding="utf-8") as file:
-    #     narval_rgu = json.load(file)
 
     slice_during_rgu_time = (
         (df["cluster_name"] == "narval")
@@ -579,8 +631,6 @@ def compute_time_frames(
     data_frames = []
 
     total_elapsed_times = (jobs[end_column] - jobs[start_column]).dt.total_seconds()
-
-    print(start, end)
 
     jobs = jobs.copy()
     for time_column in [start_column, end_column]:
