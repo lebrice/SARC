@@ -9,11 +9,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 import rich
 import rich.logging
 import simple_parsing
 
+from sarc.client.job import JobStatistics
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
@@ -259,6 +261,8 @@ def main():
 
     df = fix_rgu_discrepencies(df)
 
+    df = fill_missing_metrics_using_means(df, clusters)
+
     df = compute_cost_and_waste(df)
 
     # Filter out non-started jobs
@@ -286,6 +290,56 @@ def main():
         / df.groupby("cluster_name")["gpu_cost"].sum()
     )
     print()
+
+
+def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
+    """TODO: Fill in missing JobStatistics metrics using average of available data."""
+    stat_columns = list(JobStatistics.__fields__.keys())
+
+    # no_na = df.dropna(subset=stat_columns, how="any")
+    # assert no_na.shape[0] > 0
+
+    across_cluster_means = {col: df[col].dropna().mean() for col in stat_columns}
+    logger.debug(f"Mean of stats across all clusters: {across_cluster_means}")
+
+    # todo: cpu_utilization and system_memory should be there for all jobs, right?
+    gpu_columns = [col for col in stat_columns if col.startswith("gpu")]
+    cpu_system_stats_columns = list(set(stat_columns) - set(gpu_columns))
+
+    assert df["allocated.gres_gpu"].notnull().all()
+
+    # Create some masks
+    has_gpu = df["allocated.gres_gpu"] > 0
+    is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis=1)
+    is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis=1)
+
+    logger.debug(f"{has_gpu.mean()=}")
+    logger.debug(f"{is_missing_gpu_stats.mean()=}")
+    logger.debug(f"{is_missing_system_stats.mean()=}")
+
+    for cluster in clusters:
+        is_in_cluster = df["cluster_name"] == cluster
+        cluster_mean_stats = {
+            col: df[is_in_cluster, col].dropna().mean() for col in stat_columns
+        }
+        # Use the cluster average if possible, otherwise use the average across all clusters.
+        stats_to_use = {
+            col: np.where(
+                np.isnan(cluster_mean), across_cluster_means[col], cluster_mean
+            )
+            for col, cluster_mean in cluster_mean_stats.items()
+        }
+        logger.info(
+            f"Stats to be used when infilling missing values for {cluster}: {stats_to_use}"
+        )
+
+        df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = stats_to_use[
+            gpu_columns
+        ]
+        df.loc[
+            is_in_cluster & is_missing_system_stats, cpu_system_stats_columns
+        ] = stats_to_use[cpu_system_stats_columns]
+    return df
 
 
 def fix_lost_jobs(df: pd.DataFrame):
