@@ -4,7 +4,6 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas
@@ -14,9 +13,6 @@ from prometheus_api_client import MetricRangeDataFrame
 from sarc.client.job import JobStatistics, SlurmJob, Statistics
 from sarc.config import MTL, UTC, ClusterConfig, config
 from sarc.traces import trace_decorator
-
-if TYPE_CHECKING:
-    pass
 
 
 # pylint: disable=too-many-branches

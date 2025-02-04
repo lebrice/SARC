@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Callable
+from typing import Callable, Literal
 
 import numpy as np
 import pandas
@@ -297,7 +297,7 @@ def compute_cost_and_waste(full_df: pandas.DataFrame) -> pandas.DataFrame:
     return full_df
 
 
-def _compute_cost_and_wastes(data, device):
+def _compute_cost_and_wastes(data: pandas.DataFrame, device: Literal["cpu", "gpu"]):
     device_col = {"cpu": "cpu", "gpu": "gres_gpu"}[device]
 
     data[f"{device}_cost"] = data["elapsed_time"] * data[f"requested.{device_col}"]

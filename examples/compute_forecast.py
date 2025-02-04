@@ -10,9 +10,9 @@ from typing import Callable
 import pandas as pd
 
 from sarc.client.series import compute_cost_and_waste, load_job_series
-from sarc.config import MTL, config
+from sarc.config import MTL, ClusterConfig
 from sarc.jobs.series import (
-    update_job_series_rgu,
+    update_cluster_job_series_rgu,
 )
 
 pd.options.display.max_colwidth = 300
@@ -302,7 +302,8 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
         # NOTE: We assume uniformity of gpu types on all nodes
 
         nodes = df[non_mapped_gpu_types_mask]["nodes"].str[0]
-        mapping = {node: node_to_gpu[node] for node in nodes.unique()}
+        # note: some nodes don't have GPUs, so we have 'allocated.gpu_type' set to `None` in that case.
+        mapping = {node: node_to_gpu.get(node) for node in nodes.unique()}
         df.loc[non_mapped_gpu_types_mask, "allocated.gpu_type"] = nodes.map(mapping)
 
     missing_gpu_types_mask = (
@@ -339,9 +340,18 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
     return df
 
 
-def fix_rgu_discrepencies(df):
+def fix_rgu_discrepencies(df: pd.DataFrame):
     # NOTE: Fixing switch to RGU billing for a second time on Narval
-    narval_config = config().clusters["narval"]
+    config_path = Path(
+        os.getenv("SARC_CONFIG", Path(__file__).parent.parent / "config/sarc-dev.json")
+    )
+    cluster_configs = {
+        k: ClusterConfig.validate(v)
+        for k, v in json.loads(config_path.read_text())["clusters"].items()
+    }
+    narval_config = cluster_configs["narval"]
+    # narval_config = config().clusters["narval"]
+
     # with open(narval_config.gpu_to_rgu_billing, "r", encoding="utf-8") as file:
     #     narval_rgu = json.load(file)
 
@@ -356,7 +366,10 @@ def fix_rgu_discrepencies(df):
     )
     non_updated_df = df[slice_during_rgu_time]
 
-    df = update_job_series_rgu(df)
+    # NOTE: Hacky fix, because we don't use the sarc-dev config.
+    # df = update_job_series_rgu(df)
+    for cluster_config in cluster_configs.values():
+        update_cluster_job_series_rgu(df, cluster_config)
 
     gpu_to_rgu_billing = {
         "a100-40gb": 700,
@@ -400,8 +413,8 @@ def fix_rgu_discrepencies(df):
     return df
 
 
-def validate_data(stats, start, end):
-    pd.set_option("display.float_format", lambda x: "%.3f" % x)
+def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
+    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
     stats["cpu_billed"] = stats["elapsed_time"] * stats["allocated.cpu"]
     stats["gpu_billed"] = stats["elapsed_time"] * stats["allocated.gres_gpu"]
 
@@ -438,7 +451,7 @@ def validate_data(stats, start, end):
 
     gpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])["gpu_cost"].sum()
     print("GPU usage per months")
-    breakpoint()
+    # breakpoint()
     print(
         (gpu_cost_per_month / (365 * 24 * 60 * 60))
         .reset_index()
