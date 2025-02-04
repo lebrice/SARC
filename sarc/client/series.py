@@ -115,6 +115,7 @@ def load_job_series(
             job_series = DUMMY_STATS.copy()
         else:
             job_series = job.stored_statistics.dict()
+            # TODO: Bug? Selects the median for utilization instead of the mean?
             job_series = {k: _select_stat(k, v) for k, v in job_series.items()}
 
             # Replace `gpu_utilization > 1` with nan.
@@ -266,7 +267,11 @@ class UserFlattener:
         return user_dict
 
 
-def _select_stat(name, dist):
+def _select_stat(
+    name: str,
+    dist: dict[str, float | int] | None,
+):
+    # BUG? Why are we selecting the median for utilization instead of the mean?
     if not dist:
         return np.nan
 
