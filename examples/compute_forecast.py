@@ -138,7 +138,7 @@ class Options:
     )
     """ End date. """
 
-    users: list[str] = dataclasses.field(default_factory=list)
+    user: list[str] = dataclasses.field(default_factory=list)
     """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
     users_file: Path | None = None
@@ -156,9 +156,9 @@ class Options:
 
     def get_users(self) -> list[str]:
         if self.users_file:
-            assert not self.users, "can't use both user_file and users!"
+            assert not self.user, "can't use both user_file and users!"
             return self.users_file.read_text().splitlines(keepends=False)
-        return self.users
+        return self.user
 
     def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
         users = self.get_users()
@@ -212,13 +212,13 @@ def main():
         df = pd.read_pickle(cache_file)
         assert isinstance(df, pd.DataFrame)
     elif (
-        options.users
+        options.user
         and (
-            all_users_cache_file := dataclasses.replace(options, users=[]).unique_path()
+            all_users_cache_file := dataclasses.replace(options, user=[]).unique_path()
         ).exists()
     ):
         logger.info(
-            f"Reusing and filtering previous data for all users at {cache_file}."
+            f"Reusing and filtering previous data for all users at {all_users_cache_file}."
         )
         df = pd.read_pickle(all_users_cache_file)
         assert isinstance(df, pd.DataFrame)
@@ -362,8 +362,8 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
         node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
         non_mapped_gpu_types_mask = (
             (df["cluster_name"] == cluster_name)
-            & (df["allocated.gpu_type"].isnull())
             & (df["elapsed_time"] > 0)
+            & df["allocated.gpu_type"].isnull()
         )
         # NOTE: We assume uniformity of gpu types on all nodes
 
