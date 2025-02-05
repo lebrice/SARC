@@ -673,8 +673,6 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     print(merged_cpu.to_markdown())
     print("```")
 
-    merged_cpu.to_csv("cpu_comparison.csv")
-
     merged_gpu = (
         ccdb_usage_gpu.rename(columns={"usage": "CCDB"}, level=0)
         .merge(
@@ -696,7 +694,8 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     print(merged_gpu.to_markdown())
     print("```")
 
-    merged_gpu.to_csv("gpu_comparison.csv")
+    # merged_cpu.to_csv("cpu_comparison.csv")
+    # merged_gpu.to_csv("gpu_comparison.csv")
 
     return
 
