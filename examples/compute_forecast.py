@@ -7,13 +7,14 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
 import rich
 import rich.logging
 import simple_parsing
+import yaml
 
 from sarc.client.job import JobStatistics
 from sarc.client.series import (
@@ -244,12 +245,12 @@ def main():
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
-    # start = options.start.astimezone(MTL)
-    # end = options.end.astimezone(MTL)
+
+    validate_gpu_ram()
+    df.fillna({"requested.gres_gpu": 0}, inplace=True)
     df = fix_lost_jobs(df)
     df = fix_unaligned_cache(df, options.start, options.end)
     df = remove_old_nodes(df)
-
     replace_outlier_stats_with_na(df)
 
     # Clusters we want to compare
@@ -258,7 +259,6 @@ def main():
     # Filter clusters
     df = df[df["cluster_name"].isin(clusters)]
 
-    validate_gpu_ram()
     df = fix_missing_gpu_type(df, clusters)
 
     df = fix_rgu_discrepencies(df)
@@ -269,29 +269,31 @@ def main():
 
     # Filter out non-started jobs
     df = df[df["start_time"] != 0]
-
-    df.fillna({"requested.gres_gpu": 0}, inplace=True)
+    assert (
+        df["requested.gres_gpu"].notnull().all()
+        and (df["requested.gres_gpu"] >= 0).all()
+    )
 
     print("Validate these values compared to DRAC ccdb stats.")
     validate_data(df, options.start, options.end)
 
-    print("Multi-GPU jobs")
-    print(">1")
-    print(
-        df[df["requested.gres_gpu"] > 1].groupby("cluster_name")["gpu_cost"].sum()
-        / df.groupby("cluster_name")["gpu_cost"].sum()
-    )
-    print(">3")
-    print(
-        df[df["requested.gres_gpu"] > 3].groupby("cluster_name")["gpu_cost"].sum()
-        / df.groupby("cluster_name")["gpu_cost"].sum()
-    )
-    print("Multi-node jobs")
-    print(
-        df[df["nodes"].str.len() > 1].groupby("cluster_name")["gpu_cost"].sum()
-        / df.groupby("cluster_name")["gpu_cost"].sum()
-    )
-    print()
+    # print("Multi-GPU jobs")
+    # print(">1")
+    # print(
+    #     df[df["requested.gres_gpu"] > 1].groupby("cluster_name")["gpu_cost"].sum()
+    #     / df.groupby("cluster_name")["gpu_cost"].sum()
+    # )
+    # print(">3")
+    # print(
+    #     df[df["requested.gres_gpu"] > 3].groupby("cluster_name")["gpu_cost"].sum()
+    #     / df.groupby("cluster_name")["gpu_cost"].sum()
+    # )
+    # print("Multi-node jobs")
+    # print(
+    #     df[df["nodes"].str.len() > 1].groupby("cluster_name")["gpu_cost"].sum()
+    #     / df.groupby("cluster_name")["gpu_cost"].sum()
+    # )
+    # print()
 
 
 def replace_outlier_stats_with_na(df: pd.DataFrame):
@@ -316,7 +318,9 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     # assert no_na.shape[0] > 0
 
     across_cluster_means = {col: df[col].dropna().mean() for col in stat_columns}
-    logger.debug(f"Mean of stats across all clusters: {across_cluster_means}")
+    logger.debug(
+        f"Mean of stats across all clusters: {get_stats_str(across_cluster_means)}"
+    )
 
     # todo: cpu_utilization and system_memory should be there for all jobs, right?
     gpu_columns = [col for col in stat_columns if col.startswith("gpu")]
@@ -329,9 +333,9 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis=1)
     is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis=1)
 
-    logger.debug(f"{has_gpu.mean()=}")
-    logger.debug(f"{is_missing_gpu_stats.mean()=}")
-    logger.debug(f"{is_missing_system_stats.mean()=}")
+    logger.debug(f"{has_gpu.mean()=:.2%}")
+    logger.debug(f"{is_missing_gpu_stats.mean()=:.2%}")
+    logger.debug(f"{is_missing_system_stats.mean()=:.2%}")
 
     for cluster in clusters:
         is_in_cluster = df["cluster_name"] == cluster
@@ -339,14 +343,23 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
             col: df[is_in_cluster][col].dropna().mean() for col in stat_columns
         }
         # Use the cluster average if possible, otherwise use the average across all clusters.
+        missing_stats = [k for k, v in cluster_mean_stats.items() if np.isnan(v)]
+        if missing_stats:
+            logger.warning(
+                f"Missing stats for {cluster=}: {missing_stats}. "
+                f"Will use the average of available stats across clusters."
+            )
         stats_to_use = {
-            col: np.where(
-                np.isnan(cluster_mean), across_cluster_means[col], cluster_mean
+            col: (
+                cluster_mean
+                if not np.isnan(cluster_mean)
+                else across_cluster_means[col]
             )
             for col, cluster_mean in cluster_mean_stats.items()
         }
+        stats_str = get_stats_str(stats_to_use)
         logger.info(
-            f"Stats to be used when infilling missing values for {cluster}: {stats_to_use}"
+            f"Stats to be used when infilling missing values for {cluster}: {stats_str}"
         )
         df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
             stats_to_use[col] for col in gpu_columns
@@ -355,6 +368,13 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
             stats_to_use[col] for col in cpu_system_stats_columns
         ]
     return df
+
+
+def get_stats_str(stats_to_use: dict[str, np.ndarray | float]):
+    return {
+        k: (f"{v:.1f}" if k == "gpu_power" else f"{v:.2%}")
+        for k, v in stats_to_use.items()
+    }
 
 
 def fix_lost_jobs(df: pd.DataFrame):
@@ -543,11 +563,16 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
 
 
 def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
+    seconds_in_a_year = timedelta(days=365.242374).total_seconds()
+
     pd.set_option("display.float_format", lambda x: f"{x:.3f}")
+
     stats["cpu_billed"] = stats["elapsed_time"] * stats["allocated.cpu"]
     stats["gpu_billed"] = stats["elapsed_time"] * stats["allocated.gres_gpu"]
 
-    max_delta = timedelta(seconds=(end - start).total_seconds())
+    max_delta = end - start  # timedelta(seconds=(end - start).total_seconds())
+    max_delta_seconds = max_delta.total_seconds()
+
     if max_delta > timedelta(days=30):
         frame_size = "MS"
     else:
@@ -560,71 +585,86 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
         end,
         frame_size=frame_size,
     )
+
+    print("CPU usage per month")
     cpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
         "cpu_equivalent_cost"
     ].sum()
-    print("CPU usage per months")
-    print(
-        (cpu_cost_per_month / (end - start).total_seconds())
+
+    cpu_years_per_month = (
+        # todo: why is it divided by the max delta seconds? Is the max delta assumed to be a year?
+        # (cpu_cost_per_month / max_delta_seconds)
+        (cpu_cost_per_month / seconds_in_a_year)
         .reset_index()
         .pivot(index="timestamp", columns="cluster_name")
     )
-    print(
-        (cpu_cost_per_month / (end - start).total_seconds())
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")[6:]
-        .sum()
-        / 6.0
-        * 12
-    )
+    print(cpu_years_per_month)
+    # print(
+    #     # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
+    #     cpu_years_per_month[6:].sum() / 6.0 * 12
+    # )
 
+    print("GPU usage per month")
     gpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])["gpu_cost"].sum()
-    print("GPU usage per months")
-    # breakpoint()
-    print(
-        (gpu_cost_per_month / (365 * 24 * 60 * 60))
+    gpu_years_per_month = (
+        (gpu_cost_per_month / seconds_in_a_year)
         .reset_index()
         .pivot(index="timestamp", columns="cluster_name")
     )
-    print(
-        (gpu_cost_per_month / (365 * 24 * 60 * 60))
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")[6:]
-        .sum()
-    )
+    print(gpu_years_per_month)
+    # TODO: why this [6:].sum()
+    # print("Sum of usage after the first six months (?)")
+    # print(gpu_years_per_month[6:].sum())
 
-    gpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
+    ccdb_usage_cpu, ccdb_usage_gpu = get_ccdb_usage_data()
+
+    print("CPU usage data from CCDB website:")
+    print(ccdb_usage_cpu)
+
+    print("GPU usage data from CCDB website:")
+    print(ccdb_usage_gpu)
+
+    # todo: trying to merge stuff. Isn't quite working.
+    # ccdb_usage_cpu.columns = ccdb_usage_cpu.columns.rename(["cost", "cluster_name"])
+    # ccdb_usage_gpu.columns = ccdb_usage_gpu.columns.rename(["cost", "cluster_name"])
+    # cpu_years_per_month.columns = cpu_years_per_month.columns.rename(
+    #     ["cost", "cluster_name"]
+    # )
+    # gpu_years_per_month.columns = gpu_years_per_month.columns.rename(
+    #     ["cost", "cluster_name"]
+    # )
+    # TODO: Try to merge both with pd.merge!
+    # merged = pd.merge(ccdb_usage_cpu, cpu_years_per_month, suffixes=("_ccdb", "_sarc"))
+    # print(merged)
+
+    print("GPU equivalent usage per months")
+    gpu_equiv_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
         "gpu_equivalent_cost"
     ].sum()
-    print("GPU equivalent usage per months")
-    print(
-        (gpu_cost_per_month / (365 * 24 * 60 * 60))
+    gpu_year_equivalent_cost_per_month = (
+        (gpu_equiv_cost_per_month / seconds_in_a_year)
         .reset_index()
         .pivot(index="timestamp", columns="cluster_name")
     )
-    print(
-        (gpu_cost_per_month / (365 * 24 * 60 * 60))
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")[6:]
-        .sum()
-    )
+    print(gpu_year_equivalent_cost_per_month)
+    # print(gpu_year_equivalent_cost_per_month[6:].sum())
 
     # print(stats[(stats['start_time'] > datetime(2024, 4, 1)) & (stats['cluster_name'] == 'cedar') & ~stats['gpu_cost'].isnull()].sort_values('gpu_overbilling_cost')[['requested.cpu', 'requested.mem', 'requested.gres_gpu', 'gpu_overbilling_cost', 'user', 'allocated.gres_gpu', 'allocated.node', 'job_id', 'allocated.gpu_type', 'nodes']][-100:])
 
+    print("RGU equivalent usage per months")
     stats["rgu_equivalent_cost"] = (
         stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
     )
     rgu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
         "rgu_equivalent_cost"
     ].sum()
-    print("RGU equivalent usage per months")
     print(
-        (rgu_cost_per_month / (365 * 24 * 60 * 60))
+        (rgu_cost_per_month / seconds_in_a_year)
         .reset_index()
         .pivot(index="timestamp", columns="cluster_name")
     )
     print(
-        (rgu_cost_per_month / (365 * 24 * 60 * 60))
+        (rgu_cost_per_month / seconds_in_a_year)
         .reset_index()
         .pivot(index="timestamp", columns="cluster_name")[6:]
         .sum()
@@ -710,13 +750,12 @@ def compute_time_frames(
             jobs[time_column].dt.tz_localize(None).astype("datetime64[ns]")
         )
 
-    timestamps = pd.date_range(start, end, freq=frame_size, inclusive="both")
+    timestamps = pd.date_range(
+        start, end, freq=frame_size, inclusive="both"
+    ).tz_localize(None)
     # for frame_start in pd.date_range(start, end, freq=f"MS"):
     for frame_start, frame_end in zip(timestamps, timestamps[1:]):
-        frame_start = frame_start.tz_localize(None)
-        frame_end = frame_end.tz_localize(None)
-
-        mask = (jobs[start_column] < frame_end) * (jobs[end_column] > frame_start)
+        mask = (jobs[start_column] < frame_end) & (jobs[end_column] > frame_start)
         frame = jobs[mask].copy()
         total_elapsed_times_in_frame = total_elapsed_times[mask]
         frame["elapsed_time"] = (
@@ -736,6 +775,63 @@ def compute_time_frames(
         data_frames.append(frame)
 
     return pd.concat(data_frames, axis=0)
+
+
+AllocationName = str
+ClusterName = str
+
+
+def get_ccdb_usage_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns the CPU and GPU usage data from the CCDB website."""
+    ccdb_data_file = Path(__file__).parent / "ccdb_data.yaml"
+    ccdb_compute_usage: dict[
+        AllocationName, dict[Literal["cpu", "gpu"], dict[str, float]]
+    ] = yaml.safe_load(ccdb_data_file.read_text())
+    month_str_to_month_index = {
+        "January": 1,
+        "February": 2,
+        "March": 3,
+        "April": 4,
+        "May": 5,
+        "June": 6,
+        "July": 7,
+        "August": 8,
+        "September": 9,
+        "October": 10,
+        "November": 11,
+        "December": 12,
+    }
+    data: dict[tuple[datetime, ClusterName, Literal["cpu", "gpu"]], float] = {}
+    for allocation, usage_dict in ccdb_compute_usage.items():
+        assert "_" in allocation
+        cluster, _, _type = allocation.partition("_")
+        for usage_type, usage_data in usage_dict.items():
+            for month_str, usage in usage_data.items():
+                month, year = month_str.split(" ")
+                month = month_str_to_month_index[month]
+                date = datetime(year=int(year), month=month, day=1)
+                if (date, cluster, usage_type) not in data:
+                    data[(date, cluster, usage_type)] = usage
+                else:
+                    data[(date, cluster, usage_type)] += usage
+    index = pd.MultiIndex.from_tuples(
+        data.keys(), names=["date", "cluster_name", "type"]
+    )
+    df = pd.DataFrame(list(data.values()), index=index, columns=["usage"])
+    df = df.reorder_levels(["type", "cluster_name", "date"]).sort_index()
+
+    def pivot_ccdb_data(ccdb_data: pd.DataFrame, type: Literal["cpu", "gpu"]):
+        df = (
+            ccdb_data.xs(type, level="type")
+            .groupby(["cluster_name", "date"])
+            .sum()
+            .unstack(level="cluster_name")
+            .fillna(0)
+        )
+        assert isinstance(df, pd.DataFrame)
+        return df
+
+    return pivot_ccdb_data(df, "cpu"), pivot_ccdb_data(df, "gpu")
 
 
 if __name__ == "__main__":
