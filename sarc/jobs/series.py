@@ -377,28 +377,30 @@ def update_cluster_job_series_rgu(
     )
 
     # We can already set column allocated.gpu_type_rgu anyway.
+    # Avoids the FutureWarning setting an item of incompatible dtype.
     df.loc[slice_before_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu[
         slice_before_rgu_time
-    ]
+    ].astype(float)
+
     df.loc[slice_after_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu[
         slice_after_rgu_time
-    ]
+    ].astype(float)
 
     # Compute allocated.gres_rgu where job started before RGU time.
     df.loc[slice_before_rgu_time, "allocated.gres_rgu"] = (
         df["allocated.gres_gpu"][slice_before_rgu_time]
         * col_ratio_rgu_by_gpu[slice_before_rgu_time]
-    )
+    ).astype(float)
 
     # Set allocated.gres_rgu with previous allocated.gres_gpu where job started after RGU time.
     df.loc[slice_after_rgu_time, "allocated.gres_rgu"] = df["allocated.gres_gpu"][
         slice_after_rgu_time
-    ]
+    ].astype(float)
     # Then update allocated.gres_gpu where job started after RGU time.
     df.loc[slice_after_rgu_time, "allocated.gres_gpu"] = (
         df["allocated.gres_gpu"][slice_after_rgu_time]
         / col_ratio_rgu_by_gpu[slice_after_rgu_time]
-    )
+    ).astype(float)
 
     return df
 
