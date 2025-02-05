@@ -355,6 +355,8 @@ def update_cluster_job_series_rgu(
     with open(cluster_config.gpu_to_rgu_billing, "r", encoding="utf-8") as file:
         gpu_to_rgu_billing = json.load(file)
         assert isinstance(gpu_to_rgu_billing, dict)
+        if "mappings" in gpu_to_rgu_billing:
+            gpu_to_rgu_billing = gpu_to_rgu_billing["mappings"]
     if not gpu_to_rgu_billing:
         logging.warning(
             f"RGU update: no RGU/GPU available for cluster {cluster_config.name}"
