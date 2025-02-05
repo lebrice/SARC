@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import dataclasses
 import json
 import logging
@@ -192,6 +190,7 @@ def _setup_logging(verbose: int):
         format="%(message)s",
         level=logging.ERROR,
     )
+    logging.getLogger("sarc").setLevel(logging.WARNING)
 
     if verbose == 0:
         logger.setLevel("WARNING")
@@ -296,6 +295,9 @@ def main():
     # print()
 
 
+# TODO: Fix RGU stuff by adding the json files in secrets
+
+
 def replace_outlier_stats_with_na(df: pd.DataFrame):
     """`load_job_series` only removes the H100 outliers for gpu_utilization.
 
@@ -346,21 +348,25 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
         missing_stats = [k for k, v in cluster_mean_stats.items() if np.isnan(v)]
         if missing_stats:
             logger.warning(
-                f"Missing stats for {cluster=}: {missing_stats}. "
-                f"Will use the average of available stats across clusters."
+                f"Missing stats for {cluster=}: {missing_stats}.\n"
+                f"The average of available stats across other clusters will be used."
             )
         stats_to_use = {
             col: (
                 cluster_mean
                 if not np.isnan(cluster_mean)
                 else across_cluster_means[col]
+                # todo: else use across-users mean.
             )
             for col, cluster_mean in cluster_mean_stats.items()
         }
-        stats_str = get_stats_str(stats_to_use)
-        logger.info(
-            f"Stats to be used when infilling missing values for {cluster}: {stats_str}"
+        missing_stats_str = get_stats_str(
+            {k: v for k, v in stats_to_use.items() if k in missing_stats}
         )
+        if missing_stats:
+            logger.info(
+                f"Stats to be used when infilling missing values for {cluster}: {missing_stats_str}"
+            )
         df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
             stats_to_use[col] for col in gpu_columns
         ]
@@ -378,11 +384,10 @@ def get_stats_str(stats_to_use: dict[str, np.ndarray | float]):
 
 
 def fix_lost_jobs(df: pd.DataFrame):
-    lost_jobs = df["elapsed_time"] > (28 * 24 * 60 * 60)
-    df.loc[lost_jobs, "elapsed_time"] = 28 * 24 * 60 * 60
-    df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + timedelta(
-        seconds=28 * 24 * 60 * 60
-    )
+    _28_days = timedelta(days=28)
+    lost_jobs = df["elapsed_time"] > _28_days.total_seconds()
+    df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
+    df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + _28_days
     return df
 
 
@@ -517,6 +522,9 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
 
     # NOTE: Hacky fix, because we don't use the sarc-dev config.
     # df = update_job_series_rgu(df)
+    # for cluster_config in config().clusters.values():
+    #     update_cluster_job_series_rgu(df, cluster_config)
+    # return df
     for cluster_config in cluster_configs.values():
         update_cluster_job_series_rgu(df, cluster_config)
 
@@ -571,7 +579,6 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     stats["gpu_billed"] = stats["elapsed_time"] * stats["allocated.gres_gpu"]
 
     max_delta = end - start  # timedelta(seconds=(end - start).total_seconds())
-    max_delta_seconds = max_delta.total_seconds()
 
     if max_delta > timedelta(days=30):
         frame_size = "MS"
@@ -586,91 +593,110 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
         frame_size=frame_size,
     )
 
-    print("CPU usage per month")
-    cpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
-        "cpu_equivalent_cost"
-    ].sum()
+    def _get_cost_per_month_per_year_unclear(name: str):
+        # todo: pretty unclear what exactly this is calculating.
+        # Need to clarify again a bit with Xavier.
 
-    cpu_years_per_month = (
-        # todo: why is it divided by the max delta seconds? Is the max delta assumed to be a year?
-        # (cpu_cost_per_month / max_delta_seconds)
-        (cpu_cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")
+        # cost per month :=
+        cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
+        return (
+            (cost_per_month / seconds_in_a_year)
+            .reset_index()
+            .pivot(index="timestamp", columns="cluster_name")
+        )
+
+    print("CPU equivalent usage per month")
+    print(
+        cpu_years_per_month := _get_cost_per_month_per_year_unclear(
+            "cpu_equivalent_cost"
+        )
     )
-    print(cpu_years_per_month)
     # print(
     #     # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
     #     cpu_years_per_month[6:].sum() / 6.0 * 12
     # )
 
+    # gpu cost per month := GPU reserved (full-time) for a month.
+    gpu_years_per_month = _get_cost_per_month_per_year_unclear("gpu_cost")
     print("GPU usage per month")
-    gpu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])["gpu_cost"].sum()
-    gpu_years_per_month = (
-        (gpu_cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")
-    )
     print(gpu_years_per_month)
-    # TODO: why this [6:].sum()
-    # print("Sum of usage after the first six months (?)")
-    # print(gpu_years_per_month[6:].sum())
+    # print(gpu_years_per_month[6:].sum())  # TODO: why this [6:].sum()
+
+    gpu_year_equivalent_cost_per_month = _get_cost_per_month_per_year_unclear(
+        "gpu_equivalent_cost"
+    )
+    print("GPU equivalent usage per months")
+    print(gpu_year_equivalent_cost_per_month)
+    # print(gpu_year_equivalent_cost_per_month[6:].sum())
+
+    stats["rgu_equivalent_cost"] = (
+        stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
+    )
+    rgu_years_per_month = _get_cost_per_month_per_year_unclear("rgu_equivalent_cost")
+    print("RGU equivalent usage per months")
+    print(rgu_years_per_month)
+    # print(rgu_years_per_month[6:].sum() / 6.0 * 12)
 
     ccdb_usage_cpu, ccdb_usage_gpu = get_ccdb_usage_data()
 
     print("CPU usage data from CCDB website:")
     print(ccdb_usage_cpu)
 
-    print("GPU usage data from CCDB website:")
-    print(ccdb_usage_gpu)
+    _index = "timestamp"
+    ccdb_usage_cpu.index.name = _index
+    ccdb_usage_gpu.index.name = _index
 
-    # todo: trying to merge stuff. Isn't quite working.
-    # ccdb_usage_cpu.columns = ccdb_usage_cpu.columns.rename(["cost", "cluster_name"])
-    # ccdb_usage_gpu.columns = ccdb_usage_gpu.columns.rename(["cost", "cluster_name"])
-    # cpu_years_per_month.columns = cpu_years_per_month.columns.rename(
-    #     ["cost", "cluster_name"]
-    # )
-    # gpu_years_per_month.columns = gpu_years_per_month.columns.rename(
-    #     ["cost", "cluster_name"]
-    # )
-    # TODO: Try to merge both with pd.merge!
-    # merged = pd.merge(ccdb_usage_cpu, cpu_years_per_month, suffixes=("_ccdb", "_sarc"))
-    # print(merged)
+    def _sort_columns(df: pd.DataFrame):
+        df.columns = pd.MultiIndex.from_tuples(
+            sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns),
+            names=["cluster_name", "source"],
+        )
 
-    print("GPU equivalent usage per months")
-    gpu_equiv_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
-        "gpu_equivalent_cost"
-    ].sum()
-    gpu_year_equivalent_cost_per_month = (
-        (gpu_equiv_cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")
+    merged_cpu = (
+        ccdb_usage_cpu.rename(columns={"usage": "CCDB"}, level=0)
+        # Merging with the "cpu_cost" doesn't seem to make sense. There may be a bug, the values are higher than expected.
+        .merge(
+            _get_cost_per_month_per_year_unclear("cpu_cost"),
+            on=_index,
+            how="outer",
+        )
+        .merge(
+            _get_cost_per_month_per_year_unclear("cpu_equivalent_cost"),
+            on=_index,
+            how="outer",
+        )
     )
-    print(gpu_year_equivalent_cost_per_month)
-    # print(gpu_year_equivalent_cost_per_month[6:].sum())
+    _sort_columns(merged_cpu)
 
-    # print(stats[(stats['start_time'] > datetime(2024, 4, 1)) & (stats['cluster_name'] == 'cedar') & ~stats['gpu_cost'].isnull()].sort_values('gpu_overbilling_cost')[['requested.cpu', 'requested.mem', 'requested.gres_gpu', 'gpu_overbilling_cost', 'user', 'allocated.gres_gpu', 'allocated.node', 'job_id', 'allocated.gpu_type', 'nodes']][-100:])
+    print("CCDB vs SARC (CPU):")
+    print("```")
+    print(merged_cpu.to_markdown())
+    print("```")
 
-    print("RGU equivalent usage per months")
-    stats["rgu_equivalent_cost"] = (
-        stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
+    merged_cpu.to_csv("cpu_comparison.csv")
+
+    merged_gpu = (
+        ccdb_usage_gpu.rename(columns={"usage": "CCDB"}, level=0)
+        .merge(
+            _get_cost_per_month_per_year_unclear("gpu_cost"),
+            on=_index,
+            how="outer",
+        )
+        # Merging with the "gpu_equivalent_cost" doesn't seem to make sense. There may be a bug.
+        .merge(
+            _get_cost_per_month_per_year_unclear("gpu_equivalent_cost"),
+            on=_index,
+            how="outer",
+        )
     )
-    rgu_cost_per_month = stats.groupby(["cluster_name", "timestamp"])[
-        "rgu_equivalent_cost"
-    ].sum()
-    print(
-        (rgu_cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")
-    )
-    print(
-        (rgu_cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")[6:]
-        .sum()
-        / 6.0
-        * 12
-    )
+    _sort_columns(merged_gpu)
+
+    print("CCDB vs SARC (GPU):")
+    print("```")
+    print(merged_gpu.to_markdown())
+    print("```")
+
+    merged_gpu.to_csv("gpu_comparison.csv")
 
     return
 
