@@ -250,6 +250,8 @@ def main():
     df = fix_unaligned_cache(df, options.start, options.end)
     df = remove_old_nodes(df)
 
+    replace_outlier_stats_with_na(df)
+
     # Clusters we want to compare
     clusters = ["mila", "narval", "beluga", "cedar", "graham"]
 
@@ -292,6 +294,20 @@ def main():
     print()
 
 
+def replace_outlier_stats_with_na(df: pd.DataFrame):
+    """`load_job_series` only removes the H100 outliers for gpu_utilization.
+
+    Here we do the rest.
+    """
+    # Shouldn't really be necessary.
+    df.loc[df["gpu_utilization"] > 1, "gpu_utilization"] = pd.NA
+    for bits in [16, 32, 64]:
+        df.loc[df[f"gpu_utilization_fp{bits}"] > 1, f"gpu_utilization_fp{bits}"] = pd.NA
+    df.loc[df["gpu_memory"] > 1, "gpu_memory"] = pd.NA
+    df.loc[df["gpu_sm_occupancy"] > 1, "gpu_sm_occupancy"] = pd.NA
+    df.loc[df["gpu_power"] > 10e10, "gpu_power"] = pd.NA
+
+
 def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     """TODO: Fill in missing JobStatistics metrics using average of available data."""
     stat_columns = list(JobStatistics.__fields__.keys())
@@ -320,7 +336,7 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     for cluster in clusters:
         is_in_cluster = df["cluster_name"] == cluster
         cluster_mean_stats = {
-            col: df[is_in_cluster, col].dropna().mean() for col in stat_columns
+            col: df[is_in_cluster][col].dropna().mean() for col in stat_columns
         }
         # Use the cluster average if possible, otherwise use the average across all clusters.
         stats_to_use = {
@@ -332,13 +348,12 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
         logger.info(
             f"Stats to be used when infilling missing values for {cluster}: {stats_to_use}"
         )
-
-        df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = stats_to_use[
-            gpu_columns
+        df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
+            stats_to_use[col] for col in gpu_columns
         ]
-        df.loc[
-            is_in_cluster & is_missing_system_stats, cpu_system_stats_columns
-        ] = stats_to_use[cpu_system_stats_columns]
+        df.loc[is_in_cluster & is_missing_system_stats, cpu_system_stats_columns] = [
+            stats_to_use[col] for col in cpu_system_stats_columns
+        ]
     return df
 
 
