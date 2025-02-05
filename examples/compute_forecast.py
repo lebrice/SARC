@@ -246,7 +246,7 @@ def main():
         df[time_column] = df[time_column].dt.tz_convert(MTL)
 
     validate_gpu_ram()
-    df.fillna({"requested.gres_gpu": 0}, inplace=True)
+    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
     df = fix_lost_jobs(df)
     df = fix_unaligned_cache(df, options.start, options.end)
     df = remove_old_nodes(df)
@@ -328,6 +328,7 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     gpu_columns = [col for col in stat_columns if col.startswith("gpu")]
     cpu_system_stats_columns = list(set(stat_columns) - set(gpu_columns))
 
+    # todo: why does the previous step create NANs again in the allocated.gres_gpu?
     assert df["allocated.gres_gpu"].notnull().all()
 
     # Create some masks
@@ -567,6 +568,9 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
 
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(rgus)
 
+    # todo: why are there NANs again in the allocated.gres_gpu?
+    assert df["allocated.gres_gpu"].notnull().all()
+    assert df["requested.gres_gpu"].notnull().all()
     return df
 
 
