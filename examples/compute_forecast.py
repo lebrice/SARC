@@ -5,7 +5,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
 import numpy as np
 import pandas as pd
@@ -98,7 +98,7 @@ gpu_ram = {
     "l40s": 48,
 }
 
-rgus = {
+RGUS = {
     "p100-12gb": 1,
     "p100-16gb": 1.1,
     "t4-16gb": 1.3,
@@ -257,10 +257,13 @@ def main():
 
     # Filter clusters
     df = df[df["cluster_name"].isin(clusters)]
+    assert isinstance(df, pd.DataFrame)
 
     df = fix_missing_gpu_type(df, clusters)
 
     df = fix_rgu_discrepencies(df)
+
+    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
     df = fill_missing_metrics_using_means(df, clusters)
 
@@ -274,7 +277,27 @@ def main():
     )
 
     print("Validate these values compared to DRAC ccdb stats.")
-    validate_data(df, options.start, options.end)
+    merged_cpu, merged_gpu = validate_data(df, options.start, options.end)
+
+    merged_cpu = merged_cpu[
+        sorted(
+            merged_cpu.reorder_levels(["cluster_name", None], axis="columns").columns
+        )
+    ]
+    merged_gpu = merged_gpu[
+        sorted(
+            merged_gpu.reorder_levels(["cluster_name", None], axis="columns").columns
+        )
+    ]
+    print("CCDB vs SARC (CPU):")
+    print("```")
+    print(merged_cpu.to_markdown())
+    print("```")
+
+    print("CCDB vs SARC (GPU):")
+    print("```")
+    print(merged_gpu.to_markdown())
+    print("```")
 
     # print("Multi-GPU jobs")
     # print(">1")
@@ -333,8 +356,8 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
 
     # Create some masks
     has_gpu = df["allocated.gres_gpu"] > 0
-    is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis=1)
-    is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis=1)
+    is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis="columns")
+    is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis="columns")
 
     logger.debug(f"{has_gpu.mean()=:.2%}")
     logger.debug(f"{is_missing_gpu_stats.mean()=:.2%}")
@@ -377,7 +400,7 @@ def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
     return df
 
 
-def get_stats_str(stats_to_use: dict[str, np.ndarray | float]):
+def get_stats_str(stats_to_use: Mapping[str, np.ndarray | float]):
     return {
         k: (f"{v:.1f}" if k == "gpu_power" else f"{v:.2%}")
         for k, v in stats_to_use.items()
@@ -510,6 +533,9 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
 
+    assert df["allocated.gres_gpu"].notnull().all()
+    assert df["requested.gres_gpu"].notnull().all()
+
     slice_during_rgu_time = (
         (df["cluster_name"] == "narval")
         & (df["start_time"] >= datetime(2023, 11, 28, tzinfo=MTL))
@@ -527,6 +553,20 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     #     update_cluster_job_series_rgu(df, cluster_config)
     # return df
     for cluster_config in cluster_configs.values():
+        # Make sure that we are indeed doing this processing for each cluster.
+        assert cluster_config.name
+        if cluster_config.name == "mila":
+            assert (
+                cluster_config.rgu_start_date is None
+                and cluster_config.gpu_to_rgu_billing is None
+            )
+        else:
+            assert (
+                cluster_config.rgu_start_date
+                and cluster_config.gpu_to_rgu_billing
+                and Path(cluster_config.gpu_to_rgu_billing).is_file()
+            )
+        # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
         update_cluster_job_series_rgu(df, cluster_config)
 
     gpu_to_rgu_billing = {
@@ -537,13 +577,14 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     col_ratio_rgu_by_gpu = df.loc[slice_during_rgu_time, "allocated.gpu_type"].map(
         gpu_to_rgu_billing
     )
-    df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
-    df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
-        "allocated.gres_gpu"
-    ]
-    df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
-        non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
-    )
+    if slice_during_rgu_time.any():
+        df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
+        df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
+            "allocated.gres_gpu"
+        ]
+        df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
+            non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
+        )
 
     # TODO: Apply only during this period
 
@@ -564,13 +605,12 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
         & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
         & (df["elapsed_time"] > 0)
     )
-    df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
+    if slice_during_rgu_time.any():
+        df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
 
-    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(rgus)
+    # Overwrite all RGU values.
+    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
 
-    # todo: why are there NANs again in the allocated.gres_gpu?
-    assert df["allocated.gres_gpu"].notnull().all()
-    assert df["requested.gres_gpu"].notnull().all()
     return df
 
 
@@ -650,11 +690,12 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     ccdb_usage_cpu.index.name = _index
     ccdb_usage_gpu.index.name = _index
 
-    def _sort_columns(df: pd.DataFrame):
-        df.columns = pd.MultiIndex.from_tuples(
-            sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns),
-            names=["cluster_name", "source"],
-        )
+    # def _sort_columns(df: pd.DataFrame):
+    #     # todo: make sure that this doesn't mess up which data is assigned to which column!
+    #     df.columns = pd.MultiIndex.from_tuples(
+    #         sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns),
+    #         names=["cluster_name", "source"],
+    #     )
 
     merged_cpu = (
         ccdb_usage_cpu.rename(columns={"usage": "CCDB"}, level=0)
@@ -669,13 +710,8 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
             on=_index,
             how="outer",
         )
-    )
-    _sort_columns(merged_cpu)
-
-    print("CCDB vs SARC (CPU):")
-    print("```")
-    print(merged_cpu.to_markdown())
-    print("```")
+    ).reorder_levels(["cluster_name", None], axis="columns")
+    # _sort_columns(merged_cpu)
 
     merged_gpu = (
         ccdb_usage_gpu.rename(columns={"usage": "CCDB"}, level=0)
@@ -690,14 +726,10 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
             on=_index,
             how="outer",
         )
-    )
-    _sort_columns(merged_gpu)
+    ).reorder_levels(["cluster_name", None], axis="columns")
+    # _sort_columns(merged_gpu)
 
-    print("CCDB vs SARC (GPU):")
-    print("```")
-    print(merged_gpu.to_markdown())
-    print("```")
-
+    return merged_cpu, merged_gpu
     # merged_cpu.to_csv("cpu_comparison.csv")
     # merged_gpu.to_csv("gpu_comparison.csv")
 

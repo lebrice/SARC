@@ -20,6 +20,7 @@
     "sshconfig": "~/.ssh/config",
     "clusters": {
         "mila": {
+            "name": "mila",
             "host": "mila",
             "timezone": "America/Montreal",
             "accounts": null,
@@ -31,6 +32,7 @@
             "start_date": "2022-04-01"
         },
         "narval": {
+            "name": "narval",
             "host": "narval.computecanada.ca",
             "timezone": "America/Montreal",
             "accounts": [
@@ -50,6 +52,7 @@
             "gpu_to_rgu_billing": "secrets/gpu_to_rgu_billing_narval.json"
         },
         "beluga": {
+            "name": "beluga",
             "host": "beluga.computecanada.ca",
             "timezone": "America/Montreal",
             "accounts": [
@@ -69,6 +72,7 @@
             "gpu_to_rgu_billing": "secrets/gpu_to_rgu_billing_beluga.json"
         },
         "graham": {
+            "name": "graham",
             "host": "graham.computecanada.ca",
             "timezone": "America/Toronto",
             "accounts": [
@@ -88,6 +92,7 @@
             "gpu_to_rgu_billing": "secrets/gpu_to_rgu_billing_graham.json"
         },
         "cedar": {
+            "name": "cedar",
             "host": "cedar.computecanada.ca",
             "timezone": "America/Vancouver",
             "accounts": [
