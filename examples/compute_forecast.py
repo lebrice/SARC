@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 pd.options.display.max_colwidth = 300
 pd.options.display.max_rows = 1000
 
+seconds_in_a_year = timedelta(days=365.242374).total_seconds()
 
 gpu_name_mapping = {
     "gpu:tesla_v100-sxm2-16gb:4": "v100-16gb",
@@ -277,18 +278,8 @@ def main():
     )
 
     print("Validate these values compared to DRAC ccdb stats.")
-    merged_cpu, merged_gpu = validate_data(df, options.start, options.end)
+    df, merged_cpu, merged_gpu = validate_data(df, options.start, options.end)
 
-    merged_cpu = merged_cpu[
-        sorted(
-            merged_cpu.reorder_levels(["cluster_name", None], axis="columns").columns
-        )
-    ]
-    merged_gpu = merged_gpu[
-        sorted(
-            merged_gpu.reorder_levels(["cluster_name", None], axis="columns").columns
-        )
-    ]
     print("CCDB vs SARC (CPU):")
     print("```")
     print(merged_cpu.to_markdown())
@@ -420,7 +411,7 @@ def fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
     # print("min end", df["end_time"].min())
 
     df = df[df["end_time"].isnull() | (df["end_time"] > start)]
-    df = df[(~df["start_time"].isnull()) & (df["start_time"] < end)]
+    df = df[df["start_time"].notnull() & (df["start_time"] < end)]
 
     # print("max start", df["start_time"].max())
     # print("min end", df["end_time"].min())
@@ -577,14 +568,13 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     col_ratio_rgu_by_gpu = df.loc[slice_during_rgu_time, "allocated.gpu_type"].map(
         gpu_to_rgu_billing
     )
-    if slice_during_rgu_time.any():
-        df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
-        df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
-            "allocated.gres_gpu"
-        ]
-        df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
-            non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
-        )
+    df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
+    df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
+        "allocated.gres_gpu"
+    ]
+    df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
+        non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
+    )
 
     # TODO: Apply only during this period
 
@@ -605,8 +595,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
         & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
         & (df["elapsed_time"] > 0)
     )
-    if slice_during_rgu_time.any():
-        df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
+    df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
 
     # Overwrite all RGU values.
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
@@ -614,11 +603,32 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     return df
 
 
+def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str):
+    # todo: pretty unclear what exactly this is calculating.
+    # Need to clarify again a bit with Xavier.
+
+    # cost per month :=
+    cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
+    return (
+        (cost_per_month / seconds_in_a_year)
+        .reset_index()
+        .pivot(index="timestamp", columns="cluster_name")
+    )
+
+
 def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
-    seconds_in_a_year = timedelta(days=365.242374).total_seconds()
-
     pd.set_option("display.float_format", lambda x: f"{x:.3f}")
+    stats = stats.copy()
 
+    assert (
+        stats["allocated.cpu"].notna().all()
+        and (stats["allocated.cpu"] > 0).all()
+        and (stats["allocated.cpu"] < 1000).all()
+    )
+    assert (
+        stats["allocated.gres_gpu"].notna().all()
+        and (stats["allocated.gres_gpu"] >= 0).all()
+    )
     stats["cpu_billed"] = stats["elapsed_time"] * stats["allocated.cpu"]
     stats["gpu_billed"] = stats["elapsed_time"] * stats["allocated.gres_gpu"]
 
@@ -637,37 +647,24 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
         frame_size=frame_size,
     )
 
-    def _get_cost_per_month_per_year_unclear(name: str):
-        # todo: pretty unclear what exactly this is calculating.
-        # Need to clarify again a bit with Xavier.
-
-        # cost per month :=
-        cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
-        return (
-            (cost_per_month / seconds_in_a_year)
-            .reset_index()
-            .pivot(index="timestamp", columns="cluster_name")
-        )
-
     print("CPU equivalent usage per month")
-    print(
-        cpu_years_per_month := _get_cost_per_month_per_year_unclear(
-            "cpu_equivalent_cost"
-        )
+    cpu_years_per_month = _get_cost_per_month_per_year_unclear(
+        stats, "cpu_equivalent_cost"
     )
+    print(cpu_years_per_month)
     # print(
     #     # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
     #     cpu_years_per_month[6:].sum() / 6.0 * 12
     # )
 
     # gpu cost per month := GPU reserved (full-time) for a month.
-    gpu_years_per_month = _get_cost_per_month_per_year_unclear("gpu_cost")
+    gpu_years_per_month = _get_cost_per_month_per_year_unclear(stats, "gpu_cost")
     print("GPU usage per month")
     print(gpu_years_per_month)
     # print(gpu_years_per_month[6:].sum())  # TODO: why this [6:].sum()
 
     gpu_year_equivalent_cost_per_month = _get_cost_per_month_per_year_unclear(
-        "gpu_equivalent_cost"
+        stats, "gpu_equivalent_cost"
     )
     print("GPU equivalent usage per months")
     print(gpu_year_equivalent_cost_per_month)
@@ -676,7 +673,9 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     stats["rgu_equivalent_cost"] = (
         stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
     )
-    rgu_years_per_month = _get_cost_per_month_per_year_unclear("rgu_equivalent_cost")
+    rgu_years_per_month = _get_cost_per_month_per_year_unclear(
+        stats, "rgu_equivalent_cost"
+    )
     print("RGU equivalent usage per months")
     print(rgu_years_per_month)
     # print(rgu_years_per_month[6:].sum() / 6.0 * 12)
@@ -690,50 +689,41 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
     ccdb_usage_cpu.index.name = _index
     ccdb_usage_gpu.index.name = _index
 
-    # def _sort_columns(df: pd.DataFrame):
-    #     # todo: make sure that this doesn't mess up which data is assigned to which column!
-    #     df.columns = pd.MultiIndex.from_tuples(
-    #         sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns),
-    #         names=["cluster_name", "source"],
-    #     )
+    def _sort_columns(df: pd.DataFrame):
+        df = df[
+            sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns)
+        ]
+        df.columns = df.columns.rename(["cluster_name", "source"])
+        return df
 
-    merged_cpu = (
+    merged_cpu = _sort_columns(
         ccdb_usage_cpu.rename(columns={"usage": "CCDB"}, level=0)
-        # Merging with the "cpu_cost" doesn't seem to make sense. There may be a bug, the values are higher than expected.
         .merge(
-            _get_cost_per_month_per_year_unclear("cpu_cost"),
+            _get_cost_per_month_per_year_unclear(stats, "cpu_cost"),
             on=_index,
             how="outer",
         )
         .merge(
-            _get_cost_per_month_per_year_unclear("cpu_equivalent_cost"),
+            _get_cost_per_month_per_year_unclear(stats, "cpu_equivalent_cost"),
             on=_index,
             how="outer",
         )
-    ).reorder_levels(["cluster_name", None], axis="columns")
-    # _sort_columns(merged_cpu)
+    )
 
-    merged_gpu = (
+    merged_gpu = _sort_columns(
         ccdb_usage_gpu.rename(columns={"usage": "CCDB"}, level=0)
         .merge(
-            _get_cost_per_month_per_year_unclear("gpu_cost"),
+            _get_cost_per_month_per_year_unclear(stats, "gpu_cost"),
             on=_index,
             how="outer",
         )
-        # Merging with the "gpu_equivalent_cost" doesn't seem to make sense. There may be a bug.
         .merge(
-            _get_cost_per_month_per_year_unclear("gpu_equivalent_cost"),
+            _get_cost_per_month_per_year_unclear(stats, "gpu_equivalent_cost"),
             on=_index,
             how="outer",
         )
-    ).reorder_levels(["cluster_name", None], axis="columns")
-    # _sort_columns(merged_gpu)
-
-    return merged_cpu, merged_gpu
-    # merged_cpu.to_csv("cpu_comparison.csv")
-    # merged_gpu.to_csv("gpu_comparison.csv")
-
-    return
+    )
+    return stats, merged_cpu, merged_gpu
 
 
 def compute_time_frames(
