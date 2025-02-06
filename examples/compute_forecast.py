@@ -297,7 +297,49 @@ def main():
         )
     )
 
-    validate_with_CCDB(stats)
+    merged_cpu, merged_gpu = validate_with_CCDB(stats)
+    print("Done!")
+    stats, missing_users = find_missing_user_to_mila_emails(stats)
+    print(f"Missing the mila email for these users: {sorted(missing_users)}")
+
+
+def find_missing_user_to_mila_emails(
+    df: pd.DataFrame
+) -> tuple[pd.DataFrame, list[str]]:
+    missing_mila_email = df["user.mila.email"].isna()
+
+    n_missing = missing_mila_email.sum()
+    if not n_missing:
+        return df, []
+
+    N = df.shape[0]
+    print(f"'user.mila.email' is missing in {n_missing} jobs ({n_missing / N:.2%})")
+
+    unique_users = df[missing_mila_email]["user"].unique()
+
+    # Find jobs from the same users, where the email is not missing.
+    missing_user_to_emails = df[
+        df["user"].isin(unique_users) & df["user.mila.email"].notna()
+    ][["user", "user.mila.email"]]
+
+    # NOTE: edge case here: Is it be possible for the same user to have different emails?
+    # If so, here calling `dict` will use the last email found.
+    user_to_email_dict = dict(
+        list(missing_user_to_emails.drop_duplicates().itertuples(index=False))
+    )
+    # Use those to fill the missing entries.
+    df.loc[missing_mila_email, "user.mila.email"] = df.loc[
+        missing_mila_email, "user"
+    ].map(user_to_email_dict)
+
+    still_missing_mila_email = df["user.mila.email"].isna()
+    missing_mila_email_users = df[still_missing_mila_email]["user"].unique()
+
+    n_still_missing = still_missing_mila_email.sum()
+    print(
+        f"Able to fix {1 - (n_still_missing / n_missing):.2%} of missing mila emails in jobs."
+    )
+    return df, sorted(missing_mila_email_users)
 
 
 def replace_outlier_stats_with_na(df: pd.DataFrame):
@@ -643,9 +685,8 @@ def validate_with_CCDB(stats: pd.DataFrame):
     ccdb_usage_gpu.index.name = _index
 
     def _sort_columns(df: pd.DataFrame):
-        df = df[
-            sorted(df.reorder_levels(["cluster_name", None], axis="columns").columns)
-        ]
+        df = df.reorder_levels(["cluster_name", None], axis="columns")
+        df = df[sorted(df.columns)]
         df.columns = df.columns.rename(["cluster_name", "source"])
         return df
 
@@ -687,7 +728,7 @@ def validate_with_CCDB(stats: pd.DataFrame):
     print(merged_gpu.to_markdown())
     print("```")
 
-    return stats
+    return merged_cpu, merged_gpu
 
 
 def set_cpu_gpu_billed(stats: pd.DataFrame):
