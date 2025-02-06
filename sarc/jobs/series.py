@@ -369,14 +369,12 @@ def update_cluster_job_series_rgu(
     # If a GPU type is not found in RGU/GPU ratios,
     # then ratio will be set to NaN in output column.
     col_ratio_rgu_by_gpu = df["allocated.gpu_type"].map(gpu_to_rgu_billing)
+    assert cluster_config.name
 
+    in_cluster = df["cluster_name"] == cluster_config.name
     # Compute slices for both before and since RGU start date.
-    slice_before_rgu_time = (df["cluster_name"] == cluster_config.name) & (
-        df["start_time"] < rgu_start_date
-    )
-    slice_after_rgu_time = (df["cluster_name"] == cluster_config.name) & (
-        df["start_time"] >= rgu_start_date
-    )
+    slice_before_rgu_time = in_cluster & (df["start_time"] < rgu_start_date)
+    slice_after_rgu_time = in_cluster & (rgu_start_date <= df["start_time"])
 
     # We can already set column allocated.gpu_type_rgu anyway.
     # Avoids the FutureWarning setting an item of incompatible dtype.

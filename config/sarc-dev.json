@@ -25,6 +25,7 @@
     "sshconfig": "~/.ssh/config",
     "clusters": {
         "mila": {
+            "name": "mila",
             "host": "mila",
             "timezone": "America/Montreal",
             "accounts": null,
@@ -84,6 +85,7 @@
             }
         },
         "narval": {
+            "name": "narval",
             "host": "narval.computecanada.ca",
             "timezone": "America/Montreal",
             "accounts": [
@@ -116,6 +118,7 @@
             }
         },
         "beluga": {
+            "name": "beluga",
             "host": "beluga.computecanada.ca",
             "timezone": "America/Montreal",
             "accounts": [
@@ -141,6 +144,7 @@
             }
         },
         "graham": {
+            "name": "graham",
             "host": "graham.computecanada.ca",
             "timezone": "America/Toronto",
             "accounts": [
@@ -183,6 +187,7 @@
             }
         },
         "cedar": {
+            "name": "cedar",
             "host": "cedar.computecanada.ca",
             "timezone": "America/Vancouver",
             "accounts": [
