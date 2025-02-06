@@ -262,54 +262,42 @@ def main():
 
     df = fix_missing_gpu_type(df, clusters)
 
-    df = fix_rgu_discrepencies(df)
-
+    fix_rgu_discrepencies(df)
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
-    df = fill_missing_metrics_using_means(df, clusters)
+    fix_allocated_cpus_drac(df)
 
+    df = fill_missing_metrics_using_means(df, clusters)
     df = compute_cost_and_waste(df)
 
     # Filter out non-started jobs
+    assert (df["start_time"] != 0).all()
     df = df[df["start_time"] != 0]
     assert (
         df["requested.gres_gpu"].notnull().all()
         and (df["requested.gres_gpu"] >= 0).all()
     )
 
-    print("Validate these values compared to DRAC ccdb stats.")
-    df, merged_cpu, merged_gpu = validate_data(df, options.start, options.end)
+    df = set_cpu_gpu_billed(df)
 
-    print("CCDB vs SARC (CPU):")
-    print("```")
-    print(merged_cpu.to_markdown())
-    print("```")
+    stats = compute_time_frames(
+        df,
+        ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
+        start=options.start,
+        end=options.end,
+        frame_size=(
+            "MS"
+            if (_max_delta := (options.end - options.start)) > timedelta(days=30)
+            else _max_delta
+        ),
+    )
+    stats = stats.assign(
+        rgu_equivalent_cost=(
+            stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
+        )
+    )
 
-    print("CCDB vs SARC (GPU):")
-    print("```")
-    print(merged_gpu.to_markdown())
-    print("```")
-
-    # print("Multi-GPU jobs")
-    # print(">1")
-    # print(
-    #     df[df["requested.gres_gpu"] > 1].groupby("cluster_name")["gpu_cost"].sum()
-    #     / df.groupby("cluster_name")["gpu_cost"].sum()
-    # )
-    # print(">3")
-    # print(
-    #     df[df["requested.gres_gpu"] > 3].groupby("cluster_name")["gpu_cost"].sum()
-    #     / df.groupby("cluster_name")["gpu_cost"].sum()
-    # )
-    # print("Multi-node jobs")
-    # print(
-    #     df[df["nodes"].str.len() > 1].groupby("cluster_name")["gpu_cost"].sum()
-    #     / df.groupby("cluster_name")["gpu_cost"].sum()
-    # )
-    # print()
-
-
-# TODO: Fix RGU stuff by adding the json files in secrets
+    validate_with_CCDB(stats)
 
 
 def replace_outlier_stats_with_na(df: pd.DataFrame):
@@ -518,7 +506,25 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
     return df
 
 
-def fix_rgu_discrepencies(df: pd.DataFrame):
+def fix_allocated_cpus_drac(df: pd.DataFrame):
+    # TODO we should fix this in SARC.
+    is_drac = df["cluster_name"] != "mila"
+    slice_during_rgu_time = (
+        is_drac
+        & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
+        & (df["elapsed_time"] > 0)
+    )
+    df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
+
+    # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
+    # is_narval = df["cluster_name"] == "narval"
+
+    # Here we do it for all timeframes.
+    outrageous_num_of_cpus = df["allocated.cpu"] >= 1000
+    df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
+
+
+def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
     # NOTE: Fixing switch to RGU billing for a second time on Narval
     # narval_config = config().clusters["narval"]
     cluster_configs = _get_cluster_configs()
@@ -589,24 +595,14 @@ def fix_rgu_discrepencies(df: pd.DataFrame):
     #     json.dump(narval_rgu, file)
     # End of hacky fix
 
-    # TODO we should fix this in SARC.
-    slice_during_rgu_time = (
-        (df["cluster_name"] != "mila")
-        & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
-        & (df["elapsed_time"] > 0)
-    )
-    df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
-
     # Overwrite all RGU values.
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
 
-    return df
-
 
 def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str):
-    # todo: pretty unclear what exactly this is calculating.
+    # This does some sort of normalizing of the usage data from SARC so it's
+    # comparable with the data on the CCDB website.
     # Need to clarify again a bit with Xavier.
-
     # cost per month :=
     cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
     return (
@@ -616,68 +612,25 @@ def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str):
     )
 
 
-def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
+def validate_with_CCDB(stats: pd.DataFrame):
     pd.set_option("display.float_format", lambda x: f"{x:.3f}")
-    stats = stats.copy()
 
-    assert (
-        stats["allocated.cpu"].notna().all()
-        and (stats["allocated.cpu"] > 0).all()
-        and (stats["allocated.cpu"] < 1000).all()
-    )
-    assert (
-        stats["allocated.gres_gpu"].notna().all()
-        and (stats["allocated.gres_gpu"] >= 0).all()
-    )
-    stats["cpu_billed"] = stats["elapsed_time"] * stats["allocated.cpu"]
-    stats["gpu_billed"] = stats["elapsed_time"] * stats["allocated.gres_gpu"]
+    # print("CPU equivalent usage per month")
+    # print(_get_cost_per_month_per_year_unclear(stats, "cpu_equivalent_cost"))
+    # # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
+    # # print(cpu_years_per_month[6:].sum() / 6.0 * 12)
 
-    max_delta = end - start  # timedelta(seconds=(end - start).total_seconds())
+    # # gpu cost per month := GPU reserved (full-time) for a month.
+    # print("GPU usage per month")
+    # print(_get_cost_per_month_per_year_unclear(stats, "gpu_cost"))
+    # # print(gpu_years_per_month[6:].sum())  # TODO: why this [6:].sum()
 
-    if max_delta > timedelta(days=30):
-        frame_size = "MS"
-    else:
-        frame_size = max_delta
+    # print("GPU equivalent usage per months")
+    # print(_get_cost_per_month_per_year_unclear(stats, "gpu_equivalent_cost"))
+    # # print(gpu_year_equivalent_cost_per_month[6:].sum())
 
-    stats = compute_time_frames(
-        stats,
-        ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
-        start,
-        end,
-        frame_size=frame_size,
-    )
-
-    print("CPU equivalent usage per month")
-    cpu_years_per_month = _get_cost_per_month_per_year_unclear(
-        stats, "cpu_equivalent_cost"
-    )
-    print(cpu_years_per_month)
-    # print(
-    #     # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
-    #     cpu_years_per_month[6:].sum() / 6.0 * 12
-    # )
-
-    # gpu cost per month := GPU reserved (full-time) for a month.
-    gpu_years_per_month = _get_cost_per_month_per_year_unclear(stats, "gpu_cost")
-    print("GPU usage per month")
-    print(gpu_years_per_month)
-    # print(gpu_years_per_month[6:].sum())  # TODO: why this [6:].sum()
-
-    gpu_year_equivalent_cost_per_month = _get_cost_per_month_per_year_unclear(
-        stats, "gpu_equivalent_cost"
-    )
-    print("GPU equivalent usage per months")
-    print(gpu_year_equivalent_cost_per_month)
-    # print(gpu_year_equivalent_cost_per_month[6:].sum())
-
-    stats["rgu_equivalent_cost"] = (
-        stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
-    )
-    rgu_years_per_month = _get_cost_per_month_per_year_unclear(
-        stats, "rgu_equivalent_cost"
-    )
     print("RGU equivalent usage per months")
-    print(rgu_years_per_month)
+    print(_get_cost_per_month_per_year_unclear(stats, "rgu_equivalent_cost"))
     # print(rgu_years_per_month[6:].sum() / 6.0 * 12)
 
     ccdb_usage_cpu, ccdb_usage_gpu = get_ccdb_usage_data()
@@ -723,7 +676,37 @@ def validate_data(stats: pd.DataFrame, start: datetime, end: datetime):
             how="outer",
         )
     )
-    return stats, merged_cpu, merged_gpu
+
+    print("CCDB vs SARC (CPU):")
+    print("```")
+    print(merged_cpu.to_markdown())
+    print("```")
+
+    print("CCDB vs SARC (GPU):")
+    print("```")
+    print(merged_gpu.to_markdown())
+    print("```")
+
+    return stats
+
+
+def set_cpu_gpu_billed(stats: pd.DataFrame):
+    assert (
+        stats["allocated.cpu"].notna().all()
+        and (stats["allocated.cpu"] > 0).all()
+        # todo: some jobs have 0.001 cpus (because of the /1000).
+        and (stats["allocated.cpu"] < 1000).all()
+    )
+    assert (
+        stats["allocated.gres_gpu"].notna().all()
+        and (stats["allocated.gres_gpu"] >= 0).all()
+    )
+    return stats.assign(
+        **{
+            "cpu_billed": stats["elapsed_time"] * stats["allocated.cpu"],
+            "gpu_billed": stats["elapsed_time"] * stats["allocated.gres_gpu"],
+        }
+    )
 
 
 def compute_time_frames(
