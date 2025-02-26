@@ -304,7 +304,7 @@ def main():
         )
     )
     pd.set_option("display.float_format", lambda x: f"{x:.3f}")
-
+    # gpu cost per month := GPU reserved (full-time) for a month.
     print("Usage per month")
     print(
         _get_cost_per_month_per_year_unclear(
@@ -319,8 +319,7 @@ def main():
         .sum()
         .to_markdown()
     )
-    # gpu cost per month := GPU reserved (full-time) for a month.
-    plot_usage_per_month(stats)
+    plot_usage_per_month(stats, options)
 
     if users:
         print(
@@ -348,6 +347,11 @@ def main():
 
 
 def plot_usage_per_month(stats: pd.DataFrame, options: Options):
+    def _savefig(label: str) -> None:
+        save_path = options.unique_path(label=label, extension=".png")
+        logger.info(f"Saving figure at {save_path}")
+        plt.savefig(save_path)
+
     # Plot compute usage per month, per cluster
     usage_per_month = (
         stats.groupby(["timestamp", "cluster_name"])[
@@ -371,8 +375,8 @@ def plot_usage_per_month(stats: pd.DataFrame, options: Options):
     plt.legend(title="Cluster")
     plt.grid(True)
     plt.tight_layout()
+    _savefig("cpu_cost")
     plt.show()
-    plt.savefig(options.unique_path(label="cpu_usage", extension=".png"))
 
     plt.figure(figsize=(14, 8))
     sns.lineplot(
@@ -388,8 +392,8 @@ def plot_usage_per_month(stats: pd.DataFrame, options: Options):
     plt.legend(title="Cluster")
     plt.grid(True)
     plt.tight_layout()
+    _savefig("gpu_cost")
     plt.show()
-    plt.savefig(options.unique_path(label="gpu_cost", extension=".png"))
 
     plt.figure(figsize=(14, 8))
     sns.lineplot(
@@ -405,8 +409,8 @@ def plot_usage_per_month(stats: pd.DataFrame, options: Options):
     plt.legend(title="Cluster")
     plt.grid(True)
     plt.tight_layout()
+    _savefig("gpu_equiv_cost")
     plt.show()
-    plt.savefig(options.unique_path(label="gpu_equivalent_cost", extension=".png"))
 
 
 def plot_pie_charts(stats: pd.DataFrame):
