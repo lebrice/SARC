@@ -70,6 +70,7 @@ sarc = "sarc.cli:main"
 
 [project.optional-dependencies]
 examples = [
+    "pyqt6>=6.8.1",
     "rich>=13.9.4",
     "seaborn>=0.13.2",
 ]
