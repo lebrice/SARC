@@ -7,10 +7,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Literal, Mapping
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rich
 import rich.logging
+import seaborn as sns
 import simple_parsing
 import yaml
 
@@ -251,6 +253,7 @@ def main():
     df = fix_lost_jobs(df)
     df = fix_unaligned_cache(df, options.start, options.end)
     df = remove_old_nodes(df)
+
     replace_outlier_stats_with_na(df)
 
     # Clusters we want to compare
@@ -280,6 +283,10 @@ def main():
 
     df = set_cpu_gpu_billed(df)
 
+    df, missing_users = find_missing_user_to_mila_emails(df)
+    if missing_users:
+        print(f"Missing the mila email for these users: {sorted(missing_users)}")
+
     stats = compute_time_frames(
         df,
         ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
@@ -296,30 +303,165 @@ def main():
             stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
         )
     )
+    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
+
+    print("Usage per month")
+    print(
+        _get_cost_per_month_per_year_unclear(
+            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        ).to_markdown()
+    )
+    print("Total: ")
+    print(
+        _get_cost_per_month_per_year_unclear(
+            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        )
+        .sum()
+        .to_markdown()
+    )
+    # gpu cost per month := GPU reserved (full-time) for a month.
+    plot_usage_per_month(stats)
+
+    if users:
+        print(
+            "Resource*Years:",
+            (
+                stats.groupby("user.mila.email")[
+                    [
+                        "cpu_billed",
+                        "cpu_cost",
+                        "cpu_equivalent_cost",
+                        "gpu_billed",
+                        "gpu_cost",
+                        "gpu_equivalent_cost",
+                    ]
+                ].sum()
+                / seconds_in_a_year
+            ),
+        )
+        # breakpoint()
+        return
 
     merged_cpu, merged_gpu = validate_with_CCDB(stats)
+    print(f"Total usage (GPU):\n{merged_gpu.sum()}")
     print("Done!")
-    stats, missing_users = find_missing_user_to_mila_emails(stats)
-    print(f"Missing the mila email for these users: {sorted(missing_users)}")
+
+
+def plot_usage_per_month(stats: pd.DataFrame, options: Options):
+    # Plot compute usage per month, per cluster
+    usage_per_month = (
+        stats.groupby(["timestamp", "cluster_name"])[
+            ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    plt.figure(figsize=(14, 8))
+    sns.lineplot(
+        data=usage_per_month,
+        x="timestamp",
+        y="cpu_equivalent_cost",
+        hue="cluster_name",
+        marker="o",
+    )
+    plt.title("CPU Equivalent Cost per Month per Cluster")
+    plt.xlabel("Month")
+    plt.ylabel("CPU Equivalent Cost")
+    plt.legend(title="Cluster")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(options.unique_path(label="cpu_usage", extension=".png"))
+
+    plt.figure(figsize=(14, 8))
+    sns.lineplot(
+        data=usage_per_month,
+        x="timestamp",
+        y="gpu_cost",
+        hue="cluster_name",
+        marker="o",
+    )
+    plt.title("GPU Cost per Month per Cluster")
+    plt.xlabel("Month")
+    plt.ylabel("GPU Cost")
+    plt.legend(title="Cluster")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(options.unique_path(label="gpu_cost", extension=".png"))
+
+    plt.figure(figsize=(14, 8))
+    sns.lineplot(
+        data=usage_per_month,
+        x="timestamp",
+        y="gpu_equivalent_cost",
+        hue="cluster_name",
+        marker="o",
+    )
+    plt.title("GPU Equivalent Cost per Month per Cluster")
+    plt.xlabel("Month")
+    plt.ylabel("GPU Equivalent Cost")
+    plt.legend(title="Cluster")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(options.unique_path(label="gpu_equivalent_cost", extension=".png"))
+
+
+def plot_pie_charts(stats: pd.DataFrame):
+    # Plot pie charts for total usage per cluster
+    total_usage = stats.groupby("cluster_name")[
+        ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+    ].sum()
+
+    plt.figure(figsize=(14, 8))
+    total_usage["cpu_equivalent_cost"].plot.pie(
+        autopct="%1.1f%%", startangle=90, counterclock=False
+    )
+    plt.title("Total CPU Equivalent Cost per Cluster")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(14, 8))
+    total_usage["gpu_cost"].plot.pie(
+        autopct="%1.1f%%", startangle=90, counterclock=False
+    )
+    plt.title("Total GPU Cost per Cluster")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(14, 8))
+    total_usage["gpu_equivalent_cost"].plot.pie(
+        autopct="%1.1f%%", startangle=90, counterclock=False
+    )
+    plt.title("Total GPU Equivalent Cost per Cluster")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.show()
 
 
 def find_missing_user_to_mila_emails(
     df: pd.DataFrame
 ) -> tuple[pd.DataFrame, list[str]]:
     missing_mila_email = df["user.mila.email"].isna()
+    missing_mila_email_users = df[missing_mila_email]["user"].unique()
 
     n_missing = missing_mila_email.sum()
     if not n_missing:
         return df, []
 
     N = df.shape[0]
-    print(f"'user.mila.email' is missing in {n_missing} jobs ({n_missing / N:.2%})")
-
-    unique_users = df[missing_mila_email]["user"].unique()
+    logger.warning(
+        f"'user.mila.email' is missing in {n_missing} jobs ({n_missing / N:.2%}) "
+        f"from {len(missing_mila_email_users)} users."
+    )
 
     # Find jobs from the same users, where the email is not missing.
     missing_user_to_emails = df[
-        df["user"].isin(unique_users) & df["user.mila.email"].notna()
+        df["user"].isin(missing_mila_email_users) & df["user.mila.email"].notna()
     ][["user", "user.mila.email"]]
 
     # NOTE: edge case here: Is it be possible for the same user to have different emails?
@@ -333,13 +475,18 @@ def find_missing_user_to_mila_emails(
     ].map(user_to_email_dict)
 
     still_missing_mila_email = df["user.mila.email"].isna()
-    missing_mila_email_users = df[still_missing_mila_email]["user"].unique()
+    still_missing_mila_email_users = df[still_missing_mila_email]["user"].unique()
 
     n_still_missing = still_missing_mila_email.sum()
-    print(
-        f"Able to fix {1 - (n_still_missing / n_missing):.2%} of missing mila emails in jobs."
+    n_users_fixed = len(
+        set(missing_mila_email_users) - set(still_missing_mila_email_users)
     )
-    return df, sorted(missing_mila_email_users)
+    n_fixed = n_missing - n_still_missing
+    logger.info(
+        f"Able add the missing 'user.mila.email' for the {n_fixed} jobs from {n_users_fixed} users "
+        f"({(n_fixed / n_missing):.2%} of the jobs with a missing value)."
+    )
+    return df, sorted(still_missing_mila_email_users)
 
 
 def replace_outlier_stats_with_na(df: pd.DataFrame):
@@ -641,7 +788,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
 
 
-def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str):
+def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str | list[str]):
     # This does some sort of normalizing of the usage data from SARC so it's
     # comparable with the data on the CCDB website.
     # Need to clarify again a bit with Xavier.
@@ -655,26 +802,6 @@ def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str):
 
 
 def validate_with_CCDB(stats: pd.DataFrame):
-    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
-
-    # print("CPU equivalent usage per month")
-    # print(_get_cost_per_month_per_year_unclear(stats, "cpu_equivalent_cost"))
-    # # todo: ask @bouthilx why there is this offset, /6, * 12 stuff.
-    # # print(cpu_years_per_month[6:].sum() / 6.0 * 12)
-
-    # # gpu cost per month := GPU reserved (full-time) for a month.
-    # print("GPU usage per month")
-    # print(_get_cost_per_month_per_year_unclear(stats, "gpu_cost"))
-    # # print(gpu_years_per_month[6:].sum())  # TODO: why this [6:].sum()
-
-    # print("GPU equivalent usage per months")
-    # print(_get_cost_per_month_per_year_unclear(stats, "gpu_equivalent_cost"))
-    # # print(gpu_year_equivalent_cost_per_month[6:].sum())
-
-    print("RGU equivalent usage per months")
-    print(_get_cost_per_month_per_year_unclear(stats, "rgu_equivalent_cost"))
-    # print(rgu_years_per_month[6:].sum() / 6.0 * 12)
-
     ccdb_usage_cpu, ccdb_usage_gpu = get_ccdb_usage_data()
 
     print("CPU usage data from CCDB website:")
