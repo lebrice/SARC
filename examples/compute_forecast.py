@@ -77,6 +77,9 @@ gpu_name_mapping = {
     "NVIDIA V100-SXM2-32GB-LS": "v100-32gb",
     "Quadro RTX 8000": "rtx8000-48gb",  # Dummy
     "gpu:a5000:4": "a5000-24gb",
+    # NOTE: Added for narval. Might be fixed with `get_node_to_gpu`, unclear.
+    "a100_1g.5gb": "a100-weird",
+    "1g.5gb": "a100-weird",
 }
 
 gpu_ram = {
@@ -99,6 +102,8 @@ gpu_ram = {
     "a100-80gb": 80,
     "h100-80gb": 80,
     "l40s": 48,
+    # NOTE: Added for narval. Might be fixed with `get_node_to_gpu`, unclear.
+    "a100-weird": 5,
 }
 
 RGUS = {
@@ -448,7 +453,7 @@ def plot_pie_charts(stats: pd.DataFrame):
 
 
 def find_missing_user_to_mila_emails(
-    df: pd.DataFrame
+    df: pd.DataFrame,
 ) -> tuple[pd.DataFrame, list[str]]:
     missing_mila_email = df["user.mila.email"].isna()
     missing_mila_email_users = df[missing_mila_email]["user"].unique()
@@ -653,6 +658,8 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
     # Fix missing gpu_type
     for cluster_name in clusters:
         node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
+        # node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
+        assert node_to_gpu is not None
         non_mapped_gpu_types_mask = (
             (df["cluster_name"] == cluster_name)
             & (df["elapsed_time"] > 0)
