@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -29,6 +30,8 @@ from sarc.jobs.series import (
 logger = logging.getLogger(__name__)
 pd.options.display.max_colwidth = 300
 pd.options.display.max_rows = 1000
+
+ALL_CLUSTERS = ["mila", "narval", "beluga", "cedar", "graham"]
 
 seconds_in_a_year = timedelta(days=365.242374).total_seconds()
 
@@ -162,6 +165,8 @@ class Options:
     )
     """ Directory where temporary files will be stored."""
 
+    clusters: list[str] = dataclasses.field(default_factory=list)
+
     verbose: int = simple_parsing.field(
         alias=["-v", "--verbose"], action="count", default=0, hash=False
     )
@@ -169,12 +174,16 @@ class Options:
     def get_users(self) -> list[str]:
         if self.users_file:
             assert not self.user, "can't use both user_file and users!"
-            return self.users_file.read_text().splitlines(keepends=False)
+            return sorted(set(self.users_file.read_text().splitlines(keepends=False)))
         return self.user
 
     def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
         users = self.get_users()
-        user_portion = "+".join(sorted(users)) if users else "all"
+        user_portion = (
+            hashlib.md5("+".join(sorted(users)).encode()).hexdigest()
+            if users is not None and len(users)
+            else "all"
+        )
         # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
         start_portion = (
             self.start.strftime("%Y-%m-%d")
@@ -213,13 +222,143 @@ def main():
     _setup_logging(options.verbose)
     logger.debug(options)
 
+    survey_data_csv = (
+        Path(__file__).parent / "Sondages - Compute Forecast - answers.csv"
+    )
+    compare_with_survey_data(survey_data_csv)
+    return
+
+    users = options.get_users()
+    df = get_cleaned_df(options)
+
+    stats = compute_time_frames(
+        df,
+        ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
+        start=options.start,
+        end=options.end,
+        frame_size=(
+            "MS"
+            if (_max_delta := (options.end - options.start)) > timedelta(days=30)
+            else _max_delta
+        ),
+    )
+    stats = stats.assign(
+        rgu_equivalent_cost=(
+            stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
+        )
+    )
+    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
+
+    # gpu cost per month := GPU reserved (full-time) for a month.
+    print("Usage per month")
+    print(
+        _get_cost_per_month_per_year_unclear(
+            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        ).to_markdown()
+    )
+    print("Total: ")
+    print(
+        _get_cost_per_month_per_year_unclear(
+            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        )
+        .sum()
+        .to_markdown()
+    )
+    plot_usage_per_month(stats, options)
+
+    if users:
+        print(
+            "Resource*Years:",
+            (
+                stats.groupby("user.mila.email")[
+                    [
+                        "cpu_billed",
+                        "cpu_cost",
+                        "cpu_equivalent_cost",
+                        "gpu_billed",
+                        "gpu_cost",
+                        "gpu_equivalent_cost",
+                    ]
+                ].sum()
+                / seconds_in_a_year
+            ),
+        )
+        # breakpoint()
+        return
+
+    # merged_cpu, merged_gpu = validate_with_CCDB(stats)
+    # print(f"Total usage (GPU):\n{merged_gpu.sum()}")
+    print("Done!")
+
+
+def compare_with_survey_data(survey_data_csv: Path):
+    sd = pd.read_csv(survey_data_csv, header=1)
+    print(sd)
+
+    users = (
+        sd["Email address"]
+        .dropna()
+        .map(lambda v: v.removesuffix("@mila.quebec"))
+        .unique()
+        .tolist()
+    )
+    start_date_columns = [c for c in sd.columns if c.startswith("Start date")]
+    end_date_columns = [c for c in sd.columns if c.startswith("End date")]
+    clusters_used_columns = [
+        c
+        for c in sd.columns
+        if c.startswith("Which clusters did you use for these experiments?")
+    ]
+    sd = sd.assign(
+        **{
+            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
+            .dt.tz_localize("UTC")
+            .dt.tz_convert(MTL)
+            for c in start_date_columns
+        },
+        **{
+            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
+            .dt.tz_localize("UTC")
+            .dt.tz_convert(MTL)
+            for c in end_date_columns
+        },
+    )
+
+    earliest_start_date: datetime = min(
+        sd[c].dropna().min() for c in start_date_columns
+    )
+    latest_end_date: datetime = max(sd[c].dropna().max() for c in end_date_columns)
+
+    print(users)
+    print(f"{earliest_start_date=}")
+    print(f"{latest_end_date=}")
+    # note: can contain things like 'mila, beluga' and 'other clusters' etc.
+    known_clusters_used: set[str] = set()
+    for column in clusters_used_columns:
+        all_clusters_used = sd[column].dropna().unique()
+        for cluster_used_entry in all_clusters_used:
+            for cluster in ALL_CLUSTERS:
+                if cluster in cluster_used_entry.lower():
+                    known_clusters_used.add(cluster)
+    # clusters
+    options = Options(
+        user=users,
+        start=earliest_start_date,
+        end=latest_end_date,
+        clusters=known_clusters_used,
+    )
+    df = get_cleaned_df(options=options)
+    print(df)
+    breakpoint()
+
+
+def get_cleaned_df(options: Options) -> pd.DataFrame:
     cache_file = options.unique_path()
     users = options.get_users()
 
     print(
         f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'}"
     )
-
     if cache_file.exists():
         logger.info(f"Reading previous data from {cache_file}.")
         df = pd.read_pickle(cache_file)
@@ -262,25 +401,24 @@ def main():
     replace_outlier_stats_with_na(df)
 
     # Clusters we want to compare
-    clusters = ["mila", "narval", "beluga", "cedar", "graham"]
+    if options.clusters:
+        # Filter clusters
+        df = df[df["cluster_name"].isin(options.clusters)]
 
-    # Filter clusters
-    df = df[df["cluster_name"].isin(clusters)]
     assert isinstance(df, pd.DataFrame)
 
-    df = fix_missing_gpu_type(df, clusters)
+    df = fix_missing_gpu_type(df)
 
     fix_rgu_discrepencies(df)
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
     fix_allocated_cpus_drac(df)
 
-    df = fill_missing_metrics_using_means(df, clusters)
+    df = fill_missing_metrics_using_means(df)
     df = compute_cost_and_waste(df)
 
     # Filter out non-started jobs
     assert (df["start_time"] != 0).all()
-    df = df[df["start_time"] != 0]
     assert (
         df["requested.gres_gpu"].notnull().all()
         and (df["requested.gres_gpu"] >= 0).all()
@@ -292,63 +430,7 @@ def main():
     if missing_users:
         print(f"Missing the mila email for these users: {sorted(missing_users)}")
 
-    stats = compute_time_frames(
-        df,
-        ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
-        start=options.start,
-        end=options.end,
-        frame_size=(
-            "MS"
-            if (_max_delta := (options.end - options.start)) > timedelta(days=30)
-            else _max_delta
-        ),
-    )
-    stats = stats.assign(
-        rgu_equivalent_cost=(
-            stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
-        )
-    )
-    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
-    # gpu cost per month := GPU reserved (full-time) for a month.
-    print("Usage per month")
-    print(
-        _get_cost_per_month_per_year_unclear(
-            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-        ).to_markdown()
-    )
-    print("Total: ")
-    print(
-        _get_cost_per_month_per_year_unclear(
-            stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-        )
-        .sum()
-        .to_markdown()
-    )
-    plot_usage_per_month(stats, options)
-
-    if users:
-        print(
-            "Resource*Years:",
-            (
-                stats.groupby("user.mila.email")[
-                    [
-                        "cpu_billed",
-                        "cpu_cost",
-                        "cpu_equivalent_cost",
-                        "gpu_billed",
-                        "gpu_cost",
-                        "gpu_equivalent_cost",
-                    ]
-                ].sum()
-                / seconds_in_a_year
-            ),
-        )
-        # breakpoint()
-        return
-
-    merged_cpu, merged_gpu = validate_with_CCDB(stats)
-    print(f"Total usage (GPU):\n{merged_gpu.sum()}")
-    print("Done!")
+    return df
 
 
 def plot_usage_per_month(stats: pd.DataFrame, options: Options):
@@ -512,9 +594,12 @@ def replace_outlier_stats_with_na(df: pd.DataFrame):
     df.loc[df["gpu_power"] > 10e10, "gpu_power"] = pd.NA
 
 
-def fill_missing_metrics_using_means(df: pd.DataFrame, clusters: list[str]):
+def fill_missing_metrics_using_means(
+    df: pd.DataFrame,
+):
     """TODO: Fill in missing JobStatistics metrics using average of available data."""
     stat_columns = list(JobStatistics.__fields__.keys())
+    clusters = df["cluster_name"].unique()
 
     # no_na = df.dropna(subset=stat_columns, how="any")
     # assert no_na.shape[0] > 0
@@ -654,8 +739,11 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
     return cluster_configs
 
 
-def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str]):
+def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     # Fix missing gpu_type
+    if not clusters:
+        clusters = df["cluster_name"].unique()  # type: ignore
+    assert clusters is not None and len(clusters)
     for cluster_name in clusters:
         node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
         # node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
@@ -778,6 +866,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
     df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
         "allocated.gres_gpu"
     ]
+    # todo: warning about type non-compatible with int64.
     df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
         non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
     )
