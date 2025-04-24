@@ -13,8 +13,10 @@ import numpy as np
 import pandas as pd
 import rich
 import rich.logging
+import rich.panel
 import rich.pretty
 import rich.prompt
+import rich.text
 import seaborn as sns
 import simple_parsing
 import yaml
@@ -262,11 +264,10 @@ def main():
 
     # Gets the sarc data to cover all users and data ranges and clusters mentioned in the survey.
     overall_survey_period_options = _get_options_that_cover_survey_period(survey_data)
-    all_sarc_data = get_cleaned_df(
-        dataclasses.replace(
-            overall_survey_period_options, user=overall_survey_period_options.user
-        )
-    )
+    rich.print("Overall survey period, users, and clusters: ")
+    rich.pretty.pprint(overall_survey_period_options)
+
+    all_sarc_data = get_cleaned_df(overall_survey_period_options)
 
     if filtering_users:
         survey_data = _filter_survey_data_by_users(survey_data, filtering_users)
@@ -282,9 +283,11 @@ def main():
     for i, (survey_entry, raw_survey_entry) in enumerate(
         zip(survey_entries, raw_survey_entries)
     ):
-        survey_entry_df = survey_data.iloc[[i]]
         print(f"Survey entry #{i}")
-        rich.pretty.pprint(_drop_na_values(survey_entry))
+        display_survey_entry(survey_entry)
+
+        survey_entry_df = survey_data.iloc[[i]]
+
         # TODO: Display the data nicely and create some interactive prompt to enter how many GPUS were used.
         # TODO: To avoid having to re-enter some previously annotated data, could use the cache dir and a flag to clear the cache.
         n_gpus = rich.prompt.FloatPrompt.ask(
@@ -295,30 +298,55 @@ def main():
         survey_entry_period_options = _get_options_that_cover_survey_period(
             survey_entry_df
         )
-        # todo: The start / end dates are sometimes missing!
+
+        # todo: The start / end dates are sometimes missing for a given survey entry.
+        # TODO: Select some start data from either SARC or the survey data.
         if pd.isna(survey_entry_period_options.start):
             logger.warning(f"Missing a start date for survey entry {i}!")
-            # TODO: Select some start data from either SARC or the survey data.
             survey_entry_period_options = dataclasses.replace(
                 survey_entry_period_options, start=overall_survey_period_options.start
             )
-
-            print("Raw data:")
-            print(raw_survey_entry)
-            print("Processed data:")
-            print(_drop_na_values(survey_entry))
-            breakpoint()
+        if pd.isna(survey_entry_period_options.end):
+            logger.warning(f"Missing an end date for survey entry {i}!")
+            survey_entry_period_options = dataclasses.replace(
+                survey_entry_period_options, end=overall_survey_period_options.end
+            )
 
         print(f"Survey entry period: {survey_entry_period_options}")
-        sarc_data = get_cleaned_df(
+        sarc_data_1 = _filter_sarc_data(
+            all_sarc_data_cleaned=all_sarc_data, filtering_options=filtering_options
+        )
+        sarc_data_2 = get_cleaned_df(
             dataclasses.replace(
-                survey_entry_period_options, user=filtering_options.user
+                survey_entry_period_options,
+                user=filtering_options.user,
             )
         )
+        print(sarc_data_1)
+        print(sarc_data_2)
+        breakpoint()
 
-        _show_plots(sarc_data, survey_entry_period_options)
+        _show_plots(sarc_data_1, survey_entry_period_options)
         if not rich.prompt.Confirm.ask("Keep going?"):
             break
+
+
+def display_survey_entry(survey_entry: dict):
+    values = _drop_na_values(survey_entry)
+    rich.print(
+        rich.panel.Panel(
+            rich.pretty.pretty_repr(
+                {
+                    k: v
+                    if isinstance(v, str) and len(v) >= 30
+                    else rich.pretty.pretty_repr(v)
+                    for k, v in values.items()
+                }
+            )
+        )
+    )
+
+    # rich.pretty.pprint()
 
 
 def _drop_na_values(d: Mapping):
