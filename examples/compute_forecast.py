@@ -30,6 +30,7 @@ from sarc.jobs.series import (
 logger = logging.getLogger(__name__)
 pd.options.display.max_colwidth = 300
 pd.options.display.max_rows = 1000
+pd.options.display.float_format = lambda x: f"{x:.3f}"
 
 ALL_CLUSTERS = ["mila", "narval", "beluga", "cedar", "graham"]
 
@@ -137,6 +138,10 @@ def midnight(dt: datetime) -> datetime:
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+# Note: Would require Python 3.12
+# type Array[*Shape, Dtype] = np.ndarray[tuple[*Shape], np.dtype[Dtype]]
+
+
 @dataclasses.dataclass(frozen=True, unsafe_hash=True)
 class Options:
     """Configuration options for this script."""
@@ -218,27 +223,36 @@ def _setup_logging(verbose: int):
 
 
 def main():
-    options = simple_parsing.parse(Options)
-    _setup_logging(options.verbose)
-    logger.debug(options)
-
-    survey_data_csv = (
+    survey_answers_csv = (
         Path(__file__).parent / "Sondages - Compute Forecast - answers.csv"
     )
-    compare_with_survey_data(survey_data_csv)
-    return
+    survey_data = _load_survey_data(survey_answers_csv)
+    survey_period_options = _get_options_that_cover_survey_period(survey_data)
 
-    users = options.get_users()
-    df = get_cleaned_df(options)
+    # Can use the command-line flags to filter the sarc (and survey) data for a specific user.
+    filtering_options = simple_parsing.parse(Options)
+    survey_data = survey_data[survey_data["User"].isin(filtering_options.get_users())]
+
+    sarc_data = get_cleaned_df(
+        dataclasses.replace(survey_period_options, user=filtering_options.user)
+    )
+    users = survey_period_options.get_users()
+
+    _setup_logging(survey_period_options.verbose)
+    # logger.debug(options)
+
+    # users = options.get_users()
+    # df = get_cleaned_df(options)
 
     stats = compute_time_frames(
-        df,
+        sarc_data,
         ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
-        start=options.start,
-        end=options.end,
+        start=survey_period_options.start,
+        end=survey_period_options.end,
         frame_size=(
             "MS"
-            if (_max_delta := (options.end - options.start)) > timedelta(days=30)
+            if (_max_delta := (survey_period_options.end - survey_period_options.start))
+            > timedelta(days=30)
             else _max_delta
         ),
     )
@@ -247,7 +261,6 @@ def main():
             stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
         )
     )
-    pd.set_option("display.float_format", lambda x: f"{x:.3f}")
 
     # gpu cost per month := GPU reserved (full-time) for a month.
     print("Usage per month")
@@ -264,7 +277,7 @@ def main():
         .sum()
         .to_markdown()
     )
-    plot_usage_per_month(stats, options)
+    plot_usage_per_month(stats, survey_period_options)
 
     if users:
         print(
@@ -291,47 +304,69 @@ def main():
     print("Done!")
 
 
-def compare_with_survey_data(survey_data_csv: Path):
-    sd = pd.read_csv(survey_data_csv, header=1)
-    print(sd)
+def compare_survey_data_with_sarc_data(
+    survey_data: pd.DataFrame, sarc_data: pd.DataFrame, options: Options
+): ...
 
-    users = (
-        sd["Email address"]
-        .dropna()
-        .map(lambda v: v.removesuffix("@mila.quebec"))
-        .unique()
-        .tolist()
+
+def _load_survey_data(survey_data_csv: Path) -> pd.DataFrame:
+    sd = pd.read_csv(survey_data_csv, header=1)
+    date_columns = [c for c in sd.columns if "Start date" in c or "End date" in c]
+    sd = sd.assign(
+        User=sd["Email address"].map(lambda v: v.removesuffix("@mila.quebec")),
+        **{
+            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
+            .dt.tz_localize("UTC")  # this gymnastic seems needed to get a datetime
+            .dt.tz_convert(MTL)
+            for c in date_columns
+        },
     )
-    start_date_columns = [c for c in sd.columns if c.startswith("Start date")]
-    end_date_columns = [c for c in sd.columns if c.startswith("End date")]
+    clusters_used_columns = [c for c in sd.columns if "Which clusters did you use" in c]
+    new_used_cluster_columns: dict[str, np.ndarray[tuple[int], np.dtype[np.bool]]] = {
+        c: np.zeros(len(sd), dtype=bool) for c in ALL_CLUSTERS
+    }
+    for cluster in ALL_CLUSTERS:
+        used_cluster = np.stack(
+            [
+                sd[column].map(
+                    lambda v: cluster in v.lower() if isinstance(v, str) else False
+                )
+                for column in clusters_used_columns
+            ]
+        ).any(0)
+        new_used_cluster_columns[cluster] = used_cluster
+    sd = sd.assign(
+        **{
+            f"{cluster}_used": cluster_was_used
+            for cluster, cluster_was_used in new_used_cluster_columns.items()
+        }
+    )
+    return sd
+
+
+def _get_options_that_cover_survey_period(sd: pd.DataFrame) -> Options:
+    users: list[str] = list(
+        set(
+            sd["Email address"]
+            .dropna()
+            .map(lambda v: v.removesuffix("@mila.quebec"))
+            .tolist()
+        )
+    )
     clusters_used_columns = [
         c
         for c in sd.columns
         if c.startswith("Which clusters did you use for these experiments?")
     ]
-    sd = sd.assign(
-        **{
-            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
-            .dt.tz_localize("UTC")
-            .dt.tz_convert(MTL)
-            for c in start_date_columns
-        },
-        **{
-            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
-            .dt.tz_localize("UTC")
-            .dt.tz_convert(MTL)
-            for c in end_date_columns
-        },
-    )
+
+    start_date_columns = [c for c in sd.columns if c.startswith("Start date")]
+    end_date_columns = [c for c in sd.columns if c.startswith("End date")]
 
     earliest_start_date: datetime = min(
         sd[c].dropna().min() for c in start_date_columns
     )
     latest_end_date: datetime = max(sd[c].dropna().max() for c in end_date_columns)
 
-    print(users)
-    print(f"{earliest_start_date=}")
-    print(f"{latest_end_date=}")
     # note: can contain things like 'mila, beluga' and 'other clusters' etc.
     known_clusters_used: set[str] = set()
     for column in clusters_used_columns:
@@ -341,15 +376,12 @@ def compare_with_survey_data(survey_data_csv: Path):
                 if cluster in cluster_used_entry.lower():
                     known_clusters_used.add(cluster)
     # clusters
-    options = Options(
+    return Options(
         user=users,
         start=earliest_start_date,
         end=latest_end_date,
-        clusters=known_clusters_used,
+        clusters=list(known_clusters_used),
     )
-    df = get_cleaned_df(options=options)
-    print(df)
-    breakpoint()
 
 
 def get_cleaned_df(options: Options) -> pd.DataFrame:
