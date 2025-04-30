@@ -2,16 +2,18 @@ import dataclasses
 import hashlib
 import json
 import logging
+import math
 import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Literal, Mapping
+from typing import Any, Callable, Generic, Literal, Mapping, Self, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rich
+import rich.layout
 import rich.logging
 import rich.panel
 import rich.pretty
@@ -190,17 +192,30 @@ class Options:
         alias=["-v", "--verbose"], action="count", default=0, hash=False, repr=False
     )
 
-    def get_users(self) -> list[str]:
+    def get_users(self, assume_mila_email: bool = False) -> list[str]:
         if self.users_file:
             assert not self.user, "can't use both user_file and users!"
-            return sorted(set(self.users_file.read_text().splitlines(keepends=False)))
-        return self.user
+            users = sorted(set(self.users_file.read_text().splitlines(keepends=False)))
+        else:
+            users = self.user
+        user_emails = []
+        for user in users:
+            if "@" in user:
+                user_emails.append(user.strip())
+            elif assume_mila_email:
+                user_emails.append(user.strip() + "@mila.quebec")
+            else:
+                raise ValueError(
+                    f"User '{user}' does not contain an email address. "
+                    "Please provide a valid email address or set `assume_mila_email=True`."
+                )
+        return user_emails
 
     def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
-        users = self.get_users()
+        user_emails = self.get_users()
         user_portion = (
-            hashlib.md5("+".join(sorted(users)).encode()).hexdigest()
-            if users is not None and len(users)
+            hashlib.md5("+".join(sorted(user_emails)).encode()).hexdigest()
+            if user_emails is not None and len(user_emails)
             else "all"
         )
         # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
@@ -236,42 +251,55 @@ def _setup_logging(verbose: int):
         logger.setLevel("DEBUG")
 
 
-def main():
-    survey_answers_csv = (
-        Path(__file__).parent / "Sondages - Compute Forecast - answers.csv"
-    )
-    survey_data, raw_survey_data = _load_survey_data(survey_answers_csv)
+T = TypeVar("T", int, float, timedelta)
 
+
+@dataclasses.dataclass(frozen=True)
+class Estimate(Generic[T]):
+    min: T
+    max: T
+
+    @property
+    def mean(self) -> T:
+        return (self.min + self.max) / 2
+
+    def __repr__(self) -> str:
+        return f"{self.mean} ± {(self.max - self.min) / 2}  [{self.min}, {self.max}]"
+
+    def __add__(self, other: Self) -> "Estimate[T]":
+        return Estimate(self.min + other.min, self.max + other.max)
+
+
+def main():
     # Can use the command-line flags to filter the sarc (and survey) data for a specific user.
     # Optionally filter the survey data (and sarc data) for a given user. Here we just reuse the Options class.
     filtering_options = simple_parsing.parse(Options)
     _setup_logging(filtering_options.verbose)
-    filtering_users = filtering_options.get_users()
+    filtering_user_emails = filtering_options.get_users(assume_mila_email=True)
 
-    if _users_without_email_suffix := [
-        user for user in filtering_users if "@" not in user
-    ]:
-        logger.warning(
-            f"Assuming that these users have mila email addresses: {_users_without_email_suffix}"
-        )
-        filtering_users = [
-            user.strip() + "@mila.quebec" if "@" not in user else user
-            for user in filtering_users
-        ]
-        filtering_options = dataclasses.replace(
-            filtering_options, user=filtering_users, users_file=None
-        )
+    survey_answers_csv = (
+        Path(__file__).parent / "Sondages - Compute Forecast - answers.csv"
+    )
+    # TODO: get the survey answers programmatically (need to setup google Oauth)
+    # import gspread
+    # gc = gspread.oauth()
+    # sh = gc.open(options.papers)
+    # papers = pd.DataFrame(sh.worksheet("answers").get_all_records())
 
+    survey_data, raw_survey_data = _load_survey_data(survey_answers_csv)
     # Gets the sarc data to cover all users and data ranges and clusters mentioned in the survey.
     overall_survey_period_options = _get_options_that_cover_survey_period(survey_data)
     rich.print("Overall survey period, users, and clusters: ")
     rich.pretty.pprint(overall_survey_period_options)
-
     all_sarc_data = get_cleaned_df(overall_survey_period_options)
 
-    if filtering_users:
-        survey_data = _filter_survey_data_by_users(survey_data, filtering_users)
-        raw_survey_data = _filter_survey_data_by_users(raw_survey_data, filtering_users)
+    if filtering_user_emails:
+        raw_survey_data = _filter_survey_data_by_users(
+            raw_survey_data, user_emails=filtering_user_emails
+        )
+        survey_data = _filter_survey_data_by_users(
+            survey_data, user_emails=filtering_user_emails
+        )
 
     survey_entries = survey_data.to_dict(orient="records")
     raw_survey_entries = raw_survey_data.to_dict(orient="records")
@@ -279,21 +307,19 @@ def main():
         len(survey_entries),
         len(raw_survey_entries),
     )
-    n_gpus_per_entry: list[float] = []
+
+    annotated_gpu_hour_estimates_per_user_per_entry: list[dict[str, Estimate]] = []
     for i, (survey_entry, raw_survey_entry) in enumerate(
         zip(survey_entries, raw_survey_entries)
     ):
-        print(f"Survey entry #{i}")
-        display_survey_entry(survey_entry)
-
         survey_entry_df = survey_data.iloc[[i]]
 
-        # TODO: Display the data nicely and create some interactive prompt to enter how many GPUS were used.
-        # TODO: To avoid having to re-enter some previously annotated data, could use the cache dir and a flag to clear the cache.
-        n_gpus = rich.prompt.FloatPrompt.ask(
-            "Roughly how many GPU*hours were used in total?"
-        )
-        n_gpus_per_entry.append(n_gpus)
+        print(f"Survey entry #{i}")
+        # Display the data nicely so that it can be read as part of the interactive prompt below.
+        display_survey_entry(survey_entry)
+
+        # To avoid having to re-enter some previously annotated data, we use the cache dir and maybe
+        # a flag to clear the cache.
 
         survey_entry_period_options = _get_options_that_cover_survey_period(
             survey_entry_df
@@ -312,26 +338,169 @@ def main():
                 survey_entry_period_options, end=overall_survey_period_options.end
             )
 
-        print(f"Survey entry period: {survey_entry_period_options}")
-        sarc_data_1 = _filter_sarc_data(
-            all_sarc_data_cleaned=all_sarc_data, filtering_options=filtering_options
+        logger.debug(f"Survey entry period: {survey_entry_period_options}")
+        sarc_data_for_this_survey_entry_period = _filter_sarc_data(
+            all_sarc_data,
+            filtering_options=survey_entry_period_options,
         )
-        sarc_data_2 = get_cleaned_df(
-            dataclasses.replace(
-                survey_entry_period_options,
-                user=filtering_options.user,
-            )
-        )
-        print(sarc_data_1)
-        print(sarc_data_2)
-        breakpoint()
 
-        _show_plots(sarc_data_1, survey_entry_period_options)
+        gpu_hours_estimates = extract_gpu_hours_from_survey_entry(survey_entry)
+        print(
+            f"Estimated gpu*hours extracted from the survey answers: {gpu_hours_estimates}"
+        )
+        # TODO: Do we actually want to add a more precise estimate manually?
+        if manual_gpu_hours_annotation := get_existing_annotation(
+            survey_entry, cache_dir=filtering_options.cache_dir
+        ):
+            print(f"Previous annotation: {manual_gpu_hours_annotation}")
+            if not rich.prompt.Confirm.ask("Keep the existing annotation?"):
+                manual_gpu_hours_annotation = get_estimate_from_user(
+                    survey_entry, manual_gpu_hours_annotation
+                )
+        elif rich.prompt.Confirm.ask("Adjust the value manually?"):
+            manual_gpu_hours_annotation = get_estimate_from_user(
+                survey_entry, previous_annotation=manual_gpu_hours_annotation
+            )
+
+        if manual_gpu_hours_annotation is not None:
+            save_annotation(
+                survey_entry,
+                annotation=manual_gpu_hours_annotation,
+                cache_dir=filtering_options.cache_dir,
+            )
+        else:
+            manual_gpu_hours_annotation = gpu_hours_estimates
+
+        annotated_gpu_hour_estimates_per_user_per_entry.append(
+            manual_gpu_hours_annotation
+        )
+
+        # Idea: Annotate the plots with the data from the survey. (TODO: How?)
+        stats = get_stats(
+            sarc_data_for_this_survey_entry_period,
+            survey_entry_period_options,
+        )
+        resource_hours = (
+            stats.groupby("user.mila.email")[
+                [
+                    # "cpu_billed",
+                    # "cpu_cost",
+                    # "cpu_equivalent_cost",
+                    "gpu_billed",
+                    "gpu_cost",
+                    "gpu_equivalent_cost",
+                ]
+            ].sum()
+            / 3600
+        )
+        print("Total usage (resource*hours) for those users over that period:")
+        print(resource_hours.to_markdown())
+        # print("Usage per month")
+        # usage_per_month = _get_cost_per_month_per_year_unclear(
+        #     stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        # )
+        # print(usage_per_month.to_markdown())
+
+        # print("Total per cluster: ")
+        # print(
+        #     (
+        #         stats.groupby(["cluster_name", "timestamp"])[
+        #             ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+        #         ].sum()
+        #         / seconds_in_a_year
+        #     )
+        #     .reset_index()
+        #     .pivot(index="timestamp", columns="cluster_name"),
+        # )
+
+        # _show_plots(sarc_data_for_this_survey_entry_period, survey_entry_period_options)
         if not rich.prompt.Confirm.ask("Keep going?"):
             break
 
 
-def display_survey_entry(survey_entry: dict):
+def get_estimate_from_user(
+    survey_entry: dict, previous_annotation: dict[str, Estimate] | None
+) -> dict[str, Estimate]:
+    previous_annotation = previous_annotation or {}
+    # todo: Need to set a value for each of the authors.
+    authors = sorted(
+        set(
+            _author
+            for k, v in survey_entry.items()
+            if "Email" in k and (_author := _none_if_nan(v)) is not None
+        )
+    )
+    annotations_per_author: dict[str, Estimate] = {}
+    for author in authors:
+        existing_estimate = previous_annotation.get(author)
+
+        min_gpu_hours = rich.prompt.FloatPrompt(
+            "What is the [bold]minimum[/bold] GPU*hour given the above data?"
+        )(default=existing_estimate.min if existing_estimate else None)
+        assert isinstance(min_gpu_hours, float)
+
+        max_gpu_hours = rich.prompt.FloatPrompt(
+            "What is the [bold]maximum[/bold] GPU*hour given the above data?"
+        )(default=existing_estimate.max if existing_estimate else min_gpu_hours)
+        assert isinstance(max_gpu_hours, float)
+        assert max_gpu_hours >= min_gpu_hours
+
+        annotation = Estimate(min=min_gpu_hours, max=max_gpu_hours)
+
+        assert author not in annotations_per_author
+        annotations_per_author[author] = annotation
+    return annotations_per_author
+
+
+def get_existing_annotation(
+    survey_entry: dict, cache_dir: Path
+) -> dict[str, Estimate] | None:
+    """Gets the existing annotation for a given survey entry.
+
+    The annotation is stored in a file named after the survey entry's hash.
+    """
+    annotation_file = get_annotation_cache_file(survey_entry, cache_dir)
+    if annotation_file.exists():
+        with open(annotation_file, "r") as f:
+            data = yaml.safe_load(f)
+            return {k: Estimate(**v) for k, v in data.items()}
+    return None
+
+
+def save_annotation(
+    survey_entry: dict, annotation: dict[str, Estimate], cache_dir: Path
+) -> None:
+    """Saves the annotation for a given survey entry.
+
+    The annotation is stored in a file named after the survey entry's hash.
+    """
+    annotation_file = get_annotation_cache_file(survey_entry, cache_dir)
+    with open(annotation_file, "w") as f:
+        yaml.safe_dump({k: dataclasses.asdict(v) for k, v in annotation.items()}, f)
+
+
+def _serialize_survey_entry(survey_entry: dict) -> dict:
+    return {
+        k: (str(v) if isinstance(v, pd.Timestamp) else v if not pd.isna(v) else None)
+        for k, v in survey_entry.items()
+    }
+
+
+def get_annotation_cache_file(survey_entry: dict, cache_dir: Path):
+    serialized_survey_entry = _serialize_survey_entry(survey_entry)
+    for k, v in serialized_survey_entry.items():
+        try:
+            json.dumps(v)
+        except TypeError:
+            breakpoint()
+    survey_entry_hash = hashlib.md5(
+        json.dumps(serialized_survey_entry).encode()
+    ).hexdigest()
+    annotation_file = cache_dir / f"annotation_{survey_entry_hash}.yaml"
+    return annotation_file
+
+
+def display_survey_entry(survey_entry: dict[str, Any]):
     values = _drop_na_values(survey_entry)
     rich.print(
         rich.panel.Panel(
@@ -345,8 +514,151 @@ def display_survey_entry(survey_entry: dict):
             )
         )
     )
+    return
+    numbered_sections = [f".{i}" for i in range(1, 10)]
+    panels: list[rich.panel.Panel] = [
+        # All answers that don't end with a numbered suffix:
+        rich.panel.Panel(
+            rich.pretty.pretty_repr(
+                {
+                    k: v
+                    if isinstance(v, str) and len(v) >= 30
+                    else rich.pretty.pretty_repr(v)
+                    for k, v in values.items()
+                    if not any(
+                        k.endswith(section_suffix)
+                        for section_suffix in numbered_sections
+                    )
+                }
+            )
+        )
+    ]
+    # All other sections, each in a different sub-panel
+    section_data = [
+        {
+            k: v if isinstance(v, str) and len(v) >= 30 else rich.pretty.pretty_repr(v)
+            for k, v in values.items()
+            if k.endswith(section_suffix)
+        }
+        for section_suffix in numbered_sections
+    ]
+    panels += [
+        rich.panel.Panel(rich.pretty.pretty_repr(section_data_i))
+        for section_data_i in section_data
+        if section_data_i
+    ]
+    layout = rich.layout.Layout()
+    layout.split_column(*[rich.layout.Layout(panel) for panel in panels])
+    rich.print(layout)
 
-    # rich.pretty.pprint()
+
+def extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimate]:
+    """Gets the sum of the estimated GPU*hours from a survey entry.
+
+    returns the minimum and maximum values for the sum of the
+    "Number of slurm jobs" * "Average running time per job" * "Number of GPUs per experiment" * "Average GPU-utilization" columns.
+    """
+    usage_per_user: dict[str, Estimate] = {}
+
+    number_of_jobs_map: dict[str, tuple[float, float]] = {
+        "100 or less": (0, 100),
+        "(100, 500]": (100, 500),
+        "(500, 1000]": (500, 1000),
+        "(1000, 2000]": (1000, 2000),
+        "(2000, 5000]": (2000, 5000),
+        "(5000, 10000]": (5000, 10_000),
+        "more than 10000": (
+            10_000,
+            20_000,  # todo: what to use as a maximum estimate in this case?
+        ),
+    }
+    running_time_map: dict[str, tuple[timedelta, timedelta]] = {
+        "3h or less": (timedelta(0), timedelta(hours=3)),
+        "(3h, 12h]": (timedelta(hours=3), timedelta(hours=12)),
+        "(12h, 24h]": (timedelta(hours=12), timedelta(hours=24)),
+        "(24h, 48h]": (timedelta(hours=24), timedelta(hours=48)),
+    }
+
+    section_suffixes = ["", *[f".{i}" for i in range(1, 10)]]
+    for section_index, section_suffix in enumerate(section_suffixes):
+        # note: Seems to always be filled, with `nan` when missing (not None)
+        author: str | None = _none_if_nan(
+            survey_entry[
+                f"Email of the co-author who ran these experiments{section_suffix}"
+            ]
+        )
+        number_of_jobs: str | None = _none_if_nan(
+            survey_entry[f"Number of slurm jobs{section_suffix}"]
+        )
+        running_time: str | None = _none_if_nan(
+            survey_entry[f"Average running time per slurm job{section_suffix}"]
+        )
+        gpus_per_job: str | None = _none_if_nan(
+            survey_entry[f"Number of GPUs per experiment{section_suffix}"]
+        )
+
+        average_gpu_util: str | None = _none_if_nan(
+            survey_entry[f"Average GPU-utilization{section_suffix}"]
+        )
+
+        if any([author, number_of_jobs, running_time, gpus_per_job, average_gpu_util]):
+            logger.debug(
+                f"Raw answers for section {section_index}: "
+                f"{author=}, {number_of_jobs=}, {running_time=}, {gpus_per_job=}, {average_gpu_util=}"
+            )
+
+        if (
+            number_of_jobs is not None
+            and running_time is not None
+            and gpus_per_job is not None
+        ):
+            # Assume that if the "author" field in a group isn't filled, it's the user that is answering the form.
+            author = author or survey_entry["Email address"]
+            gpus_per_job = int(gpus_per_job)
+            number_of_jobs_min, number_of_jobs_max = number_of_jobs_map[number_of_jobs]
+            running_time_min, running_time_max = running_time_map[running_time]
+            if average_gpu_util is None:
+                # todo: use the user's average util from SARC maybe?
+                average_gpu_util = 0.5
+            else:
+                average_gpu_util = float(average_gpu_util) / 10.0
+
+            minimum_gpu_hours = (
+                number_of_jobs_min
+                * gpus_per_job
+                * (running_time_min.total_seconds() / 3600)
+                * average_gpu_util
+            )
+            maximum_gpu_hours = (
+                number_of_jobs_max
+                * gpus_per_job
+                * (running_time_max.total_seconds() / 3600)
+                * average_gpu_util
+            )
+            if existing_entry := usage_per_user.get(author):
+                usage_per_user[author] = existing_entry + Estimate(
+                    min=minimum_gpu_hours, max=maximum_gpu_hours
+                )
+            else:
+                usage_per_user[author] = Estimate(
+                    min=minimum_gpu_hours, max=maximum_gpu_hours
+                )
+        else:
+            # dont' allow sparse entries for now.
+            assert (
+                number_of_jobs is None and running_time is None and gpus_per_job is None
+            ), (author, number_of_jobs, running_time, gpus_per_job)
+    return usage_per_user
+
+
+def _none_if_nan(v: T) -> T | None:
+    try:
+        float_v = float(v)  # type: ignore
+        if math.isnan(float_v):
+            return None
+    except ValueError:
+        pass
+    return v
 
 
 def _drop_na_values(d: Mapping):
@@ -354,9 +666,9 @@ def _drop_na_values(d: Mapping):
 
 
 def _filter_survey_data_by_users(
-    survey_data: pd.DataFrame, users: list[str]
+    survey_data: pd.DataFrame, user_emails: list[str]
 ) -> pd.DataFrame:
-    users = list(map(_check_is_email_and_lower, users))
+    user_emails = list(map(_check_is_email_and_lower, user_emails))
 
     email_columns = [c for c in survey_data.columns if "Email" in c]
     mask = np.zeros(len(survey_data), dtype=bool)
@@ -365,7 +677,7 @@ def _filter_survey_data_by_users(
             survey_data[col]
             .where(pd.notna, other="")
             .map(_check_is_email_and_lower)
-            .isin(users)
+            .isin(user_emails)
         )
     return survey_data[mask]
 
@@ -394,7 +706,37 @@ def _check_is_email_and_lower(v: str):
     # df = get_cleaned_df(options)
 
 
-def _show_plots(sarc_data: pd.DataFrame, options: Options):
+def _display_data(sarc_data: pd.DataFrame, options: Options):
+    # TODO: Somehow Update the plots instead of recreating them if they are already opened
+    stats = get_stats(sarc_data, options)
+    # gpu cost per month := GPU reserved (full-time) for a month.
+    print("Usage per month")
+    usage_per_month = _get_cost_per_month_per_year_unclear(
+        stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
+    )
+    print(usage_per_month.to_markdown())
+    print("Total: ")
+    print(usage_per_month.sum().to_markdown())
+
+    print("Resource*Years:")
+    resource_years = (
+        stats.groupby("user.mila.email")[
+            [
+                "cpu_billed",
+                "cpu_cost",
+                "cpu_equivalent_cost",
+                "gpu_billed",
+                "gpu_cost",
+                "gpu_equivalent_cost",
+            ]
+        ].sum()
+        / seconds_in_a_year
+    )
+    print(resource_years.to_markdown())
+    return stats
+
+
+def get_stats(sarc_data: pd.DataFrame, options: Options):
     stats = compute_time_frames(
         sarc_data,
         ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
@@ -412,34 +754,7 @@ def _show_plots(sarc_data: pd.DataFrame, options: Options):
         )
     )
 
-    # gpu cost per month := GPU reserved (full-time) for a month.
-    print("Usage per month")
-    _usage_per_month = _get_cost_per_month_per_year_unclear(
-        stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-    )
-    print(_usage_per_month.to_markdown())
-    print("Total: ")
-    print(_usage_per_month.sum().to_markdown())
-    plot_usage_per_month(stats, options)
-
-    print("Resource*Years:")
-    resource_years = (
-        stats.groupby("user.mila.email")[
-            [
-                "cpu_billed",
-                "cpu_cost",
-                "cpu_equivalent_cost",
-                "gpu_billed",
-                "gpu_cost",
-                "gpu_equivalent_cost",
-            ]
-        ].sum()
-        / seconds_in_a_year
-    )
-    print(resource_years.to_markdown())
-
-    # merged_cpu, merged_gpu = validate_with_CCDB(stats)
-    # print(f"Total usage (GPU):\n{merged_gpu.sum()}")
+    return stats
 
 
 def compare_survey_data_with_sarc_data(
@@ -484,14 +799,13 @@ def _load_survey_data(survey_data_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame
 
 
 def _get_options_that_cover_survey_period(sd: pd.DataFrame) -> Options:
-    users: list[str] = list(
-        set(
-            sd["Email address"]
-            .dropna()
-            .map(lambda v: v.removesuffix("@mila.quebec"))
-            .tolist()
-        )
-    )
+    email_columns = [c for c in sd.columns if "Email" in c]
+    users: set[str] = set()
+    for email_column in email_columns:
+        _users = set(sd[email_column].dropna().tolist())
+        users |= _users
+    users = sorted(users)
+
     clusters_used_columns = [
         c
         for c in sd.columns
@@ -524,8 +838,17 @@ def _get_options_that_cover_survey_period(sd: pd.DataFrame) -> Options:
 
 
 def get_cleaned_df(options: Options) -> pd.DataFrame:
+    """Gets "cleaned" SARC data for a given period.
+
+    Included patches:
+    1.
+
+    """
     cache_file = options.unique_path()
-    users = options.get_users()
+    user_emails = options.get_users(assume_mila_email=True)
+    assert all(map(_check_is_email_and_lower, user_emails))
+
+    users = [user.partition("@")[0] for user in user_emails]
 
     print(
         f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'}"
@@ -537,7 +860,9 @@ def get_cleaned_df(options: Options) -> pd.DataFrame:
     elif (
         options.user
         and (
-            all_users_cache_file := dataclasses.replace(options, user=[]).unique_path()
+            all_users_cache_file := dataclasses.replace(
+                options, user=[], users_file=None
+            ).unique_path()
         ).exists()
     ):
         logger.info(
@@ -564,19 +889,17 @@ def get_cleaned_df(options: Options) -> pd.DataFrame:
         df[time_column] = df[time_column].dt.tz_convert(MTL)
 
     validate_gpu_ram()
-    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
-    df = fix_lost_jobs(df)
-    df = fix_unaligned_cache(df, options.start, options.end)
-    df = remove_old_nodes(df)
-    df = replace_outlier_stats_with_na(df)
 
     # Clusters we want to compare
     if options.clusters:
         # Filter clusters
         df = df[df["cluster_name"].isin(options.clusters)]
 
-    assert isinstance(df, pd.DataFrame)
-
+    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
+    df = fix_lost_jobs(df)
+    df = fix_unaligned_cache(df, options.start, options.end)
+    df = remove_old_nodes(df)
+    df = replace_outlier_stats_with_na(df)
     df = fix_missing_gpu_type(df)
 
     fix_rgu_discrepencies(df)
@@ -949,7 +1272,6 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
             & df["allocated.gpu_type"].isnull()
         )
         # NOTE: We assume uniformity of gpu types on all nodes
-
         nodes = df[non_mapped_gpu_types_mask]["nodes"].str[0]
         # NOTE: some nodes don't have GPUs, so we have 'allocated.gpu_type' set to `None` in that case.
         mapping = {node: node_to_gpu.get(node) for node in nodes.unique()}
@@ -1049,6 +1371,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
         # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
         update_cluster_job_series_rgu(df, cluster_config)
 
+    # TODO: isn't this supposed to be fixed in SARC? Why do we need this mapping here?
     gpu_to_rgu_billing = {
         "a100-40gb": 700,
         "a100-40gb-3g.20gb": 1714.29 / 4000 * 700,
@@ -1058,9 +1381,6 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
         gpu_to_rgu_billing
     )
     df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
-    df.loc[slice_during_rgu_time, "allocated.gres_rgu"] = non_updated_df[
-        "allocated.gres_gpu"
-    ]
     # todo: warning about type non-compatible with int64.
     df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
         non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
@@ -1086,8 +1406,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
 def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str | list[str]):
     # This does some sort of normalizing of the usage data from SARC so it's
     # comparable with the data on the CCDB website.
-    # Need to clarify again a bit with Xavier.
-    # cost per month :=
+    # Need to clarify again a bit with Xavier what the units are in here.
     cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
     return (
         (cost_per_month / seconds_in_a_year)
