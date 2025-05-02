@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import hashlib
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Generic, Literal, Mapping, Self, TypeVar
+from typing import Callable, Generic, Mapping, Self, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,7 +20,6 @@ import rich.panel
 import rich.pretty
 import rich.prompt
 import rich.text
-import seaborn as sns
 import simple_parsing
 import yaml
 
@@ -157,6 +157,7 @@ def _get_survey_answers_csv(google_sheets_url: str) -> pd.DataFrame:
     raise NotImplementedError("TODO")
 
 
+@functools.total_ordering
 @dataclasses.dataclass(frozen=True, unsafe_hash=True)
 class Options:
     """Configuration options for this script."""
@@ -177,10 +178,9 @@ class Options:
     """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
     users_file: Path | None = dataclasses.field(default=None, repr=False)
-    # clusters: list[str] = dataclasses.field(default_factory=list)
-    # """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
     clusters: list[str] = dataclasses.field(default_factory=list)
+    """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
     cache_dir: Path = dataclasses.field(
         default=Path(os.environ.get("SCRATCH", tempfile.gettempdir())),
@@ -234,6 +234,47 @@ class Options:
             / f"compute_profile-{user_portion}-{start_portion}-{end_portion}-{label}"
         ).with_suffix(extension)
 
+    def __eq__(self, other: object) -> bool:
+        """Returns whether this filter is equal to the other."""
+        if not isinstance(other, Options):
+            return NotImplemented
+        return (
+            self.start == other.start
+            and self.end == other.end
+            and set(self.user) == set(other.user)
+            and set(self.clusters) == set(other.clusters)
+        )
+
+    def __lt__(self, other: Self) -> bool:
+        """Returns whether this filter is strictly more restrictive than the other."""
+        if not isinstance(other, Options):
+            return NotImplemented
+        self_users = self.get_users(assume_mila_email=True)
+        other_users = other.get_users(assume_mila_email=True)
+        if self_users == [] and other_users != []:
+            # This filter matches all users while the other one doesn't.
+            return False
+        if self_users != [] and other_users == []:
+            # Pretend that the other filter matches one more user than this one,
+            # to make the comparison below cleaner.
+            other_users = self_users + ["some_random_user_that_isnt_in_self"]
+        self_clusters = sorted(set(self.clusters))
+        other_clusters = sorted(set(other.clusters))
+        if self_clusters == [] and other_clusters != []:
+            # This filter matches all clusters while the other one doesn't.
+            return False
+        if self_clusters != [] and other_clusters == []:
+            # Pretend that the other filter matches one more cluster than this one,
+            # to make the comparison below cleaner.
+            other_clusters = self_clusters + ["some_random_cluster_that_isnt_in_self"]
+
+        return (
+            (other.start < self.start)
+            and (self.end < other.end)
+            and (set(self_users) < set(other_users))
+            and (set(self.clusters) < set(other.clusters))
+        )
+
 
 def _setup_logging(verbose: int):
     logging.basicConfig(
@@ -271,6 +312,7 @@ class Estimate(Generic[T]):
 
 
 def main():
+    interactive = False
     # Can use the command-line flags to filter the sarc (and survey) data for a specific user.
     # Optionally filter the survey data (and sarc data) for a given user. Here we just reuse the Options class.
     filtering_options = simple_parsing.parse(Options)
@@ -291,7 +333,7 @@ def main():
     overall_survey_period_options = _get_options_that_cover_survey_period(survey_data)
     rich.print("Overall survey period, users, and clusters: ")
     rich.pretty.pprint(overall_survey_period_options)
-    all_sarc_data = get_cleaned_df(overall_survey_period_options)
+    all_sarc_data = _get_cleaned_df(overall_survey_period_options)
 
     if filtering_user_emails:
         raw_survey_data = _filter_survey_data_by_users(
@@ -307,23 +349,25 @@ def main():
         len(survey_entries),
         len(raw_survey_entries),
     )
-
+    kept_survey_entries: list[dict] = []
     annotated_gpu_hour_estimates_per_user_per_entry: list[dict[str, Estimate]] = []
-    for i, (survey_entry, raw_survey_entry) in enumerate(
+    survey_entry_filters: list[Options] = []
+    for i, (answers_dict, _raw_survey_entry) in enumerate(
         zip(survey_entries, raw_survey_entries)
     ):
         survey_entry_df = survey_data.iloc[[i]]
-
-        print(f"Survey entry #{i}")
-        # Display the data nicely so that it can be read as part of the interactive prompt below.
-        display_survey_entry(survey_entry)
-
-        # To avoid having to re-enter some previously annotated data, we use the cache dir and maybe
-        # a flag to clear the cache.
-
+        # Get a filter based on the survey entry content, that can be used to query (or filter) the SARC data.
         survey_entry_period_options = _get_options_that_cover_survey_period(
             survey_entry_df
         )
+
+        print(f"Survey entry #{i}")
+        # Display the data nicely so that it can be read as part of the interactive prompt below.
+        if interactive:
+            _display_survey_entry(answers_dict)
+
+        # To avoid having to re-enter some previously annotated data, we use the cache dir and maybe
+        # a flag to clear the cache.
 
         # todo: The start / end dates are sometimes missing for a given survey entry.
         # TODO: Select some start data from either SARC or the survey data.
@@ -337,88 +381,159 @@ def main():
             survey_entry_period_options = dataclasses.replace(
                 survey_entry_period_options, end=overall_survey_period_options.end
             )
-
         logger.debug(f"Survey entry period: {survey_entry_period_options}")
-        sarc_data_for_this_survey_entry_period = _filter_sarc_data(
-            all_sarc_data,
-            filtering_options=survey_entry_period_options,
-        )
 
-        gpu_hours_estimates = extract_gpu_hours_from_survey_entry(survey_entry)
-        print(
-            f"Estimated gpu*hours extracted from the survey answers: {gpu_hours_estimates}"
-        )
+        gpu_hours_estimates = _extract_gpu_hours_from_survey_entry(answers_dict)
+        if interactive:
+            print(
+                f"Estimated gpu*hours extracted from the survey answers: {gpu_hours_estimates}"
+            )
         # TODO: Do we actually want to add a more precise estimate manually?
-        if manual_gpu_hours_annotation := get_existing_annotation(
-            survey_entry, cache_dir=filtering_options.cache_dir
+        if manual_gpu_hours_annotation := _get_existing_annotation(
+            answers_dict, cache_dir=filtering_options.cache_dir
         ):
-            print(f"Previous annotation: {manual_gpu_hours_annotation}")
-            if not rich.prompt.Confirm.ask("Keep the existing annotation?"):
-                manual_gpu_hours_annotation = get_estimate_from_user(
-                    survey_entry, manual_gpu_hours_annotation
+            if interactive:
+                print(f"Previous annotation: {manual_gpu_hours_annotation}")
+            if interactive and not rich.prompt.Confirm.ask(
+                "Keep the existing annotation?"
+            ):
+                manual_gpu_hours_annotation = _get_estimate_from_user(
+                    answers_dict, manual_gpu_hours_annotation
                 )
-        elif rich.prompt.Confirm.ask("Adjust the value manually?"):
-            manual_gpu_hours_annotation = get_estimate_from_user(
-                survey_entry, previous_annotation=manual_gpu_hours_annotation
+        elif interactive and rich.prompt.Confirm.ask("Adjust the value manually?"):
+            manual_gpu_hours_annotation = _get_estimate_from_user(
+                answers_dict, previous_annotation=manual_gpu_hours_annotation
             )
 
         if manual_gpu_hours_annotation is not None:
-            save_annotation(
-                survey_entry,
+            _save_annotation(
+                answers_dict,
                 annotation=manual_gpu_hours_annotation,
                 cache_dir=filtering_options.cache_dir,
             )
         else:
             manual_gpu_hours_annotation = gpu_hours_estimates
 
+        sarc_data_for_this_paper = _filter_sarc_data(
+            all_sarc_data,
+            filtering_options=survey_entry_period_options,
+        )
+
+        if not len(sarc_data_for_this_paper):
+            logger.error(
+                RuntimeError(
+                    f"There is apparently no data in SARC covering the survey "
+                    f"entry #{i} for the paper '{answers_dict['Paper Title']}'!\n"
+                    f"(Filter used for that entry: {survey_entry_period_options})"
+                ),
+                extra={"style": "bold red"},
+            )
+            continue
+            # breakpoint()
+
+        kept_survey_entries.append(answers_dict)
+        survey_entry_filters.append(survey_entry_period_options)
+        # sarc_data_per_survey_entry.append(resource_hours_by_user_and_workdir)
         annotated_gpu_hour_estimates_per_user_per_entry.append(
             manual_gpu_hours_annotation
         )
 
-        # Idea: Annotate the plots with the data from the survey. (TODO: How?)
-        stats = get_stats(
-            sarc_data_for_this_survey_entry_period,
-            survey_entry_period_options,
+    logger.info(
+        f"{len(kept_survey_entries)} out of {len(survey_entries)} survey answers had associated data in SARC"
+    )
+    # Idea: Annotate the plots with the data from the survey. (TODO: How?)
+    # sarc_data_per_entry = pd.concat(sarc_data_per_survey_entry)
+
+    comparison_df_data: dict[str, pd.DataFrame] = {}
+    for i, (answers_dict, entry_filter, estimated_usage_from_answers) in enumerate(
+        zip(
+            kept_survey_entries,
+            survey_entry_filters,
+            # sarc_data_per_survey_entry,
+            annotated_gpu_hour_estimates_per_user_per_entry,
         )
-        resource_hours = (
-            stats.groupby("user.mila.email")[
+    ):
+        sarc_data_for_this_paper = _filter_sarc_data(all_sarc_data, entry_filter)
+        usage_stats = _get_stats(sarc_data_for_this_paper, entry_filter)
+
+        usage_by_user = (
+            usage_stats.groupby(["user.mila.email"])[
                 [
                     # "cpu_billed",
-                    # "cpu_cost",
+                    "cpu_cost",
                     # "cpu_equivalent_cost",
-                    "gpu_billed",
+                    # "gpu_billed",
                     "gpu_cost",
-                    "gpu_equivalent_cost",
+                    # "gpu_equivalent_cost",
+                    # "rgu_equivalent_cost",
                 ]
-            ].sum()
-            / 3600
+            ]
+            .sum()
+            .divide(3600)
         )
-        print("Total usage (resource*hours) for those users over that period:")
-        print(resource_hours.to_markdown())
-        # print("Usage per month")
-        # usage_per_month = _get_cost_per_month_per_year_unclear(
-        #     stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-        # )
-        # print(usage_per_month.to_markdown())
+        # print(f"What they say they used:")
+        usage_by_user = usage_by_user.assign(
+            survey_answers_min=pd.Series(
+                {k: v.min for k, v in estimated_usage_from_answers.items()}
+            ),
+            survey_answers_max=pd.Series(
+                {k: v.max for k, v in estimated_usage_from_answers.items()}
+            ),
+        )
+        comparison_df_data[answers_dict["Paper Title"]] = usage_by_user
 
-        # print("Total per cluster: ")
-        # print(
-        #     (
-        #         stats.groupby(["cluster_name", "timestamp"])[
-        #             ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-        #         ].sum()
-        #         / seconds_in_a_year
-        #     )
-        #     .reset_index()
-        #     .pivot(index="timestamp", columns="cluster_name"),
-        # )
+        logger.debug(
+            "SARC data vs survey answers for entry #%s} (NOTE: SARC data may include other projects!):\n%s",
+            i,
+            usage_by_user.to_markdown(),
+        )
 
-        # _show_plots(sarc_data_for_this_survey_entry_period, survey_entry_period_options)
-        if not rich.prompt.Confirm.ask("Keep going?"):
-            break
+        # TODO: Ask users which directory (given a list) they
+        k = 5
+        logger.info(
+            "Top %s directories where most compute was allocated for that entry period:\n%s",
+            k,
+            usage_stats.groupby(["user.mila.email", "work_dir"])[
+                ["cpu_cost", "gpu_cost"]
+            ]
+            .sum()
+            .divide(3600)
+            .nlargest(k, "gpu_cost")
+            .to_markdown(),
+        )
+        logger.debug(
+            "Top %s job names where most compute was allocated for that entry period: \n%s",
+            k,
+            usage_stats.groupby(["user.mila.email", "name"])[["cpu_cost", "gpu_cost"]]
+            .sum()
+            .divide(3600)
+            .nlargest(k, "gpu_cost")
+            .to_markdown(),
+        )
+
+    comparison_df = pd.concat(
+        comparison_df_data, names=["Paper Title", "user.mila.email"]
+    )
+    comparison_df = comparison_df.rename(
+        {"cpu_cost": "cpu_hours", "gpu_cost": "gpu_hours"}, axis=1
+    )
+    # comparison_df.groupby("user.mila.email").sum().plot.hist()
+    plt.show()
+    comparison_df.to_csv("comparison.csv")
+
+    # class SarcData
+    # reordered_data = {}
+    # for i, survey_entry in enumerate(survey_entries):
+    # Example:
+    # {'gpu_billed': {'farzaneh.heidari@mila.quebec': 4.722777777777778}, 'gpu_cost': {'farzaneh.heidari@mila.quebec': 4.722777777777778}, 'gpu_equivalent_cost': {'farzaneh.heidari@mila.quebec': 4.722777777777778}}
+
+    # gpu_billed_per_user[survey_entry["Email address"]] = sarc_data_per_user_entry[i]
+    # sarc_data_per_entry.assign(
+    #     survey_min=annotated_gpu_hour_estimates_per_user_per_entry,
+    # )
 
 
-def get_estimate_from_user(
+def _get_estimate_from_user(
     survey_entry: dict, previous_annotation: dict[str, Estimate] | None
 ) -> dict[str, Estimate]:
     previous_annotation = previous_annotation or {}
@@ -452,14 +567,14 @@ def get_estimate_from_user(
     return annotations_per_author
 
 
-def get_existing_annotation(
+def _get_existing_annotation(
     survey_entry: dict, cache_dir: Path
 ) -> dict[str, Estimate] | None:
     """Gets the existing annotation for a given survey entry.
 
     The annotation is stored in a file named after the survey entry's hash.
     """
-    annotation_file = get_annotation_cache_file(survey_entry, cache_dir)
+    annotation_file = _get_annotation_cache_file(survey_entry, cache_dir)
     if annotation_file.exists():
         with open(annotation_file, "r") as f:
             data = yaml.safe_load(f)
@@ -467,14 +582,14 @@ def get_existing_annotation(
     return None
 
 
-def save_annotation(
+def _save_annotation(
     survey_entry: dict, annotation: dict[str, Estimate], cache_dir: Path
 ) -> None:
     """Saves the annotation for a given survey entry.
 
     The annotation is stored in a file named after the survey entry's hash.
     """
-    annotation_file = get_annotation_cache_file(survey_entry, cache_dir)
+    annotation_file = _get_annotation_cache_file(survey_entry, cache_dir)
     with open(annotation_file, "w") as f:
         yaml.safe_dump({k: dataclasses.asdict(v) for k, v in annotation.items()}, f)
 
@@ -486,7 +601,7 @@ def _serialize_survey_entry(survey_entry: dict) -> dict:
     }
 
 
-def get_annotation_cache_file(survey_entry: dict, cache_dir: Path):
+def _get_annotation_cache_file(survey_entry: dict, cache_dir: Path):
     serialized_survey_entry = _serialize_survey_entry(survey_entry)
     for k, v in serialized_survey_entry.items():
         try:
@@ -500,7 +615,7 @@ def get_annotation_cache_file(survey_entry: dict, cache_dir: Path):
     return annotation_file
 
 
-def display_survey_entry(survey_entry: dict[str, Any]):
+def _display_survey_entry(survey_entry: dict):
     values = _drop_na_values(survey_entry)
     rich.print(
         rich.panel.Panel(
@@ -514,45 +629,9 @@ def display_survey_entry(survey_entry: dict[str, Any]):
             )
         )
     )
-    return
-    numbered_sections = [f".{i}" for i in range(1, 10)]
-    panels: list[rich.panel.Panel] = [
-        # All answers that don't end with a numbered suffix:
-        rich.panel.Panel(
-            rich.pretty.pretty_repr(
-                {
-                    k: v
-                    if isinstance(v, str) and len(v) >= 30
-                    else rich.pretty.pretty_repr(v)
-                    for k, v in values.items()
-                    if not any(
-                        k.endswith(section_suffix)
-                        for section_suffix in numbered_sections
-                    )
-                }
-            )
-        )
-    ]
-    # All other sections, each in a different sub-panel
-    section_data = [
-        {
-            k: v if isinstance(v, str) and len(v) >= 30 else rich.pretty.pretty_repr(v)
-            for k, v in values.items()
-            if k.endswith(section_suffix)
-        }
-        for section_suffix in numbered_sections
-    ]
-    panels += [
-        rich.panel.Panel(rich.pretty.pretty_repr(section_data_i))
-        for section_data_i in section_data
-        if section_data_i
-    ]
-    layout = rich.layout.Layout()
-    layout.split_column(*[rich.layout.Layout(panel) for panel in panels])
-    rich.print(layout)
 
 
-def extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimate]:
+def _extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimate]:
     """Gets the estimated GPU*hours from a survey entry.
 
     Returns the minimum and maximum values for the product of the
@@ -579,6 +658,17 @@ def extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimat
         "(3h, 12h]": (timedelta(hours=3), timedelta(hours=12)),
         "(12h, 24h]": (timedelta(hours=12), timedelta(hours=24)),
         "(24h, 48h]": (timedelta(hours=24), timedelta(hours=48)),
+        "(2d,  4d]": (timedelta(days=2), timedelta(days=4)),
+        # TODO: Need to invent a maximum here.
+        "more than 4d": (timedelta(days=4), timedelta(days=7)),
+    }
+    gpus_per_job_map: dict[str, tuple[int, int]] = {
+        "0": (0, 0),
+        "1": (1, 1),
+        "2": (2, 2),
+        "(2, 4]": (2, 4),
+        "(5, 8]": (5, 8),
+        "more than 8": (8, 16),  # TODO: Need to invent a maximum here.
     }
 
     section_suffixes = ["", *[f".{i}" for i in range(1, 10)]]
@@ -616,7 +706,7 @@ def extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimat
         ):
             # Assume that if the "author" field in a group isn't filled, it's the user that is answering the form.
             _author = author or survey_entry["Email address"]
-            _gpus_per_job = int(gpus_per_job)
+            _gpus_per_job_min, _gpus_per_job_max = gpus_per_job_map[gpus_per_job]
             _number_of_jobs_min, _number_of_jobs_max = number_of_jobs_map[
                 number_of_jobs
             ]
@@ -629,13 +719,13 @@ def extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimat
 
             minimum_gpu_hours = (
                 _number_of_jobs_min
-                * _gpus_per_job
+                * _gpus_per_job_min
                 * (_running_time_min.total_seconds() / 3600)
                 * _average_gpu_util
             )
             maximum_gpu_hours = (
                 _number_of_jobs_max
-                * _gpus_per_job
+                * _gpus_per_job_max
                 * (_running_time_max.total_seconds() / 3600)
                 * _average_gpu_util
             )
@@ -710,37 +800,7 @@ def _check_is_email_and_lower(v: str):
     # df = get_cleaned_df(options)
 
 
-def _display_data(sarc_data: pd.DataFrame, options: Options):
-    # TODO: Somehow Update the plots instead of recreating them if they are already opened
-    stats = get_stats(sarc_data, options)
-    # gpu cost per month := GPU reserved (full-time) for a month.
-    print("Usage per month")
-    usage_per_month = _get_cost_per_month_per_year_unclear(
-        stats, ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-    )
-    print(usage_per_month.to_markdown())
-    print("Total: ")
-    print(usage_per_month.sum().to_markdown())
-
-    print("Resource*Years:")
-    resource_years = (
-        stats.groupby("user.mila.email")[
-            [
-                "cpu_billed",
-                "cpu_cost",
-                "cpu_equivalent_cost",
-                "gpu_billed",
-                "gpu_cost",
-                "gpu_equivalent_cost",
-            ]
-        ].sum()
-        / seconds_in_a_year
-    )
-    print(resource_years.to_markdown())
-    return stats
-
-
-def get_stats(sarc_data: pd.DataFrame, options: Options):
+def _get_stats(sarc_data: pd.DataFrame, options: Options):
     stats = compute_time_frames(
         sarc_data,
         ["gpu_cost", "cpu_cost", "cpu_equivalent_cost", "gpu_equivalent_cost"],
@@ -748,8 +808,10 @@ def get_stats(sarc_data: pd.DataFrame, options: Options):
         end=options.end,
         frame_size=(
             "MS"
-            if (_max_delta := (options.end - options.start)) > timedelta(days=30)
-            else _max_delta
+            if (_period := (options.end - options.start)) > timedelta(days=90)
+            else timedelta(days=7)
+            if _period > timedelta(days=30)
+            else timedelta(days=1)
         ),
     )
     stats = stats.assign(
@@ -759,11 +821,6 @@ def get_stats(sarc_data: pd.DataFrame, options: Options):
     )
 
     return stats
-
-
-def compare_survey_data_with_sarc_data(
-    survey_data: pd.DataFrame, sarc_data: pd.DataFrame, options: Options
-): ...
 
 
 def _load_survey_data(survey_data_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -802,32 +859,35 @@ def _load_survey_data(survey_data_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame
     return sd, raw_data
 
 
-def _get_options_that_cover_survey_period(sd: pd.DataFrame) -> Options:
-    email_columns = [c for c in sd.columns if "Email" in c]
+def _get_options_that_cover_survey_period(survey_data: pd.DataFrame) -> Options:
+    """Return the filter to use to fetch SARC data for the given the survey answer(s)."""
+    email_columns = [c for c in survey_data.columns if "Email" in c]
     users = set()
     for email_column in email_columns:
-        _users = set(sd[email_column].dropna().tolist())
+        _users = set(survey_data[email_column].dropna().tolist())
         users |= _users
     user_emails = sorted(users)
 
     clusters_used_columns = [
         c
-        for c in sd.columns
+        for c in survey_data.columns
         if c.startswith("Which clusters did you use for these experiments?")
     ]
 
-    start_date_columns = [c for c in sd.columns if c.startswith("Start date")]
-    end_date_columns = [c for c in sd.columns if c.startswith("End date")]
+    start_date_columns = [c for c in survey_data.columns if c.startswith("Start date")]
+    end_date_columns = [c for c in survey_data.columns if c.startswith("End date")]
 
     earliest_start_date: datetime = min(
-        sd[c].dropna().min() for c in start_date_columns
+        survey_data[c].dropna().min() for c in start_date_columns
     )
-    latest_end_date: datetime = max(sd[c].dropna().max() for c in end_date_columns)
+    latest_end_date: datetime = max(
+        survey_data[c].dropna().max() for c in end_date_columns
+    )
 
     # note: can contain things like 'mila, beluga' and 'other clusters' etc.
     known_clusters_used: set[str] = set()
     for column in clusters_used_columns:
-        all_clusters_used = sd[column].dropna().unique()
+        all_clusters_used = survey_data[column].dropna().unique()
         for cluster_used_entry in all_clusters_used:
             for cluster in ALL_CLUSTERS:
                 if cluster in cluster_used_entry.lower():
@@ -841,21 +901,16 @@ def _get_options_that_cover_survey_period(sd: pd.DataFrame) -> Options:
     )
 
 
-def get_cleaned_df(options: Options) -> pd.DataFrame:
-    """Gets "cleaned" SARC data for a given period.
-
-    Included patches:
-    1.
-
-    """
+def _get_cleaned_df(options: Options) -> pd.DataFrame:
+    """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
     cache_file = options.unique_path()
     user_emails = options.get_users(assume_mila_email=True)
     assert all(map(_check_is_email_and_lower, user_emails))
 
     users = [user.partition("@")[0] for user in user_emails]
 
-    print(
-        f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'}"
+    logger.info(
+        f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'} and clusters {options.clusters or 'all'}"
     )
     if cache_file.exists():
         logger.info(f"Reading previous data from {cache_file}.")
@@ -892,7 +947,7 @@ def get_cleaned_df(options: Options) -> pd.DataFrame:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
 
-    validate_gpu_ram()
+    _validate_gpu_ram()
 
     # Clusters we want to compare
     if options.clusters:
@@ -900,149 +955,44 @@ def get_cleaned_df(options: Options) -> pd.DataFrame:
         df = df[df["cluster_name"].isin(options.clusters)]
 
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
-    df = fix_lost_jobs(df)
-    df = fix_unaligned_cache(df, options.start, options.end)
-    df = remove_old_nodes(df)
-    df = replace_outlier_stats_with_na(df)
-    df = fix_missing_gpu_type(df)
+    df = _fix_lost_jobs(df)
+    df = _fix_unaligned_cache(df, options.start, options.end)
+    df = _remove_old_nodes(df)
+    df = _replace_outlier_stats_with_na(df)
+    df = _fix_missing_gpu_type(df)
 
-    fix_rgu_discrepencies(df)
+    _fix_rgu_discrepencies_inplace(df)
+    # todo: double-check if this is still needed here.
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
-    fix_allocated_cpus_drac(df)
+    _fix_allocated_cpus_drac_inplace(df)
 
     # todo: Do we want to get the averages from the other jobs of the same user on other clusers?
     # Or from the average utilization on that same cluster by different users?
     # IF so, we might need to reload the data for all users here
     # if users := options.get_users():
-    #     all_users_data_for_same_period = get_cleaned_df(
+    #     all_users_data_for_same_period = _get_cleaned_df(
     #         dataclasses.replace(options, user=[], user_file=None)
     #     )
-    df = fill_missing_metrics_using_means(df)
+    df = _fill_missing_metrics_using_means(df)
     df = compute_cost_and_waste(df)
 
-    # Filter out non-started jobs
+    # Sanity checks.
     assert (df["start_time"] != 0).all()
-    assert (
-        df["requested.gres_gpu"].notnull().all()
-        and (df["requested.gres_gpu"] >= 0).all()
-    )
+    assert (_requested_gres_gpu := df["requested.gres_gpu"]).notnull().all() and (
+        _requested_gres_gpu >= 0
+    ).all()
 
-    df = set_cpu_gpu_billed(df)
+    df = _set_cpu_gpu_billed(df)
 
-    df, missing_users = find_missing_user_to_mila_emails(df)
+    df, missing_users = _find_missing_user_to_mila_emails(df)
     if missing_users:
         print(f"Missing the mila email for these users: {sorted(missing_users)}")
 
     return df
 
 
-def plot_usage_per_month(stats: pd.DataFrame, options: Options):
-    def _savefig(label: str) -> None:
-        save_path = options.unique_path(label=label, extension=".png")
-        print(f"Saving figure at {save_path}")
-        plt.savefig(save_path)
-
-    # Plot compute usage per month, per cluster
-    usage_per_month = (
-        stats.groupby(["timestamp", "cluster_name"])[
-            ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-        ]
-        .sum()
-        .reset_index()
-    )
-
-    plt.figure(figsize=(14, 8))
-    sns.lineplot(
-        data=usage_per_month,
-        x="timestamp",
-        y="cpu_equivalent_cost",
-        hue="cluster_name",
-        marker="o",
-    )
-    plt.title("CPU Equivalent Cost per Month per Cluster")
-    plt.xlabel("Month")
-    plt.ylabel("CPU Equivalent Cost")
-    plt.legend(title="Cluster")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.draw()
-    plt.pause(0.001)  # Allow the plot to be drawn before saving
-    _savefig("cpu_cost")
-
-    plt.figure(figsize=(14, 8))
-    sns.lineplot(
-        data=usage_per_month,
-        x="timestamp",
-        y="gpu_cost",
-        hue="cluster_name",
-        marker="o",
-    )
-    plt.title("GPU Cost per Month per Cluster")
-    plt.xlabel("Month")
-    plt.ylabel("GPU Cost")
-    plt.legend(title="Cluster")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.draw()
-    plt.pause(0.001)  # Allow the plot to be drawn before saving
-    _savefig("gpu_cost")
-
-    plt.figure(figsize=(14, 8))
-    sns.lineplot(
-        data=usage_per_month,
-        x="timestamp",
-        y="gpu_equivalent_cost",
-        hue="cluster_name",
-        marker="o",
-    )
-    plt.title("GPU Equivalent Cost per Month per Cluster")
-    plt.xlabel("Month")
-    plt.ylabel("GPU Equivalent Cost")
-    plt.legend(title="Cluster")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.draw()
-    plt.pause(0.001)  # Allow the plot to be drawn before saving
-    _savefig("gpu_equiv_cost")
-
-
-def _plot_pie_charts(stats: pd.DataFrame):
-    # TODO: Unused, generated by chatgpt, just playing around with plots atm.
-    # Plot pie charts for total usage per cluster
-    total_usage = stats.groupby("cluster_name")[
-        ["cpu_equivalent_cost", "gpu_cost", "gpu_equivalent_cost"]
-    ].sum()
-
-    plt.figure(figsize=(14, 8))
-    total_usage["cpu_equivalent_cost"].plot.pie(
-        autopct="%1.1f%%", startangle=90, counterclock=False
-    )
-    plt.title("Total CPU Equivalent Cost per Cluster")
-    plt.ylabel("")
-    plt.tight_layout()
-    plt.show()
-
-    plt.figure(figsize=(14, 8))
-    total_usage["gpu_cost"].plot.pie(
-        autopct="%1.1f%%", startangle=90, counterclock=False
-    )
-    plt.title("Total GPU Cost per Cluster")
-    plt.ylabel("")
-    plt.tight_layout()
-    plt.show()
-
-    plt.figure(figsize=(14, 8))
-    total_usage["gpu_equivalent_cost"].plot.pie(
-        autopct="%1.1f%%", startangle=90, counterclock=False
-    )
-    plt.title("Total GPU Equivalent Cost per Cluster")
-    plt.ylabel("")
-    plt.tight_layout()
-    plt.show()
-
-
-def find_missing_user_to_mila_emails(
+def _find_missing_user_to_mila_emails(
     df: pd.DataFrame,
 ) -> tuple[pd.DataFrame, list[str]]:
     missing_mila_email = df["user.mila.email"].isna()
@@ -1088,7 +1038,7 @@ def find_missing_user_to_mila_emails(
     return df, sorted(still_missing_mila_email_users)
 
 
-def replace_outlier_stats_with_na(df: pd.DataFrame):
+def _replace_outlier_stats_with_na(df: pd.DataFrame):
     """`load_job_series` only removes the H100 outliers for gpu_utilization.
 
     Here we do the rest.
@@ -1115,7 +1065,7 @@ def replace_outlier_stats_with_na(df: pd.DataFrame):
     return df
 
 
-def fill_missing_metrics_using_means(
+def _fill_missing_metrics_using_means(
     df: pd.DataFrame, all_users_data: pd.DataFrame | None = None
 ):
     """Fill in missing JobStatistics metrics using average of available data."""
@@ -1127,7 +1077,7 @@ def fill_missing_metrics_using_means(
 
     across_cluster_means = {col: df[col].dropna().mean() for col in stat_columns}
     logger.debug(
-        f"Mean of stats across all clusters: {get_stats_str(across_cluster_means)}"
+        f"Mean of stats across all clusters: {_get_stats_str(across_cluster_means)}"
     )
 
     # todo: cpu_utilization and system_memory should be there for all jobs, right?
@@ -1169,7 +1119,7 @@ def fill_missing_metrics_using_means(
             )
             for col, cluster_mean in cluster_mean_stats.items()
         }
-        missing_stats_str = get_stats_str(
+        missing_stats_str = _get_stats_str(
             {k: v for k, v in stats_to_use.items() if k in missing_stats}
         )
         if missing_stats:
@@ -1185,14 +1135,14 @@ def fill_missing_metrics_using_means(
     return df
 
 
-def get_stats_str(stats_to_use: Mapping[str, np.ndarray | float]):
+def _get_stats_str(stats_to_use: Mapping[str, np.ndarray | float]):
     return {
         k: (f"{v:.1f}" if k == "gpu_power" else f"{v:.2%}")
         for k, v in stats_to_use.items()
     }
 
 
-def fix_lost_jobs(df: pd.DataFrame):
+def _fix_lost_jobs(df: pd.DataFrame):
     _28_days = timedelta(days=28)
     lost_jobs = df["elapsed_time"] > _28_days.total_seconds()
     df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
@@ -1200,7 +1150,7 @@ def fix_lost_jobs(df: pd.DataFrame):
     return df
 
 
-def fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
+def _fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
     # print("max start", df["start_time"].max())
     # print("min end", df["end_time"].min())
 
@@ -1213,7 +1163,7 @@ def fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
     return df
 
 
-def filter_users(df: pd.DataFrame, users_file: Path):
+def _filter_users(df: pd.DataFrame, users_file: Path):
     with users_file.open("r") as file:
         users = set(file.read().splitlines())
         df = df[df["user"].isin(users)]
@@ -1221,7 +1171,7 @@ def filter_users(df: pd.DataFrame, users_file: Path):
     return df
 
 
-def remove_old_nodes(df: pd.DataFrame):
+def _remove_old_nodes(df: pd.DataFrame):
     # Filter old nodes and unallocated jobs
     nodes = df["nodes"].str[0]
     old_nodes = [
@@ -1241,7 +1191,7 @@ def remove_old_nodes(df: pd.DataFrame):
     return df
 
 
-def validate_gpu_ram():
+def _validate_gpu_ram():
     missing_ram = set(gpu_name_mapping.values()) - set(gpu_ram.keys())
     if missing_ram:
         raise ValueError(f"Missing ram: {missing_ram}")
@@ -1262,7 +1212,7 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
     return cluster_configs
 
 
-def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
+def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     # Fix missing gpu_type
     if not clusters:
         clusters = df["cluster_name"].unique()  # type: ignore
@@ -1316,7 +1266,7 @@ def fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     return df
 
 
-def fix_allocated_cpus_drac(df: pd.DataFrame):
+def _fix_allocated_cpus_drac_inplace(df: pd.DataFrame):
     # TODO we should fix this in SARC.
     is_drac = df["cluster_name"] != "mila"
     slice_during_rgu_time = (
@@ -1334,7 +1284,7 @@ def fix_allocated_cpus_drac(df: pd.DataFrame):
     df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
 
 
-def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
+def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     # NOTE: Fixing switch to RGU billing for a second time on Narval
     # narval_config = config().clusters["narval"]
     cluster_configs = _get_cluster_configs()
@@ -1408,76 +1358,7 @@ def fix_rgu_discrepencies(df: pd.DataFrame) -> None:
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
 
 
-def _get_cost_per_month_per_year_unclear(stats: pd.DataFrame, name: str | list[str]):
-    # This does some sort of normalizing of the usage data from SARC so it's
-    # comparable with the data on the CCDB website.
-    # Need to clarify again a bit with Xavier what the units are in here.
-    cost_per_month = stats.groupby(["cluster_name", "timestamp"])[name].sum()
-    return (
-        (cost_per_month / seconds_in_a_year)
-        .reset_index()
-        .pivot(index="timestamp", columns="cluster_name")
-    )
-
-
-def validate_with_CCDB(stats: pd.DataFrame):
-    ccdb_usage_cpu, ccdb_usage_gpu = get_ccdb_usage_data()
-
-    print("CPU usage data from CCDB website:")
-    print(ccdb_usage_cpu)
-
-    _index = "timestamp"
-    ccdb_usage_cpu.index.name = _index
-    ccdb_usage_gpu.index.name = _index
-
-    def _sort_columns(df: pd.DataFrame):
-        df = df.reorder_levels(["cluster_name", None], axis="columns")
-        df = df[sorted(df.columns)]
-        df.columns = df.columns.rename(["cluster_name", "source"])
-        return df
-
-    merged_cpu = _sort_columns(
-        ccdb_usage_cpu.rename(columns={"usage": "CCDB"}, level=0)
-        .merge(
-            _get_cost_per_month_per_year_unclear(stats, "cpu_cost"),
-            on=_index,
-            how="outer",
-        )
-        .merge(
-            _get_cost_per_month_per_year_unclear(stats, "cpu_equivalent_cost"),
-            on=_index,
-            how="outer",
-        )
-    )
-
-    merged_gpu = _sort_columns(
-        ccdb_usage_gpu.rename(columns={"usage": "CCDB"}, level=0)
-        .merge(
-            _get_cost_per_month_per_year_unclear(stats, "gpu_cost"),
-            on=_index,
-            how="outer",
-        )
-        .merge(
-            _get_cost_per_month_per_year_unclear(stats, "gpu_equivalent_cost"),
-            on=_index,
-            how="outer",
-        )
-    )
-
-    print("CCDB vs SARC (CPU):")
-    print("```")
-    print(merged_cpu.to_markdown())
-    print("```")
-
-    print("CCDB vs SARC (GPU):")
-    print("```")
-    print(merged_gpu.to_markdown())
-    print("```")
-
-    return merged_cpu, merged_gpu
-
-
-def set_cpu_gpu_billed(stats: pd.DataFrame):
+def _set_cpu_gpu_billed(stats: pd.DataFrame):
     assert (
         stats["allocated.cpu"].notna().all()
         and (stats["allocated.cpu"] > 0).all()
@@ -1596,63 +1477,6 @@ def compute_time_frames(
         data_frames.append(frame)
 
     return pd.concat(data_frames, axis=0)
-
-
-AllocationName = str
-ClusterName = str
-
-
-def get_ccdb_usage_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Returns the CPU and GPU usage data from the CCDB website."""
-    ccdb_data_file = Path(__file__).parent / "ccdb_data.yaml"
-    ccdb_compute_usage: dict[
-        AllocationName, dict[Literal["cpu", "gpu"], dict[str, float]]
-    ] = yaml.safe_load(ccdb_data_file.read_text())
-    month_str_to_month_index = {
-        "January": 1,
-        "February": 2,
-        "March": 3,
-        "April": 4,
-        "May": 5,
-        "June": 6,
-        "July": 7,
-        "August": 8,
-        "September": 9,
-        "October": 10,
-        "November": 11,
-        "December": 12,
-    }
-    data: dict[tuple[datetime, ClusterName, Literal["cpu", "gpu"]], float] = {}
-    for allocation, usage_dict in ccdb_compute_usage.items():
-        assert "_" in allocation
-        cluster, _, _type = allocation.partition("_")
-        for usage_type, usage_data in usage_dict.items():
-            for month_str, usage in usage_data.items():
-                month, year = month_str.split(" ")
-                month = month_str_to_month_index[month]
-                date = datetime(year=int(year), month=month, day=1)
-                if (date, cluster, usage_type) not in data:
-                    data[(date, cluster, usage_type)] = usage
-                else:
-                    data[(date, cluster, usage_type)] += usage
-    index = pd.MultiIndex.from_tuples(
-        data.keys(), names=["date", "cluster_name", "type"]
-    )
-    df = pd.DataFrame(list(data.values()), index=index, columns=["usage"])
-    df = df.reorder_levels(["type", "cluster_name", "date"]).sort_index()
-
-    def pivot_ccdb_data(ccdb_data: pd.DataFrame, type: Literal["cpu", "gpu"]):
-        df = (
-            ccdb_data.xs(type, level="type")
-            .groupby(["cluster_name", "date"])
-            .sum()
-            .unstack(level="cluster_name")
-            .fillna(0)
-        )
-        assert isinstance(df, pd.DataFrame)
-        return df
-
-    return pivot_ccdb_data(df, "cpu"), pivot_ccdb_data(df, "gpu")
 
 
 if __name__ == "__main__":
