@@ -473,10 +473,10 @@ def main():
         )
         # print(f"What they say they used:")
         usage_by_user = usage_by_user.assign(
-            survey_answers_min=pd.Series(
+            survey_gpuhours_min=pd.Series(
                 {k: v.min for k, v in estimated_usage_from_answers.items()}
             ),
-            survey_answers_max=pd.Series(
+            survey_gpuhours_max=pd.Series(
                 {k: v.max for k, v in estimated_usage_from_answers.items()}
             ),
         )
@@ -498,17 +498,17 @@ def main():
             ]
             .sum()
             .divide(3600)
-            .nlargest(k, "gpu_cost")
-            .to_markdown(),
+            .nlargest(k, "gpu_cost"),
         )
         logger.debug(
-            "Top %s job names where most compute was allocated for that entry period: \n%s",
-            k,
+            f"Top {k} job names where most compute was allocated for that entry period:"
+        )
+        logger.debug(
             usage_stats.groupby(["user.mila.email", "name"])[["cpu_cost", "gpu_cost"]]
             .sum()
             .divide(3600)
             .nlargest(k, "gpu_cost")
-            .to_markdown(),
+            .to_markdown()
         )
 
     comparison_df = pd.concat(
@@ -517,20 +517,37 @@ def main():
     comparison_df = comparison_df.rename(
         {"cpu_cost": "cpu_hours", "gpu_cost": "gpu_hours"}, axis=1
     )
-    # comparison_df.groupby("user.mila.email").sum().plot.hist()
+    # comparison_df.groupby("Paper Title").sum().drop(columns="cpu_hours").plot.hist()
+    _plot_comparison(comparison_df)
     plt.show()
     comparison_df.to_csv("comparison.csv")
 
-    # class SarcData
-    # reordered_data = {}
-    # for i, survey_entry in enumerate(survey_entries):
-    # Example:
-    # {'gpu_billed': {'farzaneh.heidari@mila.quebec': 4.722777777777778}, 'gpu_cost': {'farzaneh.heidari@mila.quebec': 4.722777777777778}, 'gpu_equivalent_cost': {'farzaneh.heidari@mila.quebec': 4.722777777777778}}
 
-    # gpu_billed_per_user[survey_entry["Email address"]] = sarc_data_per_user_entry[i]
-    # sarc_data_per_entry.assign(
-    #     survey_min=annotated_gpu_hour_estimates_per_user_per_entry,
-    # )
+def _plot_comparison(comparison_df):
+    # Assuming `comparison_df` is your DataFrame
+    grouped = comparison_df.groupby("Paper Title").sum()
+
+    # Extract data
+    papers = grouped.index
+    actual_gpu_hours = grouped["gpu_hours"]
+    survey_min = grouped["survey_gpuhours_min"]
+    survey_max = grouped["survey_gpuhours_max"]
+
+    # Display the minimum and maximum as a range of some sort, and the actual value alongside it.
+    fig, ax = plt.subplots(figsize=(10, 6))
+    # For each paper (x axis), display a histogram with three bars: min, max, and actual.
+    # Use a log scale for the y axis, and annotate the bars with the actual values.
+    bar_width = 0.2
+    x = np.arange(len(papers))
+    ax.bar(x - bar_width, survey_min, width=bar_width, label="Survey Min")
+    ax.bar(x, actual_gpu_hours, width=bar_width, label="Actual")
+    ax.bar(x + bar_width, survey_max, width=bar_width, label="Survey Max")
+    ax.set_xticks(x)
+    ax.set_xticklabels(papers, rotation=45, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylabel("GPU Hours (log scale)")
+    ax.set_title("GPU Hours Comparison")
+    ax.legend()
 
 
 def _get_estimate_from_user(
