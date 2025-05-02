@@ -42,7 +42,7 @@ ALL_CLUSTERS = ["mila", "narval", "beluga", "cedar", "graham"]
 
 seconds_in_a_year = timedelta(days=365.242374).total_seconds()
 
-gpu_name_mapping = {
+_gpu_name_mapping = {
     "gpu:tesla_v100-sxm2-16gb:4": "v100-16gb",
     "p100": "p100-12gb",
     "gpu:p100:4": "p100-12gb",
@@ -92,7 +92,7 @@ gpu_name_mapping = {
     "1g.5gb": "a100-weird",
 }
 
-gpu_ram = {
+_gpu_ram = {
     "p100-12gb": 12,
     "p100-16gb": 16,
     "t4-16gb": 16,
@@ -116,7 +116,7 @@ gpu_ram = {
     "a100-weird": 5,
 }
 
-RGUS = {
+_RGUS = {
     "p100-12gb": 1,
     "p100-16gb": 1.1,
     "t4-16gb": 1.3,
@@ -139,13 +139,9 @@ RGUS = {
 }
 
 
-def midnight(dt: datetime) -> datetime:
+def _midnight(dt: datetime) -> datetime:
     """Returns the start of the given day (hour 00:00)."""
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-# Note: Would require Python 3.12
-# type Array[*Shape, Dtype] = np.ndarray[tuple[*Shape], np.dtype[Dtype]]
 
 
 def _get_survey_answers_csv(google_sheets_url: str) -> pd.DataFrame:
@@ -163,13 +159,13 @@ class Options:
     """Configuration options for this script."""
 
     start: datetime = simple_parsing.field(
-        default=(midnight(datetime.now(tz=MTL)) - timedelta(days=30)),
+        default=(_midnight(datetime.now(tz=MTL)) - timedelta(days=30)),
         type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
     )
     """ Start date. """
 
     end: datetime = simple_parsing.field(
-        default=midnight(datetime.now(tz=MTL)),
+        default=_midnight(datetime.now(tz=MTL)),
         type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
     )
     """ End date. """
@@ -221,12 +217,12 @@ class Options:
         # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
         start_portion = (
             self.start.strftime("%Y-%m-%d")
-            if self.start == midnight(self.start)
+            if self.start == _midnight(self.start)
             else str(self.start).replace(" ", "_")
         )
         end_portion = (
             self.end.strftime("%Y-%m-%d")
-            if self.end == midnight(self.end)
+            if self.end == _midnight(self.end)
             else str(self.end).replace(" ", "_")
         )
         return (
@@ -292,7 +288,7 @@ def _setup_logging(verbose: int):
         logger.setLevel("DEBUG")
 
 
-T = TypeVar("T", int, float, timedelta)
+T = TypeVar("T", float, timedelta)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -312,7 +308,9 @@ class Estimate(Generic[T]):
 
 
 def main():
+    # Set to `True` to enable interactive mode to annotate the survey results manually.
     interactive = False
+
     # Can use the command-line flags to filter the sarc (and survey) data for a specific user.
     # Optionally filter the survey data (and sarc data) for a given user. Here we just reuse the Options class.
     filtering_options = simple_parsing.parse(Options)
@@ -350,6 +348,7 @@ def main():
         len(raw_survey_entries),
     )
     kept_survey_entries: list[dict] = []
+    dropped_survey_entries: list[dict] = []
     annotated_gpu_hour_estimates_per_user_per_entry: list[dict[str, Estimate]] = []
     survey_entry_filters: list[Options] = []
     for i, (answers_dict, _raw_survey_entry) in enumerate(
@@ -361,9 +360,9 @@ def main():
             survey_entry_df
         )
 
-        print(f"Survey entry #{i}")
         # Display the data nicely so that it can be read as part of the interactive prompt below.
         if interactive:
+            (f"Survey entry #{i}")
             _display_survey_entry(answers_dict)
 
         # To avoid having to re-enter some previously annotated data, we use the cache dir and maybe
@@ -388,31 +387,31 @@ def main():
             print(
                 f"Estimated gpu*hours extracted from the survey answers: {gpu_hours_estimates}"
             )
-        # TODO: Do we actually want to add a more precise estimate manually?
-        if manual_gpu_hours_annotation := _get_existing_annotation(
+        if gpu_hours_annotation := _get_existing_annotation(
             answers_dict, cache_dir=filtering_options.cache_dir
         ):
             if interactive:
-                print(f"Previous annotation: {manual_gpu_hours_annotation}")
+                print(f"Previous annotation: {gpu_hours_annotation}")
             if interactive and not rich.prompt.Confirm.ask(
                 "Keep the existing annotation?"
             ):
-                manual_gpu_hours_annotation = _get_estimate_from_user(
-                    answers_dict, manual_gpu_hours_annotation
+                gpu_hours_annotation = _get_estimate_from_user(
+                    answers_dict, gpu_hours_annotation
                 )
         elif interactive and rich.prompt.Confirm.ask("Adjust the value manually?"):
-            manual_gpu_hours_annotation = _get_estimate_from_user(
-                answers_dict, previous_annotation=manual_gpu_hours_annotation
+            gpu_hours_annotation = _get_estimate_from_user(
+                answers_dict, previous_annotation=gpu_hours_annotation
             )
 
-        if manual_gpu_hours_annotation is not None:
+        if gpu_hours_annotation is not None:
             _save_annotation(
                 answers_dict,
-                annotation=manual_gpu_hours_annotation,
+                annotation=gpu_hours_annotation,
                 cache_dir=filtering_options.cache_dir,
             )
         else:
-            manual_gpu_hours_annotation = gpu_hours_estimates
+            # Use the value extracted from the survey answers.
+            gpu_hours_annotation = gpu_hours_estimates
 
         sarc_data_for_this_paper = _filter_sarc_data(
             all_sarc_data,
@@ -428,19 +427,29 @@ def main():
                 ),
                 extra={"style": "bold red"},
             )
+            dropped_survey_entries.append(answers_dict)
             continue
             # breakpoint()
 
         kept_survey_entries.append(answers_dict)
         survey_entry_filters.append(survey_entry_period_options)
         # sarc_data_per_survey_entry.append(resource_hours_by_user_and_workdir)
-        annotated_gpu_hour_estimates_per_user_per_entry.append(
-            manual_gpu_hours_annotation
-        )
+        annotated_gpu_hour_estimates_per_user_per_entry.append(gpu_hours_annotation)
 
     logger.info(
         f"{len(kept_survey_entries)} out of {len(survey_entries)} survey answers had associated data in SARC"
     )
+    if dropped_survey_entries:
+        rich.print("Survey answers with no SARC data and their filters:")
+        rich.pretty.pprint(
+            {
+                dropped_entry["Paper Title"]: _get_options_that_cover_survey_period(
+                    survey_data.iloc[[survey_entries.index(dropped_entry)]]
+                )
+                for dropped_entry in dropped_survey_entries
+            }
+        )
+
     # Idea: Annotate the plots with the data from the survey. (TODO: How?)
     # sarc_data_per_entry = pd.concat(sarc_data_per_survey_entry)
 
@@ -1209,7 +1218,7 @@ def _remove_old_nodes(df: pd.DataFrame):
 
 
 def _validate_gpu_ram():
-    missing_ram = set(gpu_name_mapping.values()) - set(gpu_ram.keys())
+    missing_ram = set(_gpu_name_mapping.values()) - set(_gpu_ram.keys())
     if missing_ram:
         raise ValueError(f"Missing ram: {missing_ram}")
 
@@ -1267,7 +1276,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
 
     missing_mappings = set(
         df[~df["allocated.gpu_type"].isnull()]["allocated.gpu_type"].unique()
-    ) - set(gpu_name_mapping.keys())
+    ) - set(_gpu_name_mapping.keys())
     if missing_mappings:
         print("Missing mappings:", missing_mappings)
         print(
@@ -1277,7 +1286,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
         )
         breakpoint()
 
-    df["allocated.gpu_type"] = df["allocated.gpu_type"].map(gpu_name_mapping)
+    df["allocated.gpu_type"] = df["allocated.gpu_type"].map(_gpu_name_mapping)
     df.fillna({"allocated.gpu_type": "unknown"}, inplace=True)
 
     return df
@@ -1372,7 +1381,7 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     # End of hacky fix
 
     # Overwrite all RGU values.
-    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(RGUS)
+    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
 
 
 def _set_cpu_gpu_billed(stats: pd.DataFrame):
