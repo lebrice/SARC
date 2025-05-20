@@ -337,17 +337,52 @@ def get_group_usage(prof_email: str) -> pd.DataFrame:
     usage_stats = _get_stats(
         sarc_data, options, frame_size="YS"
     )  # year start frequency
-    cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
+    cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
 
-    gpu_sum_metrics_years = gpu_job_stats.groupby(["timestamp"])[
-        "gpu_equivalent_cost"
-    ].sum()
+    gpu_sum_metrics_years = (
+        gpu_job_stats.groupby(["timestamp"])[
+            ["gpu_equivalent_cost", "cpu_equivalent_cost"]
+        ].sum()
+        / seconds_in_a_year
+    )
+    gpu_mean_metrics_years = (
+        gpu_job_stats.groupby(["timestamp"])[["gpu_memory", "system_memory"]].mean()
+        / seconds_in_a_year
+    )
+
+    cpu_sum_metrics_years = (
+        cpu_job_stats.groupby(["timestamp"])[["cpu_equivalent_cost"]].sum()
+        / seconds_in_a_year
+    )
+    cpu_mean_metrics_years = (
+        cpu_job_stats.groupby(["timestamp"])[["system_memory"]].mean()
+        / seconds_in_a_year
+    )
+    years = sorted(usage_stats["timestamp"].dt.year.unique())
+    data = {
+        "year": years,
+        "students": np.random.randint(5, 20, size=len(years)),
+        "gpu_years": gpu_sum_metrics_years["gpu_equivalent_cost"],
+        "gpu_mem_mean": gpu_mean_metrics_years["gpu_memory"],
+        "gpu_mem_max": np.random.uniform(30, 50, size=len(years)),
+        "gpu_util_mean": np.random.uniform(0.3, 0.9, size=len(years)),
+        "gpu_cpu_years": gpu_sum_metrics_years["cpu_equivalent_cost"],
+        "gpu_cpu_mem_mean": gpu_mean_metrics_years["gpu_memory"],
+        "gpu_cpu_mem_max": np.random.uniform(15, 25, size=len(years)),
+        "cpu_years": cpu_sum_metrics_years["cpu_equivalent_cost"],
+        "cpu_mem_mean": cpu_mean_metrics_years["system_memory"],
+        "cpu_mem_max": np.random.uniform(20, 40, size=len(years)),
+    }
+    return pd.DataFrame(data)
+
     print(
-        (gpu_sum_metrics_years / seconds_in_a_year)
-        .reset_index()
-        .pivot(columns="timestamp")
-        .sum()
+        (
+            gpu_sum_metrics_years / seconds_in_a_year
+            # .reset_index()
+            # .pivot(index="timestamp", columns="gpu_equivalent_cost")
+            # .sum()
+        )
     )
     return
 
