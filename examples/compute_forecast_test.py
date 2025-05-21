@@ -3,7 +3,11 @@ import random
 import numpy as np
 import pandas as pd
 
-from examples.compute_forecast import _print_like_form_shows, get_group_usage
+from examples.compute_forecast import (
+    _print_like_form_shows,
+    get_group_usage,
+    get_group_usage_projections,
+)
 
 
 def fake_get_group_usage(prof_email: str) -> pd.DataFrame:
@@ -66,6 +70,21 @@ def test_get_group_usage():
     print("Actual:")
     _print_like_form_shows(actual_df)
     fake_df = fake_get_group_usage(prof_email)
+    print("Fake:")
+    _print_like_form_shows(fake_df)
+    assert actual_df.shape == fake_df.shape
+    assert all(actual_df.columns == fake_df.columns)
+    assert all(actual_df.dtypes == fake_df.dtypes)
+
+
+def test_get_group_usage_predictions():
+    # Check that the actual `get_group_usage` function gives a
+    # dataframe with the same columns, datatypes, etc as the fake one above.
+    prof_email = "glen.berseth@mila.quebec"
+    actual_df = get_group_usage_projections(prof_email)
+    print("Actual:")
+    _print_like_form_shows(actual_df)
+    fake_df = fake_get_group_usage_projections(prof_email)
     print("Fake:")
     _print_like_form_shows(fake_df)
     assert actual_df.shape == fake_df.shape
