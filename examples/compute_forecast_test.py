@@ -5,6 +5,7 @@ import pandas as pd
 
 from examples.compute_forecast import (
     _print_like_form_shows,
+    get_group_students,
     get_group_usage,
     get_group_usage_projections,
 )
@@ -62,16 +63,31 @@ def fake_get_group_students(prof_email: str) -> list[str]:
     return student_emails
 
 
+def test_get_group_students():
+    prof = "irina.rish@mila.quebec"
+    students = get_group_students(prof)
+    assert students
+    for student in students:
+        assert (
+            student.mila_ldap["supervisor"] == prof
+            or student.mila_ldap["co_supervisor"] == prof
+        )
+
+    students = get_group_students("foobob_bar@mila.quebec")
+    assert not students
+
+
 def test_get_group_usage():
     # Check that the actual `get_group_usage` function gives a
     # dataframe with the same columns, datatypes, etc as the fake one above.
     prof_email = "glen.berseth@mila.quebec"
-    actual_df = get_group_usage(prof_email)
-    print("Actual:")
-    _print_like_form_shows(actual_df)
     fake_df = fake_get_group_usage(prof_email)
     print("Fake:")
     _print_like_form_shows(fake_df)
+
+    actual_df = get_group_usage(prof_email)
+    print("Actual:")
+    _print_like_form_shows(actual_df)
     assert actual_df.shape == fake_df.shape
     assert all(actual_df.columns == fake_df.columns)
     assert all(actual_df.dtypes == fake_df.dtypes)
@@ -81,12 +97,14 @@ def test_get_group_usage_predictions():
     # Check that the actual `get_group_usage` function gives a
     # dataframe with the same columns, datatypes, etc as the fake one above.
     prof_email = "glen.berseth@mila.quebec"
-    actual_df = get_group_usage_projections(prof_email)
-    print("Actual:")
-    _print_like_form_shows(actual_df)
     fake_df = fake_get_group_usage_projections(prof_email)
     print("Fake:")
     _print_like_form_shows(fake_df)
+
+    actual_df = get_group_usage_projections(prof_email)
+    print("Actual:")
+    _print_like_form_shows(actual_df)
+
     assert actual_df.shape == fake_df.shape
     assert all(actual_df.columns == fake_df.columns)
     assert all(actual_df.dtypes == fake_df.dtypes)

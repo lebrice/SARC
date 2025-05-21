@@ -430,26 +430,30 @@ def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
     n_predictions = 2
     next_two_years = group_usage["year"].max() + np.arange(1, 1 + n_predictions)
 
-    # Linear extrapolation function
-    def extrapolate_linear(df: pd.DataFrame, new_x: list[int]) -> pd.DataFrame:
-        x = df["year"].to_numpy().astype(int)
-        result: list[np.ndarray] = []
-        for col in df.columns:
-            if col == "year":
-                result.append(np.asarray(new_x))
-                continue
-            y = df[col].values
-            coeffs = np.polyfit(x, y, 1)  # Linear fit
-            extrapolated_vals = np.poly1d(coeffs)(new_x)
-            result.append(extrapolated_vals)
-        extrapolated_df = pd.DataFrame(
-            np.vstack(result).T, index=new_x, columns=df.columns
-        )
-        return extrapolated_df
-
     extrapolations = extrapolate_linear(group_usage, next_two_years)
-
+    # Note: round students to the nearest integer? (small detail perhaps)
+    extrapolations = extrapolations.astype({"year": int}).assign(
+        students=extrapolations["students"].round()
+    )
     return extrapolations
+
+
+def extrapolate_linear(group_usage: pd.DataFrame, new_x: list[int]) -> pd.DataFrame:
+    # Linear extrapolation function
+    x = group_usage["year"].to_numpy().astype(int)
+    result: list[np.ndarray] = []
+    for col in group_usage.columns:
+        if col == "year":
+            result.append(np.asarray(new_x))
+            continue
+        y = group_usage[col].values
+        coeffs = np.polyfit(x, y, 1)  # Linear fit
+        extrapolated_vals = np.poly1d(coeffs)(new_x)
+        result.append(extrapolated_vals)
+    extrapolated_df = pd.DataFrame(
+        np.vstack(result).T, index=new_x, columns=group_usage.columns
+    )
+    return extrapolated_df
 
 
 def _print_like_form_shows(df: pd.DataFrame):
