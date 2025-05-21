@@ -314,9 +314,10 @@ class Estimate(Generic[T]):
 def main():
     prof = "glen.berseth@mila.quebec"
     students = get_group_students(prof)
-    usage = get_group_usage("glen.berseth@mila.quebec")
+    print(f"Students supervised by {prof}: {[s.name for s in students]}")
+    usage = get_group_usage(prof)
     _print_like_form_shows(usage)
-    usage_projections = get_group_usage_projections("glen.berseth@mila.quebec")
+    usage_projections = get_group_usage_projections(prof)
     _print_like_form_shows(pd.concat([usage, usage_projections]))
 
     # print(usage.to_markdown())
@@ -469,10 +470,11 @@ def _print_like_form_shows(df: pd.DataFrame):
     ]
     for column in columns:
         vals = df[column]
-        print(column + "," + ",".join(vals.map(lambda x: f"{x:.3f}").tolist()))
+        print(column + ", " + ", ".join(vals.map(lambda x: f"{x:.3f}").tolist()))
 
 
 def _compare_survey_answers_with_SARC():
+    """Unused atm: Compares the survey answers with Sarc data and displays a plot."""
     # Set to `True` to enable interactive mode to annotate the survey results manually.
     interactive = False
 
