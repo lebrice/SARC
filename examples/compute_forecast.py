@@ -319,20 +319,16 @@ def main():
     # print(usage.to_markdown())
 
 
-def get_group_students(
-    prof_email: str,
-    start: datetime = datetime(2024, 1, 1).astimezone(MTL),
-    end: datetime = datetime(2025, 1, 1).astimezone(MTL),
-) -> list[User]:
+def get_group_students(prof_email: str) -> list[User]:
     """Get list of student emails supervised by a professor.
     For now, returns random fake emails for testing.
     """
-    prof_students = list(
+    prof_students = [
         user
         for user in get_users()
         if user.mila_ldap.get("supervisor") == prof_email
         or user.mila_ldap.get("co_supervisor") == prof_email
-    )
+    ]
     return sorted(prof_students, key=lambda v: v.name)
 
 
