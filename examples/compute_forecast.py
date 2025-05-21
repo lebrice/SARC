@@ -321,20 +321,38 @@ def get_group_students(prof_email: str) -> list[str]:
     """Get list of student emails supervised by a professor.
     For now, returns random fake emails for testing.
     """
-
-    return {"glen.berseth@mila.quebec": ["normandf@mila.quebec"]}[prof_email]
-
-
-def get_group_usage(prof_email: str) -> pd.DataFrame:
-    """Dummy function that returns random usage data for years 2022-2024."""
-    group_students = get_group_students(prof_email)
-    options = Options(
+    # TODO: For now, we actually seem to have to get all the sarc jobs, so might as well just call
+    # `get_group_usage` directly.
+    all_users_options = Options(
         start=datetime(2024, 1, 1).astimezone(MTL),
         end=datetime(2025, 1, 1).astimezone(MTL),
         user=[],
     )
     _setup_logging(verbose=2)
-    sarc_data = _get_cleaned_df(options)
+    all_sarc_data = _get_cleaned_df(all_users_options)
+    students = all_sarc_data[
+        (all_sarc_data["user.mila_ldap.supervisor"] == prof_email)
+        | (all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email)
+    ]["user.mila.email"].unique()
+    return students.tolist()
+
+
+def get_group_usage(prof_email: str) -> pd.DataFrame:
+    """Dummy function that returns random usage data for years 2022-2024."""
+    all_users_options = Options(
+        start=datetime(2024, 1, 1).astimezone(MTL),
+        end=datetime(2025, 1, 1).astimezone(MTL),
+        user=[],  # FIXME: Use `group_students`.
+    )
+    _setup_logging(verbose=2)
+    all_sarc_data = _get_cleaned_df(all_users_options)
+    students = all_sarc_data[
+        (all_sarc_data["user.mila_ldap.supervisor"] == prof_email)
+        | (all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email)
+    ]["user.mila.email"].unique()
+
+    options = dataclasses.replace(all_users_options, user=students.tolist())
+    sarc_data = _filter_sarc_data(all_sarc_data, options=options)
 
     usage_stats = _get_stats(
         sarc_data, options, frame_size="YS"
