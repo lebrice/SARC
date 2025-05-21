@@ -31,6 +31,7 @@ from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
 )
+from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClusterConfig
 from sarc.jobs.series import (
     update_cluster_job_series_rgu,
@@ -314,83 +315,86 @@ def main():
     prof = "glen.berseth@mila.quebec"
     students = get_group_students(prof)
     usage = get_group_usage("glen.berseth@mila.quebec")
-    print(usage.to_markdown())
+    _print_like_form_shows(usage)
+    # print(usage.to_markdown())
 
 
-def get_group_students(prof_email: str) -> list[str]:
+def get_group_students(
+    prof_email: str,
+    start: datetime = datetime(2024, 1, 1).astimezone(MTL),
+    end: datetime = datetime(2025, 1, 1).astimezone(MTL),
+) -> list[User]:
     """Get list of student emails supervised by a professor.
     For now, returns random fake emails for testing.
     """
-    # TODO: For now, we actually seem to have to get all the sarc jobs, so might as well just call
-    # `get_group_usage` directly.
-    all_users_options = Options(
-        start=datetime(2024, 1, 1).astimezone(MTL),
-        end=datetime(2025, 1, 1).astimezone(MTL),
-        user=[],
+    prof_students = list(
+        user
+        for user in get_users()
+        if user.mila_ldap.get("supervisor") == prof_email
+        or user.mila_ldap.get("co_supervisor") == prof_email
     )
-    _setup_logging(verbose=2)
-    all_sarc_data = _get_cleaned_df(all_users_options)
-    students = all_sarc_data[
-        (all_sarc_data["user.mila_ldap.supervisor"] == prof_email)
-        | (all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email)
-    ]["user.mila.email"].unique()
-    return students.tolist()
+    return sorted(prof_students, key=lambda v: v.name)
 
 
 def get_group_usage(prof_email: str) -> pd.DataFrame:
     """Dummy function that returns random usage data for years 2022-2024."""
-    all_users_options = Options(
-        start=datetime(2024, 1, 1).astimezone(MTL),
-        end=datetime(2025, 1, 1).astimezone(MTL),
-        user=[],  # FIXME: Use `group_students`.
-    )
     _setup_logging(verbose=2)
-    all_sarc_data = _get_cleaned_df(all_users_options)
-    students = all_sarc_data[
-        (all_sarc_data["user.mila_ldap.supervisor"] == prof_email)
-        | (all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email)
-    ]["user.mila.email"].unique()
 
-    options = dataclasses.replace(all_users_options, user=students.tolist())
-    sarc_data = _filter_sarc_data(all_sarc_data, options=options)
+    students = get_group_students(prof_email)
+    logger.info(f"{prof_email} has apparently {len(students)} students.")
 
-    usage_stats = _get_stats(
-        sarc_data, options, frame_size="YS"
-    )  # year start frequency
+    options = Options(
+        start=datetime(2022, 1, 1).astimezone(MTL),
+        end=datetime(2025, 1, 1).astimezone(MTL),
+        user=[s.mila.email for s in students],
+    )
+    sarc_data = _get_cleaned_df(options)
+    usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
 
-    def _get_vram(gpu_type: str) -> int:
-        if gpu_type not in _gpu_ram:
-            raise RuntimeError(f"Missing GPU ram: {gpu_type}")
-        return _gpu_ram[gpu_type]
-
     # todo: do we want to add-up the memory used in all GPUS of a job?
     # todo: Is this already done? internally (prometheus?)
-    # TODO: Something is not working with the `_fix_missing_gpu_type` function.
-    unknown_gpu = gpu_job_stats["allocated.gpu_type"] == "unknown"
 
+    # TODO: Something is not working with the `_fix_missing_gpu_type` function.
+    # Fix it here.
+    unknown_gpu = gpu_job_stats["allocated.gpu_type"] == "unknown"
+    assert not any(unknown_gpu), gpu_job_stats[unknown_gpu][
+        ["job_id", "cluster_name", "allocated.gres_gpu", "nodes"]
+    ]
+    # gpu_job_stats.loc[unknown_gpu, "allocated.gpu_type"] = (
+    #     gpu_job_stats[unknown_gpu]["nodes"]
+    #     .str[0]
+    #     .map(_get_node_to_gpu("mila"))
+    #     .map(_gpu_name_mapping)
+    # )
     # gpu_job_stats[gpu_job_stats["allocated.gpu_type"]=="unknown"][["allocated.gres_gpu", "job_id"]]
     assert not gpu_job_stats["allocated.gpu_type"].isna().any(), gpu_job_stats[
         "allocated.gpu_type"
     ].unique()
-    breakpoint()
-    # TODO: also do the same with mem as a % --> mem GB.
 
+    # assert (
+    #     gpu_job_stats["requested.gres_gpu"] == gpu_job_stats["allocated.gres_gpu"]
+    # ).all(), gpu_job_stats[
+    #     gpu_job_stats["requested.gres_gpu"] != gpu_job_stats["allocated.gres_gpu"]
+    # ][["requested.gres_gpu", "allocated.gres_gpu", "job_id", "user", "cluster_name"]]
+
+    # Create a
     gpu_job_stats = gpu_job_stats.assign(
-        gpu_mem=(
-            gpu_job_stats["allocated.gpu_type"].map(_get_vram)
+        gpu_mem_gb=(
+            gpu_job_stats["allocated.gpu_type"].map(_gpu_ram)
             * gpu_job_stats["allocated.gres_gpu"]
         ),
         # todo: what does 'billing' mean? should we use that instead of allocated.mem?
         # TODO: Fix units for `mem` (also, weird outliers?)
-        cpu_mem=(
+        cpu_mem_gb=(
+            # system_memory is a percentage, allocated.mem is in MB (I think).
             gpu_job_stats["system_memory"] * (gpu_job_stats["allocated.mem"] // 1024)
         ),
     )
     cpu_job_stats = cpu_job_stats.assign(
         # Go from % to GB of RAM used.
-        cpu_mem=(
+        cpu_mem_gb=(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
         ),
     )
@@ -400,83 +404,42 @@ def get_group_usage(prof_email: str) -> pd.DataFrame:
         grouped_gpu_stats[["gpu_equivalent_cost", "cpu_equivalent_cost"]].sum()
         / seconds_in_a_year
     )
-    gpu_mean_metrics_years = grouped_gpu_stats[
-        ["gpu_utilization", "gpu_mem", "system_memory"]
-    ].mean()
-    gpu_max_metrics_years = grouped_gpu_stats[["gpu_mem", "system_memory"]].max()
+    gpu_mean_metrics = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
+    gpu_max_metrics = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb"]].max()
 
     grouped_cpu_stats = cpu_job_stats.groupby(["timestamp"])
     cpu_sum_metrics_years = (
         grouped_cpu_stats[["cpu_equivalent_cost"]].sum() / seconds_in_a_year
     )
-    cpu_mean_metrics_years = grouped_cpu_stats[["system_memory"]].mean()
-    cpu_max_metrics_years = grouped_cpu_stats[["system_memory"]].max()
+    cpu_mean_metrics = grouped_cpu_stats[["cpu_mem_gb"]].mean()
+    cpu_max_metrics = grouped_cpu_stats[["cpu_mem_gb"]].max()
 
     years = sorted(usage_stats["timestamp"].dt.year.unique())
     # years = grouped_cpu_stats.index
 
+    n_students_per_year = usage_stats.groupby(["timestamp"])["user"].nunique()
+    logger.info(f"Number of students with slurm jobs per year: {n_students_per_year}")
     data = {
         "year": years,
-        "students": np.random.randint(5, 20, size=len(years)),  # TODO
+        "students": n_students_per_year,  # TODO
         "gpu_years": gpu_sum_metrics_years["gpu_equivalent_cost"],
-        "gpu_mem_mean": gpu_mean_metrics_years["gpu_mem"],
-        "gpu_mem_max": gpu_max_metrics_years["gpu_mem"],
-        "gpu_util_mean": gpu_mean_metrics_years["gpu_utilization"],
+        "gpu_mem_mean": gpu_mean_metrics["gpu_mem_gb"],
+        "gpu_mem_max": gpu_max_metrics["gpu_mem_gb"],
+        "gpu_util_mean": gpu_mean_metrics["gpu_utilization"],
         "gpu_cpu_years": gpu_sum_metrics_years["cpu_equivalent_cost"],
-        "gpu_cpu_mem_mean": gpu_mean_metrics_years["gpu_memory"],
-        "gpu_cpu_mem_max": gpu_max_metrics_years["system_memory"],
+        "gpu_cpu_mem_mean": gpu_mean_metrics["gpu_mem_gb"],
+        "gpu_cpu_mem_max": gpu_max_metrics["cpu_mem_gb"],
         "cpu_years": cpu_sum_metrics_years["cpu_equivalent_cost"],
-        "cpu_mem_mean": cpu_mean_metrics_years["system_memory"],
-        "cpu_mem_max": cpu_max_metrics_years["system_memory"],
-    }
-    return pd.DataFrame(data)
-
-    print(
-        (
-            gpu_sum_metrics_years / seconds_in_a_year
-            # .reset_index()
-            # .pivot(index="timestamp", columns="gpu_equivalent_cost")
-            # .sum()
-        )
-    )
-    return
-
-    usage_by_user = (
-        usage_stats.groupby(["user.mila.email"])[
-            [
-                # "cpu_billed",
-                "cpu_cost",
-                # "cpu_equivalent_cost",
-                # "gpu_billed",
-                "gpu_cost",
-                # "gpu_equivalent_cost",
-                # "rgu_equivalent_cost",
-            ]
-        ]
-        .sum()
-        .divide(3600)
-    )
-
-    years = range(2022, 2025)
-    data = {
-        "year": years,
-        "students": np.random.randint(5, 20, size=len(years)),
-        "gpu_years": np.random.uniform(1, 10, size=len(years)),
-        "gpu_mem_mean": np.random.uniform(10, 30, size=len(years)),
-        "gpu_mem_max": np.random.uniform(30, 50, size=len(years)),
-        "gpu_util_mean": np.random.uniform(0.3, 0.9, size=len(years)),
-        "gpu_cpu_years": np.random.uniform(1, 5, size=len(years)),
-        "gpu_cpu_mem_mean": np.random.uniform(5, 15, size=len(years)),
-        "gpu_cpu_mem_max": np.random.uniform(15, 25, size=len(years)),
-        "cpu_years": np.random.uniform(1, 8, size=len(years)),
-        "cpu_mem_mean": np.random.uniform(8, 20, size=len(years)),
-        "cpu_mem_max": np.random.uniform(20, 40, size=len(years)),
+        "cpu_mem_mean": cpu_mean_metrics["cpu_mem_gb"],
+        "cpu_mem_max": cpu_max_metrics["cpu_mem_gb"],
     }
     return pd.DataFrame(data)
 
 
 def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
     """Dummy function that returns random projection data for years 2025-2026."""
+    group_usage = get_group_usage(prof_email)
+
     years = range(2025, 2027)
     data = {
         "year": years,
@@ -493,6 +456,25 @@ def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
         "cpu_mem_max": np.random.uniform(20, 40, size=len(years)),
     }
     return pd.DataFrame(data)
+
+
+def _print_like_form_shows(df: pd.DataFrame):
+    print("Year," + ",".join(df["year"].astype(str).tolist()))
+    # print("Students," + ",".join(df["students"].astype(str).tolist()))
+    for column in [
+        "students",
+        "gpu_years",
+        "gpu_mem_mean",
+        "gpu_mem_max",
+        "gpu_util_mean",
+        "gpu_cpu_years",
+        "gpu_cpu_mem_mean",
+        "gpu_cpu_mem_max",
+        "cpu_years",
+        "cpu_mem_mean",
+        "cpu_mem_max",
+    ]:
+        print(column + "," + ",".join(df[column].map(lambda x: f"{x:.3f}").tolist()))
 
 
 def compare_survey_answers_with_SARC():
@@ -1155,7 +1137,11 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
             start=options.start,
             end=options.end,
             user=(
-                {"$in": users} if isinstance(users, list) else users if users else None
+                {"$in": users}
+                if (isinstance(users, list) and users)
+                else users
+                if users
+                else None
             ),  # support querying for multiple users.
             clip_time=False,  # True,
         )
@@ -1442,9 +1428,10 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
 
 def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     # Fix missing gpu_type
-    # if not clusters:
-    clusters = df["cluster_name"].unique()  # type: ignore
+    if not clusters:
+        clusters = df["cluster_name"].unique()  # type: ignore
     assert clusters is not None and len(clusters)
+
     for cluster_name in clusters:
         node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
         # node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
@@ -1459,14 +1446,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
         # NOTE: some nodes don't have GPUs, so we have 'allocated.gpu_type' set to `None` in that case.
         mapping = {node: node_to_gpu.get(node) for node in nodes.unique()}
 
-        def _fn1(x):
-            if x in mapping:
-                return mapping[x]
-            else:
-                logger.warning(f"Missing GPU in mapping: {x}")
-                return x
-
-        df.loc[non_mapped_gpu_types_mask, "allocated.gpu_type"] = nodes.map(_fn1)
+        df.loc[non_mapped_gpu_types_mask, "allocated.gpu_type"] = nodes.map(mapping)
 
     missing_gpu_types_mask = (
         (df["requested.gres_gpu"] > 0)
@@ -1508,6 +1488,17 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     # df["allocated.gpu_type"] = df["allocated.gpu_type"].map(_gpu_name_mapping)
     df["allocated.gpu_type"] = df["allocated.gpu_type"].map(_fn)
     df.fillna({"allocated.gpu_type": "unknown"}, inplace=True)
+
+    # ugly patch:
+    unknown_gpu = df["allocated.gpu_type"] == "unknown"
+    for cluster_name in clusters:
+        mask = (df["cluster_name"] == cluster_name) & unknown_gpu
+        df.loc[mask, "allocated.gpu_type"] = (
+            df[mask]["nodes"]
+            .str[0]
+            .map(_get_node_to_gpu(cluster_name))
+            .map(_gpu_name_mapping)
+        )
 
     return df
 

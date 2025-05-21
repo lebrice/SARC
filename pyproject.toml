@@ -61,7 +61,7 @@ dev = [
     "types-ldap3>=2.9.13.20240205",
     "types-tqdm>=4.67.0.20250417",
 ]
-examples = ["seaborn>=0.13.2,<0.14"]
+examples = ["rich>=14.0.0", "seaborn>=0.13.2,<0.14"]
 
 [tool.uv]
 default-groups = [
