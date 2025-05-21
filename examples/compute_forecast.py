@@ -435,7 +435,7 @@ def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
         result: list[np.ndarray] = []
         for col in df.columns:
             if col == "year":
-                result.append(new_x)
+                result.append(np.asarray(new_x))
                 continue
             y = df[col].values
             coeffs = np.polyfit(x, y, 1)  # Linear fit
