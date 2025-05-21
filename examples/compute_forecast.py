@@ -382,11 +382,11 @@ def get_group_usage(prof_email: str) -> pd.DataFrame:
     # Create a
     gpu_job_stats = gpu_job_stats.assign(
         gpu_mem_gb=(
-            gpu_job_stats["allocated.gpu_type"].map(_gpu_ram)
-            * gpu_job_stats["allocated.gres_gpu"]
+            gpu_job_stats["gpu_memory"]
+            * gpu_job_stats["allocated.gpu_type"].map(_gpu_ram)
+            # note: don't multiply by # of gpus.
+            # * gpu_job_stats["allocated.gres_gpu"]
         ),
-        # todo: what does 'billing' mean? should we use that instead of allocated.mem?
-        # TODO: Fix units for `mem` (also, weird outliers?)
         cpu_mem_gb=(
             # system_memory is a percentage, allocated.mem is in MB (I think).
             gpu_job_stats["system_memory"] * (gpu_job_stats["allocated.mem"] // 1024)
@@ -477,7 +477,7 @@ def _print_like_form_shows(df: pd.DataFrame):
         print(column + "," + ",".join(df[column].map(lambda x: f"{x:.3f}").tolist()))
 
 
-def compare_survey_answers_with_SARC():
+def _compare_survey_answers_with_SARC():
     # Set to `True` to enable interactive mode to annotate the survey results manually.
     interactive = False
 
