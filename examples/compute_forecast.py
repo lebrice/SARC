@@ -331,16 +331,18 @@ def main():
         print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
 
     group_usage_old = get_group_usage(prof)
-    _print_like_form_shows(group_usage_old)
 
     # TODO: Compare the "old" vs this potential "new" way to get the group usage (by summing across students).
-    # group_usage_new_ = (
-    #     group_usage_per_student.groupby("year")
-    #     .sum()
-    #     .assign(students=group_usage_per_student.groupby("year")["user"].nunique())
-    #     .reset_index()  # add back the 'year' as a column
-    # )
-    # _print_like_form_shows(group_usage_new)
+    group_usage_new = (
+        group_usage_per_student.groupby("year")
+        # TODO: Shouldn't sum all metrics! Only the gpu_years and cpu_years.
+        .sum()
+        .assign(students=group_usage_per_student.groupby("year")["user"].nunique())
+        .reset_index()  # add back the 'year' as a column
+    )
+    _print_like_form_shows(group_usage_old)
+    _print_like_form_shows(group_usage_new)
+    return
 
     usage_projections = get_group_usage_projections(prof)
     _print_like_form_shows(pd.concat([group_usage_old, usage_projections]))
@@ -503,7 +505,6 @@ def get_group_usage_by_student(
     cpu_mean_stats = grouped_cpu_stats[["cpu_mem_gb"]].mean()
     cpu_max_stats = grouped_cpu_stats[["cpu_mem_gb"]].max()
 
-    timestamps: list[str] = sorted(usage_stats["timestamp"])
     years = sorted(usage_stats["timestamp"].dt.year.astype(int).unique())
 
     values: list[dict] = []
@@ -513,12 +514,13 @@ def get_group_usage_by_student(
         df: pd.DataFrame,
         column: str,
         default: float,
-        timestamp: str,
+        timestamp: pd.Timestamp,
         user: str,
     ) -> float:
-        """Helper function to get a value from a DataFrame slice."""
         return df.xs(timestamp, level="timestamp")[column].get(user, default)
 
+    timestamps = sorted(usage_stats["timestamp"].unique())
+    assert len(years) == len(timestamps)
     for year, timestamp in zip(years, timestamps):
         for student in students:
             user = student.mila.username
