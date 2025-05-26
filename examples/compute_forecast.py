@@ -312,23 +312,38 @@ class Estimate(Generic[T]):
 
 
 def main():
-    _setup_logging(verbose=2)
-    prof = simple_parsing.parse(
-        Options, default=Options(user=["blake.richards@mila.quebec"])
-    ).user[0]
+    options = simple_parsing.parse(
+        Options, default=Options(user=["blake.richards@mila.quebec"], verbose=1)
+    )
+    _setup_logging(verbose=options.verbose)
+    prof = options.user[0]
 
     students = get_group_students(prof)
     print(f"Students supervised by {prof}: {[s.name for s in students]}")
 
-    # TODO:
-    # usage = get_group_usage_by_student(prof)
-    # print(f"Usage by students supervised by {prof}:")
-    # print(usage.to_markdown())
+    group_usage_per_student = get_group_usage_by_student(prof)
 
-    usage = get_group_usage(prof)
-    _print_like_form_shows(usage)
+    print(f"Usage by students supervised by {prof}:")
+    k = 5
+    for year in sorted(group_usage_per_student["year"].unique()):
+        mask = group_usage_per_student["year"] == year
+        print(f"{k} students that used the most compute in {prof}'s group in {year}:")
+        print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
+
+    group_usage_old = get_group_usage(prof)
+    _print_like_form_shows(group_usage_old)
+
+    # TODO: Compare the "old" vs this potential "new" way to get the group usage (by summing across students).
+    # group_usage_new_ = (
+    #     group_usage_per_student.groupby("year")
+    #     .sum()
+    #     .assign(students=group_usage_per_student.groupby("year")["user"].nunique())
+    #     .reset_index()  # add back the 'year' as a column
+    # )
+    # _print_like_form_shows(group_usage_new)
+
     usage_projections = get_group_usage_projections(prof)
-    _print_like_form_shows(pd.concat([usage, usage_projections]))
+    _print_like_form_shows(pd.concat([group_usage_old, usage_projections]))
 
     # print(usage.to_markdown())
 
@@ -396,7 +411,6 @@ def get_group_usage(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
         ),
     )
-
     grouped_gpu_stats = gpu_job_stats.groupby(["timestamp"])
     gpu_sum_metrics_years = (
         grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
@@ -435,6 +449,104 @@ def get_group_usage(
     # Change the `year` column to have int dtype:
     data = data.astype({"year": int})
     return data
+
+
+def get_group_usage_by_student(
+    prof_email: str,
+    start: datetime = datetime(2022, 1, 1),
+    end: datetime = datetime(2025, 1, 1),
+) -> pd.DataFrame:
+    """Returns the total compute usage for a prof's group in the given period."""
+
+    students = get_group_students(prof_email)
+    logger.info(f"{prof_email} has apparently {len(students)} students.")
+
+    options = Options(
+        start=start.astimezone(MTL),
+        end=end.astimezone(MTL),
+        user=[s.mila.email for s in students],
+    )
+    sarc_data = _get_cleaned_df(options)
+    usage_stats = _get_stats(sarc_data, options, frame_size="YS")
+    gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
+    cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
+    # Create two new columns for the CPU and GPU memory usage in gigabytes.
+    gpu_job_stats = gpu_job_stats.assign(
+        gpu_mem_gb=(
+            gpu_job_stats["gpu_memory"]
+            * gpu_job_stats["allocated.gpu_type"].map(_gpu_ram)
+            # note: don't multiply by # of gpus.
+            # * gpu_job_stats["allocated.gres_gpu"]
+        ),
+        cpu_mem_gb=(
+            # system_memory is a percentage, allocated.mem is in MB (I think).
+            gpu_job_stats["system_memory"] * (gpu_job_stats["allocated.mem"] // 1024)
+        ),
+    )
+    cpu_job_stats = cpu_job_stats.assign(
+        cpu_mem_gb=(
+            cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
+        ),
+    )
+    grouped_gpu_stats = gpu_job_stats.groupby(["timestamp", "user"])
+    gpu_sum_metrics_years = (
+        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
+        / seconds_in_a_year
+    )
+    gpu_mean_stats = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
+    gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb"]].max()
+
+    grouped_cpu_stats = cpu_job_stats.groupby(["timestamp", "user"])
+    cpu_sum_metrics_years = (
+        grouped_cpu_stats[["cpu_equivalent_cost"]].sum() / seconds_in_a_year
+    )
+    cpu_mean_stats = grouped_cpu_stats[["cpu_mem_gb"]].mean()
+    cpu_max_stats = grouped_cpu_stats[["cpu_mem_gb"]].max()
+
+    timestamps: list[str] = sorted(usage_stats["timestamp"])
+    years = sorted(usage_stats["timestamp"].dt.year.astype(int).unique())
+
+    values: list[dict] = []
+    index: list[tuple[int, str]] = []
+
+    def _slice_and_get_value(
+        df: pd.DataFrame,
+        column: str,
+        default: float,
+        timestamp: str,
+        user: str,
+    ) -> float:
+        """Helper function to get a value from a DataFrame slice."""
+        return df.xs(timestamp, level="timestamp")[column].get(user, default)
+
+    for year, timestamp in zip(years, timestamps):
+        for student in students:
+            user = student.mila.username
+            index.append((year, student.mila.email))
+            _slice = functools.partial(
+                _slice_and_get_value, timestamp=timestamp, user=user, default=0.0
+            )
+            user_year_values = {
+                "user": user,
+                "year": year,
+                "gpu_years": _slice(gpu_sum_metrics_years, "rgu_equivalent_cost"),
+                "gpu_mem_mean": _slice(gpu_mean_stats, "gpu_mem_gb"),
+                "gpu_mem_max": _slice(gpu_max_stats, "gpu_mem_gb"),
+                "gpu_util_mean": _slice(gpu_mean_stats, "gpu_utilization"),
+                "gpu_cpu_years": _slice(gpu_sum_metrics_years, "cpu_equivalent_cost"),
+                "gpu_cpu_mem_mean": _slice(gpu_mean_stats, "gpu_mem_gb"),
+                "gpu_cpu_mem_max": _slice(gpu_max_stats, "cpu_mem_gb"),
+                "cpu_years": _slice(cpu_sum_metrics_years, "cpu_equivalent_cost"),
+                "cpu_mem_mean": _slice(cpu_mean_stats, "cpu_mem_gb"),
+                "cpu_mem_max": _slice(cpu_max_stats, "cpu_mem_gb"),
+            }
+            values.append(user_year_values)
+    # Could also make a multiindex, but makes it a bit harder to work with.
+    # return pd.DataFrame.from_records(
+    #     values, index=pd.MultiIndex.from_tuples(index, names=["year", "user"])
+    # )
+    df = pd.DataFrame.from_records(values)
+    return df
 
 
 def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
