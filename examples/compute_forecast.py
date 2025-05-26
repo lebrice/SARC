@@ -386,7 +386,7 @@ def get_group_usage(prof_email: str) -> pd.DataFrame:
 
     grouped_gpu_stats = gpu_job_stats.groupby(["timestamp"])
     gpu_sum_metrics_years = (
-        grouped_gpu_stats[["gpu_equivalent_cost", "cpu_equivalent_cost"]].sum()
+        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
         / seconds_in_a_year
     )
     gpu_mean_stats = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
@@ -406,8 +406,8 @@ def get_group_usage(prof_email: str) -> pd.DataFrame:
 
     data = {
         "year": years,
-        "students": n_students_per_year,  # TODO
-        "gpu_years": gpu_sum_metrics_years["gpu_equivalent_cost"],
+        "students": n_students_per_year,
+        "gpu_years": gpu_sum_metrics_years["rgu_equivalent_cost"],
         "gpu_mem_mean": gpu_mean_stats["gpu_mem_gb"],
         "gpu_mem_max": gpu_max_stats["gpu_mem_gb"],
         "gpu_util_mean": gpu_mean_stats["gpu_utilization"],
