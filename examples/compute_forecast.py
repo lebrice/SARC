@@ -312,9 +312,19 @@ class Estimate(Generic[T]):
 
 
 def main():
-    prof = "glen.berseth@mila.quebec"
+    _setup_logging(verbose=2)
+    prof = simple_parsing.parse(
+        Options, default=Options(user=["blake.richards@mila.quebec"])
+    ).user[0]
+
     students = get_group_students(prof)
     print(f"Students supervised by {prof}: {[s.name for s in students]}")
+
+    # TODO:
+    # usage = get_group_usage_by_student(prof)
+    # print(f"Usage by students supervised by {prof}:")
+    # print(usage.to_markdown())
+
     usage = get_group_usage(prof)
     _print_like_form_shows(usage)
     usage_projections = get_group_usage_projections(prof)
@@ -336,16 +346,19 @@ def get_group_students(prof_email: str) -> list[User]:
     return sorted(prof_students, key=lambda v: v.name)
 
 
-def get_group_usage(prof_email: str) -> pd.DataFrame:
-    """Dummy function that returns random usage data for years 2022-2024."""
-    _setup_logging(verbose=2)
+def get_group_usage(
+    prof_email: str,
+    start: datetime = datetime(2022, 1, 1),
+    end: datetime = datetime(2025, 1, 1),
+) -> pd.DataFrame:
+    """Returns the total compute usage for a prof's group in the given period."""
 
     students = get_group_students(prof_email)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
 
     options = Options(
-        start=datetime(2022, 1, 1).astimezone(MTL),
-        end=datetime(2025, 1, 1).astimezone(MTL),
+        start=start.astimezone(MTL),
+        end=end.astimezone(MTL),
         user=[s.mila.email for s in students],
     )
     sarc_data = _get_cleaned_df(options)
