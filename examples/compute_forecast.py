@@ -430,7 +430,7 @@ def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
     n_predictions = 2
     next_two_years = group_usage["year"].max() + np.arange(1, 1 + n_predictions)
 
-    extrapolations = extrapolate_linear(group_usage, next_two_years)
+    extrapolations = extrapolate_linear(group_usage, next_two_years).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
         students=extrapolations["students"].round()
