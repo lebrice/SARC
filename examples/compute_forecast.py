@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import tempfile
-import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Generic, Mapping, TypeVar
@@ -359,41 +358,45 @@ def main():
     options = simple_parsing.parse(
         Options,
         default=Options(
-            user=["blake.richards@mila.quebec"],
+            user=_PROFS,  # query for all profs by default.
             start=datetime(2022, 1, 1),
             end=datetime(2025, 1, 1),
-            verbose=1,
+            verbose=0,
         ),
     )
     _setup_logging(verbose=options.verbose)
-    prof = options.user[0]
+    profs = options.get_users()  # also supports using a file for the prof emails.
     start = options.start  # datetime(2022, 1, 1)
     end = options.end  # datetime(2025, 1, 1)
 
-    students = get_group_students(prof)
-    print(f"Students supervised by {prof}: {[s.name for s in students]}")
-
-    # Uncomment to download all SARC data for that period only once, and filter it later.
+    # Uncomment to download all SARC data for that period only once, and filter it after.
     # _get_cleaned_df(dataclasses.replace(options, user=[]))
 
-    group_usage_per_student = get_group_usage_by_student(prof, start=start, end=end)
+    all_profs_dataframes: dict[str, pd.DataFrame] = {}
+    for prof in profs:
+        students = get_group_students(prof)
+        print(f"Students supervised by {prof}: {[s.name for s in students]}")
 
-    print(f"Usage by students supervised by {prof}:")
-    k = 5
-    for year in sorted(group_usage_per_student["year"].unique()):
-        mask = group_usage_per_student["year"] == year
-        print(f"{k} students that used the most compute in {prof}'s group in {year}:")
-        print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
+        group_usage_per_student = get_group_usage_by_student(prof, start=start, end=end)
+        print(f"Compute usage in {prof}'s group:")
+        k = 5
+        for year in sorted(group_usage_per_student["year"].unique()):
+            mask = group_usage_per_student["year"] == year
+            print(
+                f"{k} students that used the most compute in {prof}'s group in {year}:"
+            )
+            print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
+
+        group_usage = get_group_usage(prof, start=start, end=end)
+        all_profs_dataframes[prof] = group_usage
+        usage_projections = get_group_usage_projections(prof, group_usage=group_usage)
+        _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
     # years = list(range(start.year, end.year))
-    all_profs_data = pd.concat(
-        {prof: get_group_usage(prof, start=start, end=end) for prof in _PROFS},
-        names=["prof", "year"],
-        # levels=[_PROFS, years],
-    )
-    total_profs_data = all_profs_data.groupby("year").sum()
-    usage_projections = get_group_usage_projections(total_profs_data)
-    _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
+    all_profs_data = pd.concat(all_profs_dataframes, names=["prof", "year"])
+    # total_profs_data = all_profs_data.groupby("year").sum()
+    # usage_projections = get_group_usage_projections(total_profs_data)
+    # _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
 
 def get_group_students(prof_email: str) -> list[User]:
@@ -580,21 +583,25 @@ def get_group_usage_by_student(
         column: str,
         default: float,
         timestamp: pd.Timestamp,
-        user: str,
+        user_primary_email: str,
     ) -> float:
-        return df.xs(timestamp, level="timestamp")[column].get(user, default)
+        return df.xs(timestamp, level="timestamp")[column].get(
+            user_primary_email, default
+        )
 
     timestamps = sorted(usage_stats["timestamp"].unique())
     assert len(years) == len(timestamps)
     for year, timestamp in zip(years, timestamps):
         for student in students:
-            user = student.mila.username
             index.append((year, student.mila.email))
             _slice = functools.partial(
-                _slice_and_get_value, timestamp=timestamp, user=user, default=0.0
+                _slice_and_get_value,
+                timestamp=timestamp,
+                user_primary_email=student.mila.email,
+                default=0.0,
             )
             user_year_values = {
-                "user": user,
+                "user": student.mila.email,
                 "year": year,
                 "gpu_years": _slice(gpu_sum_metrics_years, "rgu_equivalent_cost"),
                 "gpu_mem_mean": _slice(gpu_mean_stats, "gpu_mem_gb"),
@@ -616,9 +623,12 @@ def get_group_usage_by_student(
     return df
 
 
-def get_group_usage_projections(prof_email: str) -> pd.DataFrame:
+def get_group_usage_projections(
+    prof_email: str, group_usage: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Dummy function that returns random projection data for years 2025-2026."""
-    group_usage = get_group_usage(prof_email)
+    if group_usage is None:
+        group_usage = get_group_usage(prof_email)
     n_predictions = 2
     next_two_years = group_usage["year"].max() + np.arange(1, 1 + n_predictions)
 
@@ -1179,8 +1189,9 @@ def _filter_sarc_data(
 def _check_is_email_and_lower(v: str):
     if not v:
         return v
-    if "@" not in v:
+    if "@" not in v or v.count("@") != 1:
         raise ValueError(f"'{v}' is not a valid email address.")
+
     return v.lower()
 
     # logger.debug(options)
@@ -1307,22 +1318,18 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         for user in get_users()
     }
 
-    def get_usernames_from_emails(emails: list[str]) -> list[str]:
-        """Collect the Mila and DRAC usernames of all the user emails"""
-        usernames: set[str] = set()
-        for email in emails:
-            if email not in email_to_user:
-                warnings.warn(
-                    RuntimeWarning(
-                        f"Email '{email}' is not found in the user database!"
-                    )
-                )
-            user = email_to_user[email]
-            if user:
-                usernames.add(user.mila.username)
-                if user.drac:
-                    usernames.add(user.drac.username)
-        return sorted(usernames)
+    def get_usernames(email: str) -> list[str]:
+        if email not in email_to_user:
+            # Note: Would be weird to get here atm, since we get the emails from the user database.
+            # But if we made a query with a particular email of a researcher for example, we might
+            # get here, in which case perhaps we can use the first part of the email as username?
+            raise RuntimeError(f"Email '{email}' is not found in the user database!")
+            username = email.partition("@")[0]
+            return [username]
+        user = email_to_user[email]
+        if user.drac is not None:
+            return [user.mila.username, user.drac.username]
+        return [user.mila.username]
 
     logger.info(
         f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
@@ -1349,7 +1356,8 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         logger.info(
             f"Did not find previous results at {cache_file}. Fetching job data."
         )
-        all_usernames_of_students = get_usernames_from_emails(_user_emails)
+        all_usernames_of_students = sum(map(get_usernames, _user_emails), [])
+        logger.debug(f"Usernames used when querying SARC: {all_usernames_of_students}")
         # In SARC we currently can't query by user.mila.email, so we query with all
         # usernames and filter by user.mila.email after.
         df = load_job_series(
