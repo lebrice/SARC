@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import tempfile
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Generic, Mapping, TypeVar
@@ -141,6 +142,49 @@ _RGUS = {
     "h100-80gb": 12.2,
     "l40s": 10.4,
 }
+
+_PROFS = [
+    "aishwarya.agrawal@mila.quebec",
+    "blake.richards@mila.quebec",
+    "christopher.pal@mila.quebec",
+    "gidelgau@mila.quebec",
+    "glen.berseth@mila.quebec",
+    "pierre-luc.bacon@mila.quebec",
+    "rabussgu@mila.quebec",
+    "siva.reddy@mila.quebec",
+    "alex.hernandez-garcia@mila.quebec",
+    "tegan.maharaj@mila.quebec",
+    "arbeltal@mila.quebec",
+    "cheungja@mila.quebec",
+    "drolnick@mila.quebec",
+    "guillaume.lajoie@mila.quebec",
+    "lcharlin@mila.quebec",
+    "moonajung@mila.quebec",
+    "prakash.panangaden@mila.quebec",
+    "reihaneh.rabbany@mila.quebec",
+    "david.adelani@mila.quebec",
+    "kruegerd@mila.quebec",
+    "bzdokdan@mila.quebec",
+    "courvila@mila.quebec",
+    "dhanya.sridhar@mila.quebec",
+    "farnadig@mila.quebec",
+    "odonnelt@mila.quebec",
+    "paulll@mila.quebec",
+    "siamak.ravanbakhsh@mila.quebec",
+    "slacoste@mila.quebec",
+    "farahmand@mila.quebec",
+    "matt.kusner@gmail.com",
+    "derek@mila.quebec",
+    "ioannis@mila.quebec",
+    "irina.rish@mila.quebec",
+    "jpineau@mila.quebec",
+    "precupdo@mila.quebec",
+    "sarath.chandar@mila.quebec",
+    "tangjian@mila.quebec",
+    "wolfguy@mila.quebec",
+    "yoshua.bengio@mila.quebec",
+    "kirill.neklyudov@mila.quebec",
+]
 
 
 def _midnight(dt: datetime) -> datetime:
@@ -313,15 +357,26 @@ class Estimate(Generic[T]):
 
 def main():
     options = simple_parsing.parse(
-        Options, default=Options(user=["blake.richards@mila.quebec"], verbose=1)
+        Options,
+        default=Options(
+            user=["blake.richards@mila.quebec"],
+            start=datetime(2022, 1, 1),
+            end=datetime(2025, 1, 1),
+            verbose=1,
+        ),
     )
     _setup_logging(verbose=options.verbose)
     prof = options.user[0]
+    start = options.start  # datetime(2022, 1, 1)
+    end = options.end  # datetime(2025, 1, 1)
 
     students = get_group_students(prof)
     print(f"Students supervised by {prof}: {[s.name for s in students]}")
 
-    group_usage_per_student = get_group_usage_by_student(prof)
+    # Uncomment to download all SARC data for that period only once, and filter it later.
+    # _get_cleaned_df(dataclasses.replace(options, user=[]))
+
+    group_usage_per_student = get_group_usage_by_student(prof, start=start, end=end)
 
     print(f"Usage by students supervised by {prof}:")
     k = 5
@@ -330,24 +385,15 @@ def main():
         print(f"{k} students that used the most compute in {prof}'s group in {year}:")
         print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
 
-    group_usage_old = get_group_usage(prof)
-
-    # TODO: Compare the "old" vs this potential "new" way to get the group usage (by summing across students).
-    group_usage_new = (
-        group_usage_per_student.groupby("year")
-        # TODO: Shouldn't sum all metrics! Only the gpu_years and cpu_years.
-        .sum()
-        .assign(students=group_usage_per_student.groupby("year")["user"].nunique())
-        .reset_index()  # add back the 'year' as a column
+    # years = list(range(start.year, end.year))
+    all_profs_data = pd.concat(
+        {prof: get_group_usage(prof, start=start, end=end) for prof in _PROFS},
+        names=["prof", "year"],
+        # levels=[_PROFS, years],
     )
-    _print_like_form_shows(group_usage_old)
-    _print_like_form_shows(group_usage_new)
-    return
-
-    usage_projections = get_group_usage_projections(prof)
-    _print_like_form_shows(pd.concat([group_usage_old, usage_projections]))
-
-    # print(usage.to_markdown())
+    total_profs_data = all_profs_data.groupby("year").sum()
+    usage_projections = get_group_usage_projections(total_profs_data)
+    _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
 
 def get_group_students(prof_email: str) -> list[User]:
@@ -372,6 +418,25 @@ def get_group_usage(
 
     students = get_group_students(prof_email)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
+    if not students:
+        logger.warning(f"No students found for {prof_email}. Returning zeros.")
+        years = list(range(start.year, end.year))
+        return pd.DataFrame(
+            {
+                "year": years,
+                "students": np.zeros(len(years)),
+                "gpu_years": np.zeros(len(years)),
+                "gpu_mem_mean": np.zeros(len(years)),
+                "gpu_mem_max": np.zeros(len(years)),
+                "gpu_util_mean": np.zeros(len(years)),
+                "gpu_cpu_years": np.zeros(len(years)),
+                "gpu_cpu_mem_mean": np.zeros(len(years)),
+                "gpu_cpu_mem_max": np.zeros(len(years)),
+                "cpu_years": np.zeros(len(years)),
+                "cpu_mem_mean": np.zeros(len(years)),
+                "cpu_mem_max": np.zeros(len(years)),
+            }
+        )
 
     options = Options(
         start=start.astimezone(MTL),
@@ -490,7 +555,7 @@ def get_group_usage_by_student(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
         ),
     )
-    grouped_gpu_stats = gpu_job_stats.groupby(["timestamp", "user"])
+    grouped_gpu_stats = gpu_job_stats.groupby(["timestamp", "user.primary_email"])
     gpu_sum_metrics_years = (
         grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
         / seconds_in_a_year
@@ -498,7 +563,7 @@ def get_group_usage_by_student(
     gpu_mean_stats = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
     gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb"]].max()
 
-    grouped_cpu_stats = cpu_job_stats.groupby(["timestamp", "user"])
+    grouped_cpu_stats = cpu_job_stats.groupby(["timestamp", "user.primary_email"])
     cpu_sum_metrics_years = (
         grouped_cpu_stats[["cpu_equivalent_cost"]].sum() / seconds_in_a_year
     )
@@ -1234,10 +1299,33 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     cache_file = options.unique_path()
     _user_emails = options.get_users(assume_mila_email=True)
     assert all(map(_check_is_email_and_lower, _user_emails))
-    users = [user.partition("@")[0] for user in _user_emails]
+
+    email_to_user: dict[str, User] = {
+        # NOTE: assuming that all students have a mila email would be ok for now,
+        # but perhaps this will be a bit more resilient.
+        (user.mila.email or (user.drac.email if user.drac else "")): user
+        for user in get_users()
+    }
+
+    def get_usernames_from_emails(emails: list[str]) -> list[str]:
+        """Collect the Mila and DRAC usernames of all the user emails"""
+        usernames: set[str] = set()
+        for email in emails:
+            if email not in email_to_user:
+                warnings.warn(
+                    RuntimeWarning(
+                        f"Email '{email}' is not found in the user database!"
+                    )
+                )
+            user = email_to_user[email]
+            if user:
+                usernames.add(user.mila.username)
+                if user.drac:
+                    usernames.add(user.drac.username)
+        return sorted(usernames)
 
     logger.info(
-        f"Looking up for data between {options.start} and {options.end} for users: {users or 'all'} and clusters {options.clusters or 'all'}"
+        f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
     )
     if cache_file.exists():
         logger.info(f"Reading previous data from {cache_file}.")
@@ -1256,23 +1344,25 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         )
         df = pd.read_pickle(all_users_cache_file)
         assert isinstance(df, pd.DataFrame)
-        df = df[df["user"].isin(users)]
+        df = df[df["user.primary_email"].isin(_user_emails)]
     else:
         logger.info(
             f"Did not find previous results at {cache_file}. Fetching job data."
         )
+        all_usernames_of_students = get_usernames_from_emails(_user_emails)
+        # In SARC we currently can't query by user.mila.email, so we query with all
+        # usernames and filter by user.mila.email after.
         df = load_job_series(
             start=options.start,
             end=options.end,
             user=(
-                {"$in": users}
-                if (isinstance(users, list) and users)
-                else users
-                if users
+                {"$in": all_usernames_of_students}
+                if all_usernames_of_students
                 else None
             ),  # support querying for multiple users.
             clip_time=False,  # True,
         )
+        df = df[df["user.primary_email"].isin(_user_emails)]
         logger.info(f"Saving data to {cache_file}")
         df.to_pickle(cache_file)
 
