@@ -496,7 +496,9 @@ def get_group_usage(
     cpu_mean_stats = grouped_cpu_stats[["cpu_mem_gb"]].mean()
     cpu_max_stats = grouped_cpu_stats[["cpu_mem_gb"]].max()
 
-    n_students_per_year = usage_stats.groupby(["timestamp"])["user"].nunique()
+    n_students_per_year = usage_stats.groupby(["timestamp"])[
+        "user.primary_email"
+    ].nunique()
     logger.info(f"Number of students with slurm jobs per year: {n_students_per_year}")
 
     years = sorted(usage_stats["timestamp"].dt.year.unique().astype(int))
@@ -1590,14 +1592,6 @@ def _fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
 
     # print("max start", df["start_time"].max())
     # print("min end", df["end_time"].min())
-
-    return df
-
-
-def _filter_users(df: pd.DataFrame, users_file: Path):
-    with users_file.open("r") as file:
-        users = set(file.read().splitlines())
-        df = df[df["user"].isin(users)]
 
     return df
 
