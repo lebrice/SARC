@@ -370,14 +370,17 @@ def main():
     end = options.end  # datetime(2025, 1, 1)
 
     # Uncomment to download all SARC data for that period only once, and filter it after.
-    # _get_cleaned_df(dataclasses.replace(options, user=[]))
+    if profs == _PROFS:
+        _get_cleaned_df(dataclasses.replace(options, user=[]))
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     for prof in profs:
-        students = get_group_students(prof)
+        students = get_group_students(prof, start=start, end=end)
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
 
-        group_usage_per_student = get_group_usage_by_student(prof, start=start, end=end)
+        group_usage_per_student = get_group_usage_by_student(
+            prof, students=students, start=start, end=end
+        )
         print(f"Compute usage in {prof}'s group:")
         k = 5
         for year in sorted(group_usage_per_student["year"].unique()):
@@ -387,39 +390,62 @@ def main():
             )
             print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
 
-        group_usage = get_group_usage(prof, start=start, end=end)
+        group_usage = get_group_usage(
+            prof_email=prof, students=students, start=start, end=end
+        )
         all_profs_dataframes[prof] = group_usage
-        usage_projections = get_group_usage_projections(prof, group_usage=group_usage)
+        usage_projections = get_group_usage_projections(group_usage=group_usage)
         _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
     # years = list(range(start.year, end.year))
-    all_profs_data = pd.concat(all_profs_dataframes, names=["prof", "year"])
-    # total_profs_data = all_profs_data.groupby("year").sum()
-    # usage_projections = get_group_usage_projections(total_profs_data)
-    # _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
+    all_profs_data = pd.concat(all_profs_dataframes, names=["prof"])
+    total_profs_data = all_profs_data.groupby("year").sum()
+    usage_projections = get_group_usage_projections(group_usage=total_profs_data)
+    _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
 
-def get_group_students(prof_email: str) -> list[User]:
-    """Get list of student emails supervised by a professor.
-    For now, returns random fake emails for testing.
-    """
-    prof_students = [
+def get_group_students(
+    prof_email: str,
+    start: datetime = datetime(2022, 1, 1),
+    end: datetime = datetime(2025, 1, 1),
+) -> list[User]:
+    """Get list of student emails supervised by a professor."""
+    students = [
         user
         for user in get_users()
         if user.mila_ldap.get("supervisor") == prof_email
         or user.mila_ldap.get("co_supervisor") == prof_email
     ]
-    return sorted(prof_students, key=lambda v: v.name)
+    students = sorted(students, key=lambda v: v.name)
+    if students:
+        return students
+
+    logger.warning(
+        RuntimeWarning(
+            f"Prof {prof_email} has no students according to the users database!\n"
+            f"Will fetch all SARC data for that period to find students with that supervisor."
+        )
+    )
+    all_sarc_data = _get_cleaned_df(Options(start=start, end=end, user=[]))
+    has_that_prof = (all_sarc_data["user.mila_ldap.supervisor"] == prof_email) | (
+        all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email
+    )
+    student_emails = all_sarc_data[has_that_prof]["user.primary_email"].unique()
+    students = [user for user in get_users() if user.mila.email in student_emails]
+    if not students:
+        raise RuntimeError(f"Still unable to find students for {prof_email=}!")
+    return students
 
 
 def get_group_usage(
     prof_email: str,
+    students: list[User] | None = None,
     start: datetime = datetime(2022, 1, 1),
     end: datetime = datetime(2025, 1, 1),
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
-
-    students = get_group_students(prof_email)
+    if students is None:
+        students = get_group_students(prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
     if not students:
         logger.warning(f"No students found for {prof_email}. Returning zeros.")
@@ -525,12 +551,13 @@ def get_group_usage(
 
 def get_group_usage_by_student(
     prof_email: str,
+    students: list[User] | None = None,
     start: datetime = datetime(2022, 1, 1),
     end: datetime = datetime(2025, 1, 1),
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
-
-    students = get_group_students(prof_email)
+    if students is None:
+        students = get_group_students(prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
 
     options = Options(
@@ -626,10 +653,13 @@ def get_group_usage_by_student(
 
 
 def get_group_usage_projections(
-    prof_email: str, group_usage: pd.DataFrame | None = None
+    prof_email: str | None = None, group_usage: pd.DataFrame | None = None
 ) -> pd.DataFrame:
     """Dummy function that returns random projection data for years 2025-2026."""
     if group_usage is None:
+        assert prof_email is not None, (
+            "Either prof_email or group_usage must be provided."
+        )
         group_usage = get_group_usage(prof_email)
     n_predictions = 2
     next_two_years = group_usage["year"].max() + np.arange(1, 1 + n_predictions)
@@ -1309,6 +1339,11 @@ def _get_options_that_cover_survey_period(survey_data: pd.DataFrame) -> Options:
 
 def _get_cleaned_df(options: Options) -> pd.DataFrame:
     """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
+    options = dataclasses.replace(
+        options,
+        start=options.start.astimezone(MTL),
+        end=options.end.astimezone(MTL),
+    )
     cache_file = options.unique_path()
     _user_emails = options.get_users(assume_mila_email=True)
     assert all(map(_check_is_email_and_lower, _user_emails))
@@ -1372,7 +1407,8 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
             ),  # support querying for multiple users.
             clip_time=False,  # True,
         )
-        df = df[df["user.primary_email"].isin(_user_emails)]
+        if _user_emails:
+            df = df[df["user.primary_email"].isin(_user_emails)]
         logger.info(f"Saving data to {cache_file}")
         df.to_pickle(cache_file)
 
