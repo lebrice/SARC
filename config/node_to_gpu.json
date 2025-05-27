@@ -340,6 +340,7 @@
         "ng30504": "gpu:a100_4g.20gb:4,gpu:a100_3g.20gb:4"
     },
     "mila": {
+        "apollor06": "gpu:rtx8000:8",
         "cn-a001": "gpu:rtx8000:8",
         "cn-a002": "gpu:rtx8000:8",
         "cn-a003": "gpu:rtx8000:8",
