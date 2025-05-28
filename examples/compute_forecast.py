@@ -514,6 +514,16 @@ def _get_cache_file_name(
     return f"{fn.__name__}-{hashed_args}.pkl"
 
 
+_hard_coded_values: dict[str, list[str]] = {
+    "alex.hernandez-garcia@mila.quebec": [
+        "celine.roget@mila.quebec",
+        "dounia.shaaban-kabakibo@mila.quebec",
+        "hyeonah.kim@mila.quebec",
+        "om.patel@mila.quebec",
+    ]
+}
+
+
 @cached
 def get_group_students(
     prof_email: str,
@@ -521,9 +531,10 @@ def get_group_students(
     end: datetime = datetime(2025, 1, 1),
 ) -> list[User]:
     """Get list of student emails supervised by a professor."""
+    all_users = get_users()
     students = [
         user
-        for user in get_users()
+        for user in all_users
         if user.mila_ldap.get("supervisor") == prof_email
         or user.mila_ldap.get("co_supervisor") == prof_email
     ]
@@ -531,6 +542,14 @@ def get_group_students(
     # NOTE: In case `students` is empty (no mapping in SARC), we couldn't use the jobs data
     # from SARC to find the supervisor, since the supervisor and co-supervisor
     # fields in the jobs are set using the same data source!
+    if not students and prof_email in _hard_coded_values:
+        logger.warning(
+            f"Unable to get the students supervised by {prof_email} from SARC, using hard-coded values instead. "
+        )
+        student_emails = _hard_coded_values[prof_email]
+        students = [
+            student for student in all_users if student.mila.email in student_emails
+        ]
     return students
 
 
@@ -597,7 +616,8 @@ def get_group_usage(
         ),
         cpu_mem_gb=(
             # system_memory is a percentage, allocated.mem is in MB (I think).
-            gpu_job_stats["system_memory"] * (gpu_job_stats["allocated.mem"] // 1024)
+            gpu_job_stats["system_memory"]
+            * (gpu_job_stats["allocated.mem"] // 1024)
         ),
     )
     cpu_job_stats = cpu_job_stats.assign(
@@ -645,7 +665,9 @@ def get_group_usage(
     data = data.astype({"year": int})
     data = data.set_index("year").sort_index()
     data = data.reindex(range(start.year, end.year), fill_value=np.nan)
-    data = data.reset_index()  # don't actually want `year` as the index (sticking to Xavier's requested interface)
+    data = (
+        data.reset_index()
+    )  # don't actually want `year` as the index (sticking to Xavier's interface)
     # Change the `year` column to have int dtype:
     return data
 
@@ -678,7 +700,8 @@ def get_group_usage_by_student(
         ),
         cpu_mem_gb=(
             # system_memory is a percentage, allocated.mem is in MB (I think).
-            gpu_job_stats["system_memory"] * (gpu_job_stats["allocated.mem"] // 1024)
+            gpu_job_stats["system_memory"]
+            * (gpu_job_stats["allocated.mem"] // 1024)
         ),
     )
     cpu_job_stats = cpu_job_stats.assign(
@@ -750,9 +773,9 @@ def get_group_usage_projections(
     By default assumes that the data is for years leading to 2025 and makes predictions for 2025 and 2026.
     """
     if group_usage is None:
-        assert prof_email is not None, (
-            "Either prof_email or group_usage must be provided."
-        )
+        assert (
+            prof_email is not None
+        ), "Either prof_email or group_usage must be provided."
         group_usage = get_group_usage(prof_email)
 
     new_x = list(range(start, end + 1))
@@ -837,11 +860,15 @@ def _get_stats(
         frame_size=(
             frame_size
             if frame_size is not None
-            else "MS"
-            if (_period := (options.end - options.start)) > timedelta(days=90)
-            else timedelta(days=7)
-            if _period > timedelta(days=30)
-            else timedelta(days=1)
+            else (
+                "MS"
+                if (_period := (options.end - options.start)) > timedelta(days=90)
+                else (
+                    timedelta(days=7)
+                    if _period > timedelta(days=30)
+                    else timedelta(days=1)
+                )
+            )
         ),
     )
     stats = stats.assign(
