@@ -160,14 +160,14 @@ _PROFS = [
     "pierre-luc.bacon@mila.quebec",
     "rabussgu@mila.quebec",
     "siva.reddy@mila.quebec",
-    "alex.hernandez-garcia@mila.quebec",
-    "tegan.maharaj@mila.quebec",
+    "alex.hernandez-garcia@mila.quebec",  # Missing student mapping in users db
+    "tegan.maharaj@mila.quebec",  # Missing student mapping in users db
     "arbeltal@mila.quebec",
     "cheungja@mila.quebec",
     "drolnick@mila.quebec",
     "guillaume.lajoie@mila.quebec",
     "lcharlin@mila.quebec",
-    "moonajung@mila.quebec",
+    "moonajung@mila.quebec",  # no data in SARC!
     "prakash.panangaden@mila.quebec",
     "reihaneh.rabbany@mila.quebec",
     "david.adelani@mila.quebec",
@@ -398,6 +398,11 @@ def main():
         group_usage_per_student = get_group_usage_by_student(
             prof, students=students, start=start, end=end
         )
+        if group_usage_per_student.empty:
+            logger.error(
+                f"There is no data in SARC for job from any of Prof {prof}'s students! Skipping."
+            )
+            continue
         print(f"Compute usage in {prof}'s group:")
         k = 5
         for year in sorted(group_usage_per_student["year"].unique()):
@@ -1256,7 +1261,8 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         )
         df = pd.read_pickle(all_users_cache_file)
         assert isinstance(df, pd.DataFrame)
-        df = df[df["user.primary_email"].isin(_user_emails)]
+        if _user_emails:
+            df = df[df["user.primary_email"].isin(_user_emails)]
     else:
         logger.info(
             f"Did not find previous results at {cache_file}. Fetching job data."
@@ -1283,6 +1289,10 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
+
+    if df.shape[0] == 0:
+        # NO data in SARC!
+        logger.warning(f"No data found in SARC for {options}.")
 
     _validate_gpu_ram()
 
@@ -1553,7 +1563,10 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
 def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     # Fix missing gpu_type
     if not clusters:
-        clusters = df["cluster_name"].unique()  # type: ignore
+        clusters = df["cluster_name"].unique().tolist()
+    if not clusters:
+        assert df.shape[0] == 0
+        clusters = ALL_CLUSTERS
     assert clusters is not None and len(clusters)
 
     for cluster_name in clusters:
