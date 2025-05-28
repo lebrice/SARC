@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import pickle
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -142,48 +143,50 @@ _RGUS = {
     "l40s": 10.4,
 }
 
-_PROFS = [
-    "aishwarya.agrawal@mila.quebec",
-    "blake.richards@mila.quebec",
-    "christopher.pal@mila.quebec",
-    "gidelgau@mila.quebec",
-    "glen.berseth@mila.quebec",
-    "pierre-luc.bacon@mila.quebec",
-    "rabussgu@mila.quebec",
-    "siva.reddy@mila.quebec",
-    # "alex.hernandez-garcia@mila.quebec",  # no students in SARC
-    # "tegan.maharaj@mila.quebec",  # no students in SARC
-    "arbeltal@mila.quebec",
-    "cheungja@mila.quebec",
-    "drolnick@mila.quebec",
-    "guillaume.lajoie@mila.quebec",
-    "lcharlin@mila.quebec",
-    "moonajung@mila.quebec",
-    "prakash.panangaden@mila.quebec",
-    "reihaneh.rabbany@mila.quebec",
-    "david.adelani@mila.quebec",
-    "kruegerd@mila.quebec",
-    "bzdokdan@mila.quebec",
-    "courvila@mila.quebec",
-    "dhanya.sridhar@mila.quebec",
-    "farnadig@mila.quebec",
-    "odonnelt@mila.quebec",
-    "paulll@mila.quebec",
-    "siamak.ravanbakhsh@mila.quebec",
-    "slacoste@mila.quebec",
-    "farahmand@mila.quebec",
-    "matt.kusner@gmail.com",
-    "derek@mila.quebec",
-    "ioannis@mila.quebec",
-    "irina.rish@mila.quebec",
-    "jpineau@mila.quebec",
-    "precupdo@mila.quebec",
-    "sarath.chandar@mila.quebec",
-    "tangjian@mila.quebec",
-    "wolfguy@mila.quebec",
-    "yoshua.bengio@mila.quebec",
-    "kirill.neklyudov@mila.quebec",
-]
+_PROFS = sorted(
+    [
+        "aishwarya.agrawal@mila.quebec",
+        "blake.richards@mila.quebec",
+        "christopher.pal@mila.quebec",
+        "gidelgau@mila.quebec",
+        "glen.berseth@mila.quebec",
+        "pierre-luc.bacon@mila.quebec",
+        "rabussgu@mila.quebec",
+        "siva.reddy@mila.quebec",
+        "alex.hernandez-garcia@mila.quebec",
+        "tegan.maharaj@mila.quebec",
+        "arbeltal@mila.quebec",
+        "cheungja@mila.quebec",
+        "drolnick@mila.quebec",
+        "guillaume.lajoie@mila.quebec",
+        "lcharlin@mila.quebec",
+        "moonajung@mila.quebec",
+        "prakash.panangaden@mila.quebec",
+        "reihaneh.rabbany@mila.quebec",
+        "david.adelani@mila.quebec",
+        "kruegerd@mila.quebec",
+        "bzdokdan@mila.quebec",
+        "courvila@mila.quebec",
+        "dhanya.sridhar@mila.quebec",
+        "farnadig@mila.quebec",
+        "odonnelt@mila.quebec",
+        "paulll@mila.quebec",
+        "siamak.ravanbakhsh@mila.quebec",
+        "slacoste@mila.quebec",
+        "farahmand@mila.quebec",
+        "matt.kusner@gmail.com",
+        "derek@mila.quebec",
+        "ioannis@mila.quebec",
+        "irina.rish@mila.quebec",
+        "jpineau@mila.quebec",
+        "precupdo@mila.quebec",
+        "sarath.chandar@mila.quebec",
+        "tangjian@mila.quebec",
+        "wolfguy@mila.quebec",
+        "yoshua.bengio@mila.quebec",
+        "kirill.neklyudov@mila.quebec",
+    ]
+)
 
 
 def _midnight(dt: datetime) -> datetime:
@@ -252,7 +255,7 @@ class Options:
                     f"User '{user}' does not contain an email address. "
                     "Please provide a valid email address or set `assume_mila_email=True`."
                 )
-        return user_emails
+        return sorted(user_emails)
 
     def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
         user_emails = self.get_users()
@@ -375,7 +378,19 @@ def main():
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     for prof in profs:
-        students = get_group_students(prof, start=start, end=end)
+
+        survey_entry = {"prof": prof, "start": start, "end": end, "data": "students"}
+        student_entry = survey_entry.copy()
+        student_entry["data"] = "students"
+        if (
+            students := _get_existing_cached_object(student_entry, options.cache_dir)
+        ) is None:
+            students = get_group_students(prof, start=start, end=end)
+            _save_object(
+                student_entry,
+                obj=students,
+                cache_dir=options.cache_dir,
+            )
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
         if not students:
             logger.error(f"Prof {prof} has no students in SARC! Skipping.")
@@ -996,6 +1011,18 @@ def _get_existing_annotation(
     return None
 
 
+def _get_existing_cached_object(survey_entry: dict, cache_dir: Path) -> object | None:
+    """Gets an existing cached object for a given survey entry.
+
+    The object is stored in a file named after the survey entry's hash.
+    """
+    annotation_file = _get_object_cache_file(survey_entry, cache_dir)
+    if annotation_file.exists():
+        with open(annotation_file, "rb") as f:
+            return pickle.load(f)
+    return None
+
+
 def _save_annotation(
     survey_entry: dict, annotation: dict[str, Estimate], cache_dir: Path
 ) -> None:
@@ -1008,6 +1035,16 @@ def _save_annotation(
         yaml.safe_dump({k: dataclasses.asdict(v) for k, v in annotation.items()}, f)
 
 
+def _save_object(survey_entry: dict, obj: object, cache_dir: Path) -> None:
+    """Saves an object for a given survey entry.
+
+    The object is stored in a file named after the survey entry's hash.
+    """
+    annotation_file = _get_object_cache_file(survey_entry, cache_dir)
+    with open(annotation_file, "wb") as f:
+        pickle.dump(obj, f)
+
+
 def _serialize_survey_entry(survey_entry: dict) -> dict:
     return {
         k: (str(v) if isinstance(v, pd.Timestamp) else v if not pd.isna(v) else None)
@@ -1015,7 +1052,7 @@ def _serialize_survey_entry(survey_entry: dict) -> dict:
     }
 
 
-def _get_annotation_cache_file(survey_entry: dict, cache_dir: Path):
+def _get_annotation_cache_file(survey_entry: dict, cache_dir: Path) -> Path:
     serialized_survey_entry = _serialize_survey_entry(survey_entry)
     for k, v in serialized_survey_entry.items():
         try:
