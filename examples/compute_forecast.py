@@ -4,7 +4,6 @@ import functools
 import hashlib
 import json
 import logging
-import math
 import os
 import pickle
 import tempfile
@@ -12,7 +11,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Generic, Mapping, ParamSpec, TypeVar
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rich
@@ -452,6 +450,7 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
         parser.add_argument("--cache_dir", type=Path, default=default_cache_dir)
         cache_dir: Path = parser.parse_known_args()[0].cache_dir
 
+    @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
         """Decorator to cache the results of a function."""
 
@@ -804,293 +803,16 @@ def _print_like_form_shows(df: pd.DataFrame):
         print(column + ", " + ", ".join(vals.map(lambda x: f"{x:.3f}").tolist()))
 
 
-def _plot_comparison(comparison_df):
-    # Assuming `comparison_df` is your DataFrame
-    grouped = comparison_df.groupby("Paper Title").sum()
-
-    # Extract data
-    papers = grouped.index
-    actual_gpu_hours = grouped["gpu_hours"]
-    survey_min = grouped["survey_gpuhours_min"]
-    survey_max = grouped["survey_gpuhours_max"]
-
-    # Display the minimum and maximum as a range of some sort, and the actual value alongside it.
-    fig, ax = plt.subplots(figsize=(10, 6))
-    # For each paper (x axis), display a histogram with three bars: min, max, and actual.
-    # Use a log scale for the y axis, and annotate the bars with the actual values.
-    bar_width = 0.2
-    x = np.arange(len(papers))
-    ax.bar(x - bar_width, survey_min, width=bar_width, label="Survey Min")
-    ax.bar(x, actual_gpu_hours, width=bar_width, label="Actual")
-    ax.bar(x + bar_width, survey_max, width=bar_width, label="Survey Max")
-    ax.set_xticks(x)
-    ax.set_xticklabels(papers, rotation=45, ha="right")
-    ax.set_yscale("log")
-    ax.set_ylabel("GPU Hours (log scale)")
-    ax.set_title("GPU Hours Comparison")
-    ax.legend()
-
-
-def _get_estimate_from_user(
-    survey_entry: dict, previous_annotation: dict[str, Estimate] | None
-) -> dict[str, Estimate]:
-    previous_annotation = previous_annotation or {}
-    # todo: Need to set a value for each of the authors.
-    authors = sorted(
-        set(
-            _author
-            for k, v in survey_entry.items()
-            if "Email" in k and (_author := _none_if_nan(v)) is not None
-        )
-    )
-    annotations_per_author: dict[str, Estimate] = {}
-    for author in authors:
-        existing_estimate = previous_annotation.get(author)
-
-        min_gpu_hours = rich.prompt.FloatPrompt(
-            "What is the [bold]minimum[/bold] GPU*hour given the above data?"
-        )(default=existing_estimate.min if existing_estimate else None)
-        assert isinstance(min_gpu_hours, float)
-
-        max_gpu_hours = rich.prompt.FloatPrompt(
-            "What is the [bold]maximum[/bold] GPU*hour given the above data?"
-        )(default=existing_estimate.max if existing_estimate else min_gpu_hours)
-        assert isinstance(max_gpu_hours, float)
-        assert max_gpu_hours >= min_gpu_hours
-
-        annotation = Estimate(min=min_gpu_hours, max=max_gpu_hours)
-
-        assert author not in annotations_per_author
-        annotations_per_author[author] = annotation
-    return annotations_per_author
-
-
-def _get_existing_annotation(
-    survey_entry: dict, cache_dir: Path
-) -> dict[str, Estimate] | None:
-    """Gets the existing annotation for a given survey entry.
-
-    The annotation is stored in a file named after the survey entry's hash.
-    """
-    annotation_file = _get_annotation_cache_file(survey_entry, cache_dir)
-    if annotation_file.exists():
-        with open(annotation_file, "r") as f:
-            data = yaml.safe_load(f)
-            return {k: Estimate(**v) for k, v in data.items()}
-    return None
-
-
-def _save_annotation(
-    survey_entry: dict, annotation: dict[str, Estimate], cache_dir: Path
-) -> None:
-    """Saves the annotation for a given survey entry.
-
-    The annotation is stored in a file named after the survey entry's hash.
-    """
-    annotation_file = _get_annotation_cache_file(survey_entry, cache_dir)
-    with open(annotation_file, "w") as f:
-        yaml.safe_dump({k: dataclasses.asdict(v) for k, v in annotation.items()}, f)
-
-
-def _save_object(survey_entry: dict, obj: object, cache_dir: Path) -> None:
-    """Saves an object for a given survey entry.
-
-    The object is stored in a file named after the survey entry's hash.
-    """
-    annotation_file = _get_object_cache_file(survey_entry, cache_dir)
-    with open(annotation_file, "wb") as f:
-        pickle.dump(obj, f)
-
-
-def _serialize_survey_entry(survey_entry: dict) -> dict:
-    return {
-        k: (str(v) if isinstance(v, pd.Timestamp) else v if not pd.isna(v) else None)
-        for k, v in survey_entry.items()
-    }
-
-
-def _get_annotation_cache_file(survey_entry: dict, cache_dir: Path) -> Path:
-    serialized_survey_entry = _serialize_survey_entry(survey_entry)
-    for k, v in serialized_survey_entry.items():
-        try:
-            json.dumps(v)
-        except TypeError:
-            breakpoint()
-    survey_entry_hash = hashlib.md5(
-        json.dumps(serialized_survey_entry).encode()
-    ).hexdigest()
-    annotation_file = cache_dir / f"annotation_{survey_entry_hash}.yaml"
-    return annotation_file
-
-
-def _display_survey_entry(survey_entry: dict):
-    values = _drop_na_values(survey_entry)
-    rich.print(
-        rich.panel.Panel(
-            rich.pretty.pretty_repr(
-                {
-                    k: v
-                    if isinstance(v, str) and len(v) >= 30
-                    else rich.pretty.pretty_repr(v)
-                    for k, v in values.items()
-                }
-            )
-        )
-    )
-
-
-def _extract_gpu_hours_from_survey_entry(survey_entry: dict) -> dict[str, Estimate]:
-    """Gets the estimated GPU*hours from a survey entry.
-
-    Returns the minimum and maximum values for the product of the
-    "Number of slurm jobs", "Average running time per job",
-    "Number of GPUs per experiment", and "Average GPU-utilization" columns
-    for each author.
-    """
-    usage_per_user: dict[str, Estimate] = {}
-
-    number_of_jobs_map: dict[str, tuple[float, float]] = {
-        "100 or less": (0, 100),
-        "(100, 500]": (100, 500),
-        "(500, 1000]": (500, 1000),
-        "(1000, 2000]": (1000, 2000),
-        "(2000, 5000]": (2000, 5000),
-        "(5000, 10000]": (5000, 10_000),
-        "more than 10000": (
-            10_000,
-            20_000,  # todo: what to use as a maximum estimate in this case?
-        ),
-    }
-    running_time_map: dict[str, tuple[timedelta, timedelta]] = {
-        "3h or less": (timedelta(0), timedelta(hours=3)),
-        "(3h, 12h]": (timedelta(hours=3), timedelta(hours=12)),
-        "(12h, 24h]": (timedelta(hours=12), timedelta(hours=24)),
-        "(24h, 48h]": (timedelta(hours=24), timedelta(hours=48)),
-        "(2d,  4d]": (timedelta(days=2), timedelta(days=4)),
-        # TODO: Need to invent a maximum here.
-        "more than 4d": (timedelta(days=4), timedelta(days=7)),
-    }
-    gpus_per_job_map: dict[str, tuple[int, int]] = {
-        "0": (0, 0),
-        "1": (1, 1),
-        "2": (2, 2),
-        "(2, 4]": (2, 4),
-        "(5, 8]": (5, 8),
-        "more than 8": (8, 16),  # TODO: Need to invent a maximum here.
-    }
-
-    section_suffixes = ["", *[f".{i}" for i in range(1, 10)]]
-    for section_index, section_suffix in enumerate(section_suffixes):
-        # note: Seems to always be filled, with `nan` when missing (not None)
-        author: str | None = _none_if_nan(
-            survey_entry[
-                f"Email of the co-author who ran these experiments{section_suffix}"
-            ]
-        )
-        number_of_jobs: str | None = _none_if_nan(
-            survey_entry[f"Number of slurm jobs{section_suffix}"]
-        )
-        running_time: str | None = _none_if_nan(
-            survey_entry[f"Average running time per slurm job{section_suffix}"]
-        )
-        gpus_per_job: str | None = _none_if_nan(
-            survey_entry[f"Number of GPUs per experiment{section_suffix}"]
-        )
-
-        average_gpu_util: str | None = _none_if_nan(
-            survey_entry[f"Average GPU-utilization{section_suffix}"]
-        )
-
-        if any([author, number_of_jobs, running_time, gpus_per_job, average_gpu_util]):
-            logger.debug(
-                f"Raw answers for section {section_index}: "
-                f"{author=}, {number_of_jobs=}, {running_time=}, {gpus_per_job=}, {average_gpu_util=}"
-            )
-
-        if (
-            number_of_jobs is not None
-            and running_time is not None
-            and gpus_per_job is not None
-        ):
-            # Assume that if the "author" field in a group isn't filled, it's the user that is answering the form.
-            _author = author or survey_entry["Email address"]
-            _gpus_per_job_min, _gpus_per_job_max = gpus_per_job_map[gpus_per_job]
-            _number_of_jobs_min, _number_of_jobs_max = number_of_jobs_map[
-                number_of_jobs
-            ]
-            _running_time_min, _running_time_max = running_time_map[running_time]
-            if average_gpu_util is None:
-                # todo: use the user's average util from SARC maybe?
-                _average_gpu_util = 0.5
-            else:
-                _average_gpu_util = float(average_gpu_util) / 10.0
-
-            minimum_gpu_hours = (
-                _number_of_jobs_min
-                * _gpus_per_job_min
-                * (_running_time_min.total_seconds() / 3600)
-                * _average_gpu_util
-            )
-            maximum_gpu_hours = (
-                _number_of_jobs_max
-                * _gpus_per_job_max
-                * (_running_time_max.total_seconds() / 3600)
-                * _average_gpu_util
-            )
-            if existing_entry := usage_per_user.get(_author):
-                usage_per_user[_author] = existing_entry + Estimate(
-                    min=minimum_gpu_hours, max=maximum_gpu_hours
-                )
-            else:
-                usage_per_user[_author] = Estimate(
-                    min=minimum_gpu_hours, max=maximum_gpu_hours
-                )
-        else:
-            # dont' allow sparse entries for now.
-            assert (
-                number_of_jobs is None and running_time is None and gpus_per_job is None
-            ), (author, number_of_jobs, running_time, gpus_per_job)
-    return usage_per_user
-
-
-def _none_if_nan(v: T) -> T | None:
-    try:
-        float_v = float(v)  # type: ignore
-        if math.isnan(float_v):
-            return None
-    except ValueError:
-        pass
-    return v
-
-
-def _drop_na_values(d: Mapping):
-    return {k: v for k, v in d.items() if not pd.isna(v)}
-
-
-def _filter_survey_data_by_users(
-    survey_data: pd.DataFrame, user_emails: list[str]
-) -> pd.DataFrame:
-    user_emails = list(map(_check_is_email_and_lower, user_emails))
-
-    email_columns = [c for c in survey_data.columns if "Email" in c]
-    mask = np.zeros(len(survey_data), dtype=bool)
-    for col in email_columns:
-        mask |= (
-            survey_data[col]
-            .where(pd.notna, other="")
-            .map(_check_is_email_and_lower)
-            .isin(user_emails)
-        )
-    return survey_data[mask]
-
-
 def _filter_sarc_data(
     all_sarc_data_cleaned: pd.DataFrame, filtering_options: Options
 ) -> pd.DataFrame:
     users = filtering_options.get_users()
     users = list(map(_check_is_email_and_lower, users))
-    df = all_sarc_data_cleaned[all_sarc_data_cleaned["user.mila.email"].isin(users)]
-    df = df[df["cluster_name"].isin(filtering_options.clusters)]
+    df = all_sarc_data_cleaned
+    if users:
+        df = df[df["user.mila.email"].isin(users)]
+    if filtering_options.clusters:
+        df = df[df["cluster_name"].isin(filtering_options.clusters)]
     df = df[df["start_time"].between(filtering_options.start, filtering_options.end)]
     return df
 
@@ -1102,11 +824,6 @@ def _check_is_email_and_lower(v: str):
         raise ValueError(f"'{v}' is not a valid email address.")
 
     return v.lower()
-
-    # logger.debug(options)
-
-    # users = options.get_users()
-    # df = get_cleaned_df(options)
 
 
 def _get_stats(
@@ -1134,84 +851,6 @@ def _get_stats(
     )
 
     return stats
-
-
-def _load_survey_data(survey_data_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    sd = pd.read_csv(survey_data_csv, header=1)
-    raw_data = sd
-    date_columns = [c for c in sd.columns if "Start date" in c or "End date" in c]
-    sd = sd.assign(
-        User=sd["Email address"].map(lambda v: v.removesuffix("@mila.quebec")),
-        **{
-            c: pd.to_datetime(sd[c], format="%d/%m/%Y")
-            .dt.tz_localize("UTC")  # this gymnastic seems needed to get a datetime
-            .dt.tz_convert(MTL)
-            for c in date_columns
-        },
-    )
-    clusters_used_columns = [c for c in sd.columns if "Which clusters did you use" in c]
-    new_used_cluster_columns: dict[str, np.ndarray[tuple[int], np.dtype[np.bool]]] = {
-        c: np.zeros(len(sd), dtype=bool) for c in ALL_CLUSTERS
-    }
-    for cluster in ALL_CLUSTERS:
-        used_cluster = np.stack(
-            [
-                sd[column].map(
-                    lambda v: cluster in v.lower() if isinstance(v, str) else False
-                )
-                for column in clusters_used_columns
-            ]
-        ).any(0)
-        new_used_cluster_columns[cluster] = used_cluster  # type: ignore
-    sd = sd.assign(
-        **{
-            f"{cluster}_used": cluster_was_used
-            for cluster, cluster_was_used in new_used_cluster_columns.items()
-        }
-    )
-    return sd, raw_data
-
-
-def _get_options_that_cover_survey_period(survey_data: pd.DataFrame) -> Options:
-    """Return the filter to use to fetch SARC data for the given the survey answer(s)."""
-    email_columns = [c for c in survey_data.columns if "Email" in c]
-    users = set()
-    for email_column in email_columns:
-        _users = set(survey_data[email_column].dropna().tolist())
-        users |= _users
-    user_emails = sorted(users)
-
-    clusters_used_columns = [
-        c
-        for c in survey_data.columns
-        if c.startswith("Which clusters did you use for these experiments?")
-    ]
-
-    start_date_columns = [c for c in survey_data.columns if c.startswith("Start date")]
-    end_date_columns = [c for c in survey_data.columns if c.startswith("End date")]
-
-    earliest_start_date: datetime = min(
-        survey_data[c].dropna().min() for c in start_date_columns
-    )
-    latest_end_date: datetime = max(
-        survey_data[c].dropna().max() for c in end_date_columns
-    )
-
-    # note: can contain things like 'mila, beluga' and 'other clusters' etc.
-    known_clusters_used: set[str] = set()
-    for column in clusters_used_columns:
-        all_clusters_used = survey_data[column].dropna().unique()
-        for cluster_used_entry in all_clusters_used:
-            for cluster in ALL_CLUSTERS:
-                if cluster in cluster_used_entry.lower():
-                    known_clusters_used.add(cluster)
-    # clusters
-    return Options(
-        user=user_emails,
-        start=earliest_start_date,
-        end=latest_end_date,
-        clusters=list(known_clusters_used),
-    )
 
 
 def _get_cleaned_df(options: Options) -> pd.DataFrame:
@@ -1338,7 +977,7 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
 
     df, missing_users = _find_missing_user_to_mila_emails(df)
     if missing_users:
-        print(f"Missing the mila email for these users: {sorted(missing_users)}")
+        logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
 
     return df
 
