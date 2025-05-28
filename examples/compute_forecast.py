@@ -1,3 +1,4 @@
+import argparse
 import dataclasses
 import functools
 import hashlib
@@ -9,7 +10,7 @@ import pickle
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Generic, Mapping, TypeVar
+from typing import Callable, Generic, Mapping, ParamSpec, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -44,6 +45,7 @@ pd.options.display.max_rows = 1000
 pd.options.display.float_format = lambda x: f"{x:.3f}"
 
 ALL_CLUSTERS = ["mila", "narval", "beluga", "cedar", "graham"]
+T = TypeVar("T", float, timedelta)
 
 seconds_in_a_year = timedelta(days=365.242374).total_seconds()
 
@@ -143,64 +145,54 @@ _RGUS = {
     "l40s": 10.4,
 }
 
-_PROFS = sorted(
-    [
-        "aishwarya.agrawal@mila.quebec",
-        "blake.richards@mila.quebec",
-        "christopher.pal@mila.quebec",
-        "gidelgau@mila.quebec",
-        "glen.berseth@mila.quebec",
-        "pierre-luc.bacon@mila.quebec",
-        "rabussgu@mila.quebec",
-        "siva.reddy@mila.quebec",
-        "alex.hernandez-garcia@mila.quebec",
-        "tegan.maharaj@mila.quebec",
-        "arbeltal@mila.quebec",
-        "cheungja@mila.quebec",
-        "drolnick@mila.quebec",
-        "guillaume.lajoie@mila.quebec",
-        "lcharlin@mila.quebec",
-        "moonajung@mila.quebec",
-        "prakash.panangaden@mila.quebec",
-        "reihaneh.rabbany@mila.quebec",
-        "david.adelani@mila.quebec",
-        "kruegerd@mila.quebec",
-        "bzdokdan@mila.quebec",
-        "courvila@mila.quebec",
-        "dhanya.sridhar@mila.quebec",
-        "farnadig@mila.quebec",
-        "odonnelt@mila.quebec",
-        "paulll@mila.quebec",
-        "siamak.ravanbakhsh@mila.quebec",
-        "slacoste@mila.quebec",
-        "farahmand@mila.quebec",
-        "matt.kusner@gmail.com",
-        "derek@mila.quebec",
-        "ioannis@mila.quebec",
-        "irina.rish@mila.quebec",
-        "jpineau@mila.quebec",
-        "precupdo@mila.quebec",
-        "sarath.chandar@mila.quebec",
-        "tangjian@mila.quebec",
-        "wolfguy@mila.quebec",
-        "yoshua.bengio@mila.quebec",
-        "kirill.neklyudov@mila.quebec",
-    ]
-)
+_PROFS = [
+    "aishwarya.agrawal@mila.quebec",
+    "blake.richards@mila.quebec",
+    "christopher.pal@mila.quebec",
+    "gidelgau@mila.quebec",
+    "glen.berseth@mila.quebec",
+    "pierre-luc.bacon@mila.quebec",
+    "rabussgu@mila.quebec",
+    "siva.reddy@mila.quebec",
+    "alex.hernandez-garcia@mila.quebec",
+    "tegan.maharaj@mila.quebec",
+    "arbeltal@mila.quebec",
+    "cheungja@mila.quebec",
+    "drolnick@mila.quebec",
+    "guillaume.lajoie@mila.quebec",
+    "lcharlin@mila.quebec",
+    "moonajung@mila.quebec",
+    "prakash.panangaden@mila.quebec",
+    "reihaneh.rabbany@mila.quebec",
+    "david.adelani@mila.quebec",
+    "kruegerd@mila.quebec",
+    "bzdokdan@mila.quebec",
+    "courvila@mila.quebec",
+    "dhanya.sridhar@mila.quebec",
+    "farnadig@mila.quebec",
+    "odonnelt@mila.quebec",
+    "paulll@mila.quebec",
+    "siamak.ravanbakhsh@mila.quebec",
+    "slacoste@mila.quebec",
+    "farahmand@mila.quebec",
+    "matt.kusner@gmail.com",
+    "derek@mila.quebec",
+    "ioannis@mila.quebec",
+    "irina.rish@mila.quebec",
+    "jpineau@mila.quebec",
+    "precupdo@mila.quebec",
+    "sarath.chandar@mila.quebec",
+    "tangjian@mila.quebec",
+    "wolfguy@mila.quebec",
+    "yoshua.bengio@mila.quebec",
+    "kirill.neklyudov@mila.quebec",
+]
+_PROFS = sorted(_PROFS)
 
 
 def _midnight(dt: datetime) -> datetime:
     """Returns the start of the given day (hour 00:00)."""
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def _get_survey_answers_csv(google_sheets_url: str) -> pd.DataFrame:
-    """IDEA: Fetches the CSV data from the given Google Sheets URL.
-
-    Pretty unnecessary, just a nice-to-have. The difficulty is that the URL is only accessible
-    after logging in with Google authentication.
-    """
-    raise NotImplementedError("TODO")
 
 
 @functools.total_ordering
@@ -338,9 +330,6 @@ def _setup_logging(verbose: int):
         logger.setLevel("DEBUG")
 
 
-T = TypeVar("T", float, timedelta)
-
-
 @dataclasses.dataclass(frozen=True)
 class Estimate(Generic[T]):
     min: T
@@ -374,28 +363,16 @@ def main():
 
     # Uncomment to download all SARC data for that period only once, and filter it after.
     if profs == _PROFS:
-        _get_cleaned_df(dataclasses.replace(options, user=[]))
+        cached(_get_cleaned_df)(options=dataclasses.replace(options, user=[]))
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     for prof in profs:
-
-        survey_entry = {"prof": prof, "start": start, "end": end, "data": "students"}
-        student_entry = survey_entry.copy()
-        student_entry["data"] = "students"
-        if (
-            students := _get_existing_cached_object(student_entry, options.cache_dir)
-        ) is None:
-            students = get_group_students(prof, start=start, end=end)
-            _save_object(
-                student_entry,
-                obj=students,
-                cache_dir=options.cache_dir,
-            )
+        students = cached(get_group_students)(prof_email=prof, start=start, end=end)
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
         if not students:
             logger.error(f"Prof {prof} has no students in SARC! Skipping.")
 
-        group_usage_per_student = get_group_usage_by_student(
+        group_usage_per_student = cached(get_group_usage_by_student)(
             prof, students=students, start=start, end=end
         )
         print(f"Compute usage in {prof}'s group:")
@@ -411,7 +388,10 @@ def main():
             prof_email=prof, students=students, start=start, end=end
         )
         all_profs_dataframes[prof] = group_usage
-        usage_projections = get_group_usage_projections(group_usage=group_usage)
+        # NOTE: Need to add the cached wrapper here explicitly, because we don't want to
+        usage_projections = cached(get_group_usage_projections)(
+            prof, group_usage=group_usage
+        )
         _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
     if len(profs) == 1:
@@ -426,6 +406,75 @@ def main():
     _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
 
+CACHE_DIR: Path | None = (
+    Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
+)
+P = ParamSpec("P")
+OutT = TypeVar("OutT")
+
+
+def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
+    """Caches a function in a given cache dir."""
+    if CACHE_DIR is not None:
+        cache_dir = CACHE_DIR
+    else:
+        parser = argparse.ArgumentParser(add_help=False)
+        default_cache_dir = Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
+        parser.add_argument("--cache_dir", type=Path, default=default_cache_dir)
+        cache_dir: Path = parser.parse_known_args()[0].cache_dir
+
+    def _hash_args(*args: P.args, **kwargs: P.kwargs) -> str:
+        def _hash(v) -> str:
+            if v is None:
+                return str(v)
+            if isinstance(v, str):
+                return v.removesuffix("@mila.quebec")  # no quotes around strings.
+            if isinstance(v, (int, float)):
+                return repr(v)
+            if isinstance(v, datetime):
+                if v.hour == 0 and v.minute == 0 and v.second == 0:
+                    return v.strftime("%Y-%m-%d-%z")
+                return v.strftime("%Y-%m-%dT%H:%M:%S%z")
+            if isinstance(v, Options):
+                return (
+                    v.unique_path()
+                    .relative_to(v.cache_dir)
+                    .stem.removeprefix("compute_profile-")
+                )
+            if isinstance(v, pd.DataFrame):
+                # Important: Assuming that the other function arguments will be used to recover the same dataframe, so not including it in the hash.
+                return ""
+            raise NotImplementedError(f"Unsupported arg type: {v} of type {type(v)}")
+
+        # More interpretable than using a hash:
+        # return hashlib.md5(
+        #     json.dumps((args, kwargs), sort_keys=True, default=str).encode()
+        # ).hexdigest()
+        return "-".join(map(_hash, args)) + "-".join(
+            f"{k}-{_hash(v)}" for k, v in kwargs.items()
+        )
+
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
+        """Decorator to cache the results of a function."""
+        hashed_args = _hash_args(*args, **kwargs)
+
+        if (cache_path := (cache_dir / hashed_args).with_suffix(".pkl")).exists():
+            logger.info(f"Loading result of {fn.__name__} from {cache_path}")
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+        else:
+            logger.info(
+                f"Cache miss. Computing {fn.__name__} and saving to {cache_path}"
+            )
+            result = fn(*args, **kwargs)
+            with open(cache_path, "wb") as f:
+                pickle.dump(result, f)
+            return result
+
+    return wrapper
+
+
+@cached
 def get_group_students(
     prof_email: str,
     start: datetime = datetime(2022, 1, 1),
@@ -445,6 +494,7 @@ def get_group_students(
     return students
 
 
+@cached
 def get_group_usage(
     prof_email: str,
     students: list[User] | None = None,
@@ -560,6 +610,7 @@ def get_group_usage(
     return data
 
 
+@cached
 def get_group_usage_by_student(
     prof_email: str,
     students: list[User] | None = None,
@@ -1008,18 +1059,6 @@ def _get_existing_annotation(
         with open(annotation_file, "r") as f:
             data = yaml.safe_load(f)
             return {k: Estimate(**v) for k, v in data.items()}
-    return None
-
-
-def _get_existing_cached_object(survey_entry: dict, cache_dir: Path) -> object | None:
-    """Gets an existing cached object for a given survey entry.
-
-    The object is stored in a file named after the survey entry's hash.
-    """
-    annotation_file = _get_object_cache_file(survey_entry, cache_dir)
-    if annotation_file.exists():
-        with open(annotation_file, "rb") as f:
-            return pickle.load(f)
     return None
 
 
