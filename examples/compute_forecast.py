@@ -158,6 +158,12 @@ _PROFS = [
     "gidelgau@mila.quebec",
     "glen.berseth@mila.quebec",
     "pierre-luc.bacon@mila.quebec",
+    # Big drop in 2024 compared to 2022 and 2023.
+    # Observations:
+    # - Pierluca,Tianwei,Evgenii were biggest compute users of that group in 2022 (73,58,51 rgu*years)
+    # - Tianwei, Simon, Sobhanless top users in 2023 (90,31,23) rgu*years.
+    # Possible explanations:
+    # - Some students transitioned away from Mila/DRAC clusters and towards using corporate clusters?
     "rabussgu@mila.quebec",
     "siva.reddy@mila.quebec",
     "alex.hernandez-garcia@mila.quebec",  # Missing student mapping in users db
@@ -377,14 +383,12 @@ def main():
 
     # Uncomment to download all SARC data for that period only once, and filter it after.
     if set(profs) == set(_PROFS):
+        _all_users_option = dataclasses.replace(options, user=[])
         if not (
-            CACHE_DIR
-            / _get_cache_file_name(
-                _get_cleaned_df, options=dataclasses.replace(options, user=[])
-            )
+            CACHE_DIR / _get_cache_file_name(_get_cleaned_df, options=_all_users_option)
         ).exists():
             # We did not previously load all data from SARC. Do it now to make the rest of the code faster.
-            cached(_get_cleaned_df)(options=dataclasses.replace(options, user=[]))
+            cached(_get_cleaned_df)(options=_all_users_option)
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     for prof in profs:
@@ -1241,7 +1245,7 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
             return [user.mila.username, user.drac.username]
         return [user.mila.username]
 
-    logger.info(
+    logger.debug(
         f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
     )
     if cache_file.exists():
