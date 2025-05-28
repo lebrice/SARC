@@ -10,7 +10,7 @@ import pickle
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Generic, Mapping, ParamSpec, TypeVar
+from typing import Any, Callable, Generic, Mapping, ParamSpec, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,13 +40,19 @@ from sarc.jobs.series import (
 )
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", float, timedelta)
+P = ParamSpec("P")
+OutT = TypeVar("OutT")
+
 pd.options.display.max_colwidth = 300
 pd.options.display.max_rows = 1000
 pd.options.display.float_format = lambda x: f"{x:.3f}"
 
 ALL_CLUSTERS = ["mila", "narval", "beluga", "cedar", "graham"]
-T = TypeVar("T", float, timedelta)
-
+CACHE_DIR: Path | None = (
+    Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
+)
 seconds_in_a_year = timedelta(days=365.242374).total_seconds()
 
 _gpu_name_mapping = {
@@ -221,7 +227,11 @@ class Options:
     """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
     cache_dir: Path = dataclasses.field(
-        default=Path(os.environ.get("SCRATCH", tempfile.gettempdir())),
+        default=(
+            Path(os.environ["CF_DATA"])
+            if "CF_DATA" in os.environ
+            else Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
+        ),
         hash=False,
         repr=False,
     )
@@ -357,22 +367,35 @@ def main():
         ),
     )
     _setup_logging(verbose=options.verbose)
+
+    global CACHE_DIR
+    CACHE_DIR = options.cache_dir
+
     profs = options.get_users()  # also supports using a file for the prof emails.
     start = options.start  # datetime(2022, 1, 1)
     end = options.end  # datetime(2025, 1, 1)
 
     # Uncomment to download all SARC data for that period only once, and filter it after.
-    if profs == _PROFS:
-        cached(_get_cleaned_df)(options=dataclasses.replace(options, user=[]))
+    if set(profs) == set(_PROFS):
+        if not (
+            CACHE_DIR
+            / _get_cache_file_name(
+                _get_cleaned_df, options=dataclasses.replace(options, user=[])
+            )
+        ).exists():
+            # We did not previously load all data from SARC. Do it now to make the rest of the code faster.
+            cached(_get_cleaned_df)(options=dataclasses.replace(options, user=[]))
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     for prof in profs:
-        students = cached(get_group_students)(prof_email=prof, start=start, end=end)
+        # Always cached. No need to wrap.
+        students = get_group_students(prof_email=prof, start=start, end=end)
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
         if not students:
             logger.error(f"Prof {prof} has no students in SARC! Skipping.")
-
-        group_usage_per_student = cached(get_group_usage_by_student)(
+            continue
+        # Always cached. No need to wrap.
+        group_usage_per_student = get_group_usage_by_student(
             prof, students=students, start=start, end=end
         )
         print(f"Compute usage in {prof}'s group:")
@@ -383,14 +406,17 @@ def main():
                 f"{k} students that used the most compute in {prof}'s group in {year}:"
             )
             print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
-
+        # Also always cached.
         group_usage = get_group_usage(
             prof_email=prof, students=students, start=start, end=end
         )
         all_profs_dataframes[prof] = group_usage
-        # NOTE: Need to add the cached wrapper here explicitly, because we don't want to
+        # NOTE: Dataframe arguments are ignored by the `cached` wrapper.
+        # Here this function is not cached by default, and the `cached` wrapper is only added
+        # here instead, because we use this function below with only the `group_usage` argument
+        # (not passing `prof_email`).
         usage_projections = cached(get_group_usage_projections)(
-            prof, group_usage=group_usage
+            prof, group_usage=group_usage, start=2025, end=2026
         )
         _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
@@ -401,16 +427,10 @@ def main():
         names=["prof", "year"],
     )
     total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
+    # Uncached, because we pass the dataframe as the argument.
     usage_projections = get_group_usage_projections(group_usage=total_profs_data)
     print(f"Total for {len(profs)} profs:")
     _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
-
-
-CACHE_DIR: Path | None = (
-    Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
-)
-P = ParamSpec("P")
-OutT = TypeVar("OutT")
 
 
 def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
@@ -423,55 +443,67 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
         parser.add_argument("--cache_dir", type=Path, default=default_cache_dir)
         cache_dir: Path = parser.parse_known_args()[0].cache_dir
 
-    def _hash_args(*args: P.args, **kwargs: P.kwargs) -> str:
-        def _hash(v) -> str:
-            if v is None:
-                return str(v)
-            if isinstance(v, str):
-                return v.removesuffix("@mila.quebec")  # no quotes around strings.
-            if isinstance(v, (int, float)):
-                return repr(v)
-            if isinstance(v, datetime):
-                if v.hour == 0 and v.minute == 0 and v.second == 0:
-                    return v.strftime("%Y-%m-%d-%z")
-                return v.strftime("%Y-%m-%dT%H:%M:%S%z")
-            if isinstance(v, Options):
-                return (
-                    v.unique_path()
-                    .relative_to(v.cache_dir)
-                    .stem.removeprefix("compute_profile-")
-                )
-            if isinstance(v, pd.DataFrame):
-                # Important: Assuming that the other function arguments will be used to recover the same dataframe, so not including it in the hash.
-                return ""
-            raise NotImplementedError(f"Unsupported arg type: {v} of type {type(v)}")
-
-        # More interpretable than using a hash:
-        # return hashlib.md5(
-        #     json.dumps((args, kwargs), sort_keys=True, default=str).encode()
-        # ).hexdigest()
-        return "-".join(map(_hash, args)) + "-".join(
-            f"{k}-{_hash(v)}" for k, v in kwargs.items()
-        )
-
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
         """Decorator to cache the results of a function."""
-        hashed_args = _hash_args(*args, **kwargs)
 
-        if (cache_path := (cache_dir / hashed_args).with_suffix(".pkl")).exists():
-            logger.info(f"Loading result of {fn.__name__} from {cache_path}")
-            with open(cache_path, "rb") as f:
-                return pickle.load(f)
+        cache_file = cache_dir / _get_cache_file_name(fn, *args, **kwargs)
+        if cache_file.exists():
+            logger.info(f"Loading result of {fn.__name__} from {cache_file}")
+            return pickle.loads(cache_file.read_bytes())
         else:
-            logger.info(
-                f"Cache miss. Computing {fn.__name__} and saving to {cache_path}"
-            )
+            logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
             result = fn(*args, **kwargs)
-            with open(cache_path, "wb") as f:
-                pickle.dump(result, f)
+            cache_file.write_bytes(pickle.dumps(result))
+            logger.info(f"Saved result of computing {fn.__name__} to {cache_file}")
             return result
 
     return wrapper
+
+
+def _get_cache_file_name(
+    fn: Callable[P, Any], *args: P.args, **kwargs: P.kwargs
+) -> str:
+    # More interpretable than using a hash:
+    # return hashlib.md5(
+    #     json.dumps((fn.__name__, args, kwargs), sort_keys=True, default=str).encode()
+    # ).hexdigest()
+
+    def _hash(v) -> str:
+        if isinstance(v, pd.DataFrame):
+            # Important: Assuming that the other function arguments will be used
+            # to recover the same dataframe, so not including it in the hash.
+            return ""
+        if v is None:
+            return str(v)
+        if isinstance(v, str):
+            return v.removesuffix("@mila.quebec")  # no quotes around strings.
+        if isinstance(v, (int, float)):
+            return repr(v)
+        if isinstance(v, datetime):
+            if v.hour == 0 and v.minute == 0 and v.second == 0:
+                return v.strftime("%Y-%m-%d-%z")
+            return v.strftime("%Y-%m-%dT%H:%M:%S%z")
+        if isinstance(v, list):
+            # Some profs have so many students that we can't concat them.
+            if v and isinstance(v[0], User):
+                return hashlib.md5(
+                    "+".join(sorted(student.mila.username for student in v)).encode()
+                ).hexdigest()[:12]
+            return "+".join(sorted(map(_hash, v)))
+        if isinstance(v, User):
+            return v.mila.username
+        if isinstance(v, Options):
+            return (
+                v.unique_path()
+                .relative_to(v.cache_dir)
+                .stem.removeprefix("compute_profile-")
+            )
+        raise NotImplementedError(f"Unsupported arg type: {v} of type {type(v)}")
+
+    hashed_args = "-".join(map(_hash, args)) + "-".join(
+        f"{k}-{_hash(v)}" for k, v in kwargs.items()
+    )
+    return f"{fn.__name__}-{hashed_args}.pkl"
 
 
 @cached
@@ -702,17 +734,20 @@ def get_group_usage_by_student(
 def get_group_usage_projections(
     prof_email: str | None = None,
     group_usage: pd.DataFrame | None = None,
-    prediction_start_year: int = 2025,
-    prediction_end_year_inclusive: int = 2026,
+    start: int = 2025,
+    end: int = 2026,
 ) -> pd.DataFrame:
-    """Extrapolates the group compute usage and returns projection data for years 2025 and 2026."""
+    """Extrapolates the group compute usage and returns projection data for years from `start` to `end` (inclusive).
+
+    By default assumes that the data is for years leading to 2025 and makes predictions for 2025 and 2026.
+    """
     if group_usage is None:
         assert prof_email is not None, (
             "Either prof_email or group_usage must be provided."
         )
         group_usage = get_group_usage(prof_email)
 
-    new_x = list(range(prediction_start_year, prediction_end_year_inclusive + 1))
+    new_x = list(range(start, end + 1))
     extrapolations = extrapolate_linear(group_usage, new_x).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
@@ -758,232 +793,6 @@ def _print_like_form_shows(df: pd.DataFrame):
     for column in columns:
         vals = df[column]
         print(column + ", " + ", ".join(vals.map(lambda x: f"{x:.3f}").tolist()))
-
-
-def _compare_survey_answers_with_SARC():
-    """Unused atm: Compares the survey answers with Sarc data and displays a plot."""
-    # Set to `True` to enable interactive mode to annotate the survey results manually.
-    interactive = False
-
-    # Can use the command-line flags to filter the sarc (and survey) data for a specific user.
-    # Optionally filter the survey data (and sarc data) for a given user. Here we just reuse the Options class.
-    filtering_options = simple_parsing.parse(Options)
-    _setup_logging(filtering_options.verbose)
-    filtering_user_emails = filtering_options.get_users(assume_mila_email=True)
-
-    survey_answers_csv = (
-        Path(__file__).parent / "Sondages - Compute Forecast - answers.csv"
-    )
-    # TODO: get the survey answers programmatically (need to setup google Oauth)
-    # import gspread
-    # gc = gspread.oauth()
-    # sh = gc.open(options.papers)
-    # papers = pd.DataFrame(sh.worksheet("answers").get_all_records())
-
-    survey_data, raw_survey_data = _load_survey_data(survey_answers_csv)
-    # Gets the sarc data to cover all users and data ranges and clusters mentioned in the survey.
-    overall_survey_period_options = _get_options_that_cover_survey_period(survey_data)
-    rich.print("Overall survey period, users, and clusters: ")
-    rich.pretty.pprint(overall_survey_period_options)
-    all_sarc_data = _get_cleaned_df(overall_survey_period_options)
-
-    if filtering_user_emails:
-        raw_survey_data = _filter_survey_data_by_users(
-            raw_survey_data, user_emails=filtering_user_emails
-        )
-        survey_data = _filter_survey_data_by_users(
-            survey_data, user_emails=filtering_user_emails
-        )
-
-    survey_entries = survey_data.to_dict(orient="records")
-    raw_survey_entries = raw_survey_data.to_dict(orient="records")
-    assert len(survey_entries) and len(survey_entries) == len(raw_survey_entries), (
-        len(survey_entries),
-        len(raw_survey_entries),
-    )
-    kept_survey_entries: list[dict] = []
-    dropped_survey_entries: list[dict] = []
-    annotated_gpu_hour_estimates_per_user_per_entry: list[dict[str, Estimate]] = []
-    survey_entry_filters: list[Options] = []
-    for i, (answers_dict, _raw_survey_entry) in enumerate(
-        zip(survey_entries, raw_survey_entries)
-    ):
-        survey_entry_df = survey_data.iloc[[i]]
-        # Get a filter based on the survey entry content, that can be used to query (or filter) the SARC data.
-        survey_entry_period_options = _get_options_that_cover_survey_period(
-            survey_entry_df
-        )
-
-        # Display the data nicely so that it can be read as part of the interactive prompt below.
-        if interactive:
-            (f"Survey entry #{i}")
-            _display_survey_entry(answers_dict)
-
-        # To avoid having to re-enter some previously annotated data, we use the cache dir and maybe
-        # a flag to clear the cache.
-
-        # todo: The start / end dates are sometimes missing for a given survey entry.
-        # TODO: Select some start data from either SARC or the survey data.
-        if pd.isna(survey_entry_period_options.start):
-            logger.warning(f"Missing a start date for survey entry {i}!")
-            survey_entry_period_options = dataclasses.replace(
-                survey_entry_period_options, start=overall_survey_period_options.start
-            )
-        if pd.isna(survey_entry_period_options.end):
-            logger.warning(f"Missing an end date for survey entry {i}!")
-            survey_entry_period_options = dataclasses.replace(
-                survey_entry_period_options, end=overall_survey_period_options.end
-            )
-        logger.debug(f"Survey entry period: {survey_entry_period_options}")
-
-        gpu_hours_estimates = _extract_gpu_hours_from_survey_entry(answers_dict)
-        if interactive:
-            print(
-                f"Estimated gpu*hours extracted from the survey answers: {gpu_hours_estimates}"
-            )
-        if gpu_hours_annotation := _get_existing_annotation(
-            answers_dict, cache_dir=filtering_options.cache_dir
-        ):
-            if interactive:
-                print(f"Previous annotation: {gpu_hours_annotation}")
-            if interactive and not rich.prompt.Confirm.ask(
-                "Keep the existing annotation?"
-            ):
-                gpu_hours_annotation = _get_estimate_from_user(
-                    answers_dict, gpu_hours_annotation
-                )
-        elif interactive and rich.prompt.Confirm.ask("Adjust the value manually?"):
-            gpu_hours_annotation = _get_estimate_from_user(
-                answers_dict, previous_annotation=gpu_hours_annotation
-            )
-
-        if gpu_hours_annotation is not None:
-            _save_annotation(
-                answers_dict,
-                annotation=gpu_hours_annotation,
-                cache_dir=filtering_options.cache_dir,
-            )
-        else:
-            # Use the value extracted from the survey answers.
-            gpu_hours_annotation = gpu_hours_estimates
-
-        sarc_data_for_this_paper = _filter_sarc_data(
-            all_sarc_data,
-            filtering_options=survey_entry_period_options,
-        )
-
-        if not len(sarc_data_for_this_paper):
-            logger.error(
-                RuntimeError(
-                    f"There is apparently no data in SARC covering the survey "
-                    f"entry #{i} for the paper '{answers_dict['Paper Title']}'!\n"
-                    f"(Filter used for that entry: {survey_entry_period_options})"
-                ),
-                extra={"style": "bold red"},
-            )
-            dropped_survey_entries.append(answers_dict)
-            continue
-            # breakpoint()
-
-        kept_survey_entries.append(answers_dict)
-        survey_entry_filters.append(survey_entry_period_options)
-        # sarc_data_per_survey_entry.append(resource_hours_by_user_and_workdir)
-        annotated_gpu_hour_estimates_per_user_per_entry.append(gpu_hours_annotation)
-
-    logger.info(
-        f"{len(kept_survey_entries)} out of {len(survey_entries)} survey answers had associated data in SARC"
-    )
-    if dropped_survey_entries:
-        rich.print("Survey answers with no SARC data and their filters:")
-        rich.pretty.pprint(
-            {
-                dropped_entry["Paper Title"]: _get_options_that_cover_survey_period(
-                    survey_data.iloc[[survey_entries.index(dropped_entry)]]
-                )
-                for dropped_entry in dropped_survey_entries
-            }
-        )
-
-    # Idea: Annotate the plots with the data from the survey. (TODO: How?)
-    # sarc_data_per_entry = pd.concat(sarc_data_per_survey_entry)
-
-    comparison_df_data: dict[str, pd.DataFrame] = {}
-    for i, (answers_dict, entry_filter, estimated_usage_from_answers) in enumerate(
-        zip(
-            kept_survey_entries,
-            survey_entry_filters,
-            # sarc_data_per_survey_entry,
-            annotated_gpu_hour_estimates_per_user_per_entry,
-        )
-    ):
-        sarc_data_for_this_paper = _filter_sarc_data(all_sarc_data, entry_filter)
-        usage_stats = _get_stats(sarc_data_for_this_paper, entry_filter)
-
-        usage_by_user = (
-            usage_stats.groupby(["user.mila.email"])[
-                [
-                    # "cpu_billed",
-                    "cpu_cost",
-                    # "cpu_equivalent_cost",
-                    # "gpu_billed",
-                    "gpu_cost",
-                    # "gpu_equivalent_cost",
-                    # "rgu_equivalent_cost",
-                ]
-            ]
-            .sum()
-            .divide(3600)
-        )
-        # print(f"What they say they used:")
-        usage_by_user = usage_by_user.assign(
-            survey_gpuhours_min=pd.Series(
-                {k: v.min for k, v in estimated_usage_from_answers.items()}
-            ),
-            survey_gpuhours_max=pd.Series(
-                {k: v.max for k, v in estimated_usage_from_answers.items()}
-            ),
-        )
-        comparison_df_data[answers_dict["Paper Title"]] = usage_by_user
-
-        logger.debug(
-            "SARC data vs survey answers for entry #%s} (NOTE: SARC data may include other projects!):\n%s",
-            i,
-            usage_by_user.to_markdown(),
-        )
-
-        # TODO: Ask users which directory (given a list) they
-        k = 5
-        logger.info(
-            "Top %s directories where most compute was allocated for that entry period:\n%s",
-            k,
-            usage_stats.groupby(["user.mila.email", "work_dir"])[
-                ["cpu_cost", "gpu_cost"]
-            ]
-            .sum()
-            .divide(3600)
-            .nlargest(k, "gpu_cost"),
-        )
-        logger.debug(
-            f"Top {k} job names where most compute was allocated for that entry period:"
-        )
-        logger.debug(
-            usage_stats.groupby(["user.mila.email", "name"])[["cpu_cost", "gpu_cost"]]
-            .sum()
-            .divide(3600)
-            .nlargest(k, "gpu_cost")
-            .to_markdown()
-        )
-
-    comparison_df = pd.concat(
-        comparison_df_data, names=["Paper Title", "user.mila.email"]
-    )
-    comparison_df = comparison_df.rename(
-        {"cpu_cost": "cpu_hours", "gpu_cost": "gpu_hours"}, axis=1
-    )
-    # comparison_df.groupby("Paper Title").sum().drop(columns="cpu_hours").plot.hist()
-    _plot_comparison(comparison_df)
-    plt.show()
-    comparison_df.to_csv("comparison.csv")
 
 
 def _plot_comparison(comparison_df):
