@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import dataclasses
 import functools
 import hashlib
@@ -22,6 +23,7 @@ import rich.prompt
 import rich.text
 import simple_parsing
 import yaml
+from matplotlib import pyplot as plt
 from typing_extensions import Self
 
 os.environ["SARC_CONFIG"] = "config/sarc-client.yaml"
@@ -389,43 +391,47 @@ def main():
             cached(_get_cleaned_df)(options=_all_users_option)
 
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
     for prof in profs:
-        # Always cached. No need to wrap.
-        students = get_group_students(prof_email=prof, start=start, end=end)
-        print(f"Students supervised by {prof}: {[s.name for s in students]}")
-        if not students:
-            logger.error(f"Prof {prof} has no students in SARC! Skipping.")
-            continue
-        # Always cached. No need to wrap.
-        group_usage_per_student = get_group_usage_by_student(
-            prof, students=students, start=start, end=end
-        )
-        if group_usage_per_student.empty:
-            logger.error(
-                f"There is no data in SARC for job from any of Prof {prof}'s students! Skipping."
+        output_file = output_dir / f"{prof}.txt"
+        with open(output_file, "w") as f, contextlib.redirect_stdout(f):
+            # Always cached. No need to wrap.
+            students = get_group_students(prof_email=prof, start=start, end=end)
+            print(f"Students supervised by {prof}: {[s.name for s in students]}")
+            if not students:
+                logger.error(f"Prof {prof} has no students in SARC! Skipping.")
+                continue
+            # Always cached. No need to wrap.
+            group_usage_per_student = get_group_usage_by_student(
+                prof, students=students, start=start, end=end
             )
-            continue
-        print(f"Compute usage in {prof}'s group:")
-        k = 5
-        for year in sorted(group_usage_per_student["year"].unique()):
-            mask = group_usage_per_student["year"] == year
-            print(
-                f"{k} students that used the most compute in {prof}'s group in {year}:"
+            if group_usage_per_student.empty:
+                logger.error(
+                    f"There is no data in SARC for job from any of Prof {prof}'s students! Skipping."
+                )
+                continue
+            print(f"Compute usage in {prof}'s group:")
+            k = 5
+            for year in sorted(group_usage_per_student["year"].unique()):
+                mask = group_usage_per_student["year"] == year
+                print(
+                    f"{k} students that used the most compute in {prof}'s group in {year}:"
+                )
+                print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
+            # Also always cached.
+            group_usage = get_group_usage(
+                prof_email=prof, students=students, start=start, end=end
             )
-            print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
-        # Also always cached.
-        group_usage = get_group_usage(
-            prof_email=prof, students=students, start=start, end=end
-        )
-        all_profs_dataframes[prof] = group_usage
-        # NOTE: Dataframe arguments are ignored by the `cached` wrapper.
-        # Here this function is not cached by default, and the `cached` wrapper is only added
-        # here instead, because we use this function below with only the `group_usage` argument
-        # (not passing `prof_email`).
-        usage_projections = cached(get_group_usage_projections)(
-            prof, group_usage=group_usage, start=2025, end=2026
-        )
-        _print_like_form_shows(pd.concat([group_usage, usage_projections]))
+            all_profs_dataframes[prof] = group_usage
+            # NOTE: Dataframe arguments are ignored by the `cached` wrapper.
+            # Here this function is not cached by default, and the `cached` wrapper is only added
+            # here instead, because we use this function below with only the `group_usage` argument
+            # (not passing `prof_email`).
+            usage_projections = cached(get_group_usage_projections)(
+                prof, group_usage=group_usage, start=2025, end=2026
+            )
+            _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
     if len(profs) == 1:
         return
@@ -433,6 +439,13 @@ def main():
         {k: v.set_index("year") for k, v in all_profs_dataframes.items()},
         names=["prof", "year"],
     )
+
+    # todo: make some nice plots!
+    # all_profs_data[["gpu_years", "cpu_years"]].plot(
+    #     x="year", kind="bar", figsize=(12, 6)
+    # )
+    # plt.show()
+
     total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
     # Uncached, because we pass the dataframe as the argument.
     usage_projections = get_group_usage_projections(group_usage=total_profs_data)
