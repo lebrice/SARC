@@ -151,8 +151,8 @@ _PROFS = [
     "pierre-luc.bacon@mila.quebec",
     "rabussgu@mila.quebec",
     "siva.reddy@mila.quebec",
-    "alex.hernandez-garcia@mila.quebec",
-    "tegan.maharaj@mila.quebec",
+    # "alex.hernandez-garcia@mila.quebec",  # no students in SARC
+    # "tegan.maharaj@mila.quebec",  # no students in SARC
     "arbeltal@mila.quebec",
     "cheungja@mila.quebec",
     "drolnick@mila.quebec",
@@ -377,7 +377,8 @@ def main():
     for prof in profs:
         students = get_group_students(prof, start=start, end=end)
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
-
+        if not students:
+            logger.error(f"Prof {prof} has no students in SARC! Skipping.")
         group_usage_per_student = get_group_usage_by_student(
             prof, students=students, start=start, end=end
         )
@@ -417,23 +418,9 @@ def get_group_students(
         or user.mila_ldap.get("co_supervisor") == prof_email
     ]
     students = sorted(students, key=lambda v: v.name)
-    if students:
-        return students
-
-    logger.warning(
-        RuntimeWarning(
-            f"Prof {prof_email} has no students according to the users database!\n"
-            f"Will fetch all SARC data for that period to find students with that supervisor."
-        )
-    )
-    all_sarc_data = _get_cleaned_df(Options(start=start, end=end, user=[]))
-    has_that_prof = (all_sarc_data["user.mila_ldap.supervisor"] == prof_email) | (
-        all_sarc_data["user.mila_ldap.co_supervisor"] == prof_email
-    )
-    student_emails = all_sarc_data[has_that_prof]["user.primary_email"].unique()
-    students = [user for user in get_users() if user.mila.email in student_emails]
-    if not students:
-        raise RuntimeError(f"Still unable to find students for {prof_email=}!")
+    # NOTE: In case `students` is empty (no mapping in SARC), we couldn't use the jobs data
+    # from SARC to find the supervisor, since the supervisor and co-supervisor
+    # fields in the jobs are set using the same data source!
     return students
 
 
@@ -1423,7 +1410,7 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         # Filter clusters
         df = df[df["cluster_name"].isin(options.clusters)]
 
-    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
+    df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0}, inplace=True)
     df = _fix_lost_jobs(df)
     df = _fix_unaligned_cache(df, options.start, options.end)
     df = _remove_old_nodes(df)
@@ -1575,7 +1562,7 @@ def _fill_missing_metrics_using_means(
         # Use the cluster average if possible, otherwise use the average across all clusters.
         missing_stats = [k for k, v in cluster_mean_stats.items() if np.isnan(v)]
         if missing_stats:
-            logger.warning(
+            logger.debug(
                 f"Missing stats for {cluster=}: {missing_stats}.\n"
                 f"The average of available stats across other clusters will be used."
             )
@@ -1592,7 +1579,7 @@ def _fill_missing_metrics_using_means(
             {k: v for k, v in stats_to_use.items() if k in missing_stats}
         )
         if missing_stats:
-            logger.info(
+            logger.debug(
                 f"Stats to be used when infilling missing values for {cluster}: {missing_stats_str}"
             )
         df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
