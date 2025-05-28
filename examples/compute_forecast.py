@@ -379,6 +379,7 @@ def main():
         print(f"Students supervised by {prof}: {[s.name for s in students]}")
         if not students:
             logger.error(f"Prof {prof} has no students in SARC! Skipping.")
+
         group_usage_per_student = get_group_usage_by_student(
             prof, students=students, start=start, end=end
         )
@@ -398,10 +399,15 @@ def main():
         usage_projections = get_group_usage_projections(group_usage=group_usage)
         _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
-    # years = list(range(start.year, end.year))
-    all_profs_data = pd.concat(all_profs_dataframes, names=["prof"])
-    total_profs_data = all_profs_data.groupby("year").sum()
+    if len(profs) == 1:
+        return
+    all_profs_data = pd.concat(
+        {k: v.set_index("year") for k, v in all_profs_dataframes.items()},
+        names=["prof", "year"],
+    )
+    total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
     usage_projections = get_group_usage_projections(group_usage=total_profs_data)
+    print(f"Total for {len(profs)} profs:")
     _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
 
@@ -531,8 +537,11 @@ def get_group_usage(
         "cpu_mem_max": cpu_max_stats["cpu_mem_gb"],
     }
     data = pd.DataFrame(data)
-    # Change the `year` column to have int dtype:
     data = data.astype({"year": int})
+    data = data.set_index("year").sort_index()
+    data = data.reindex(range(start.year, end.year), fill_value=np.nan)
+    data = data.reset_index()  # don't actually want `year` as the index (sticking to Xavier's requested interface)
+    # Change the `year` column to have int dtype:
     return data
 
 
@@ -546,12 +555,9 @@ def get_group_usage_by_student(
     if students is None:
         students = get_group_students(prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
-
-    options = Options(
-        start=start.astimezone(MTL),
-        end=end.astimezone(MTL),
-        user=[s.mila.email for s in students],
-    )
+    start = start.astimezone(MTL)
+    end = end.astimezone(MTL)
+    options = Options(start=start, end=end, user=[s.mila.email for s in students])
     sarc_data = _get_cleaned_df(options)
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
@@ -589,46 +595,34 @@ def get_group_usage_by_student(
     cpu_mean_stats = grouped_cpu_stats[["cpu_mem_gb"]].mean()
     cpu_max_stats = grouped_cpu_stats[["cpu_mem_gb"]].max()
 
-    years = sorted(usage_stats["timestamp"].dt.year.astype(int).unique())
-
     values: list[dict] = []
     index: list[tuple[int, str]] = []
 
-    def _slice_and_get_value(
-        df: pd.DataFrame,
-        column: str,
-        default: float,
-        timestamp: pd.Timestamp,
-        user_primary_email: str,
-    ) -> float:
-        return df.xs(timestamp, level="timestamp")[column].get(
-            user_primary_email, default
-        )
-
     timestamps = sorted(usage_stats["timestamp"].unique())
+    years = sorted(usage_stats["timestamp"].dt.year.astype(int).unique())
     assert len(years) == len(timestamps)
     for year, timestamp in zip(years, timestamps):
         for student in students:
             index.append((year, student.mila.email))
-            _slice = functools.partial(
-                _slice_and_get_value,
-                timestamp=timestamp,
-                user_primary_email=student.mila.email,
-                default=0.0,
-            )
+
+            def _get(df: pd.DataFrame, column: str, default=np.nan) -> float:
+                return df[column].get((timestamp, student.mila.email), default)
+
             user_year_values = {
                 "user": student.mila.email,
                 "year": year,
-                "gpu_years": _slice(gpu_sum_metrics_years, "rgu_equivalent_cost"),
-                "gpu_mem_mean": _slice(gpu_mean_stats, "gpu_mem_gb"),
-                "gpu_mem_max": _slice(gpu_max_stats, "gpu_mem_gb"),
-                "gpu_util_mean": _slice(gpu_mean_stats, "gpu_utilization"),
-                "gpu_cpu_years": _slice(gpu_sum_metrics_years, "cpu_equivalent_cost"),
-                "gpu_cpu_mem_mean": _slice(gpu_mean_stats, "gpu_mem_gb"),
-                "gpu_cpu_mem_max": _slice(gpu_max_stats, "cpu_mem_gb"),
-                "cpu_years": _slice(cpu_sum_metrics_years, "cpu_equivalent_cost"),
-                "cpu_mem_mean": _slice(cpu_mean_stats, "cpu_mem_gb"),
-                "cpu_mem_max": _slice(cpu_max_stats, "cpu_mem_gb"),
+                "gpu_years": _get(gpu_sum_metrics_years, "rgu_equivalent_cost", 0.0),
+                "gpu_mem_mean": _get(gpu_mean_stats, "gpu_mem_gb"),
+                "gpu_mem_max": _get(gpu_max_stats, "gpu_mem_gb"),
+                "gpu_util_mean": _get(gpu_mean_stats, "gpu_utilization"),
+                "gpu_cpu_years": _get(
+                    gpu_sum_metrics_years, "cpu_equivalent_cost", 0.0
+                ),
+                "gpu_cpu_mem_mean": _get(gpu_mean_stats, "gpu_mem_gb"),
+                "gpu_cpu_mem_max": _get(gpu_max_stats, "cpu_mem_gb"),
+                "cpu_years": _get(cpu_sum_metrics_years, "cpu_equivalent_cost", 0.0),
+                "cpu_mem_mean": _get(cpu_mean_stats, "cpu_mem_gb"),
+                "cpu_mem_max": _get(cpu_max_stats, "cpu_mem_gb"),
             }
             values.append(user_year_values)
     # Could also make a multiindex, but makes it a bit harder to work with.
@@ -640,18 +634,20 @@ def get_group_usage_by_student(
 
 
 def get_group_usage_projections(
-    prof_email: str | None = None, group_usage: pd.DataFrame | None = None
+    prof_email: str | None = None,
+    group_usage: pd.DataFrame | None = None,
+    prediction_start_year: int = 2025,
+    prediction_end_year_inclusive: int = 2026,
 ) -> pd.DataFrame:
-    """Dummy function that returns random projection data for years 2025-2026."""
+    """Extrapolates the group compute usage and returns projection data for years 2025 and 2026."""
     if group_usage is None:
         assert prof_email is not None, (
             "Either prof_email or group_usage must be provided."
         )
         group_usage = get_group_usage(prof_email)
-    n_predictions = 2
-    next_two_years = group_usage["year"].max() + np.arange(1, 1 + n_predictions)
 
-    extrapolations = extrapolate_linear(group_usage, next_two_years).clip(lower=0)
+    new_x = list(range(prediction_start_year, prediction_end_year_inclusive + 1))
+    extrapolations = extrapolate_linear(group_usage, new_x).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
         students=extrapolations["students"].round()
