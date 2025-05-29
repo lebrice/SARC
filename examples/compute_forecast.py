@@ -897,7 +897,8 @@ def _get_group_usage_projections(
     ).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
-        students=extrapolations["students"].round()
+        students=extrapolations["students"].round(),
+        gpu_util_mean=extrapolations["gpu_util_mean"].clip(upper=1.0),
     )
     return extrapolations
 
@@ -913,16 +914,28 @@ def extrapolate(
             result.append(np.asarray(new_x))
             continue
 
-        y = group_usage[col].values
+        y = group_usage[col].to_numpy()
         if col == "students" or not use_exponential_trend:
             coeffs = np.polyfit(x, y, 1)  # Linear fit
             extrapolated_vals = np.poly1d(coeffs)(new_x)
         else:
             # Use a linear fit in a log space then exponentiate the result,
             # so that projections follow an exponential trend.
-            y = np.log(y)
-            coeffs = np.polyfit(x, y, 1)  # Linear fit in log space
-            extrapolated_vals = np.exp(np.poly1d(coeffs)(new_x))
+            linear_coeffs = np.polyfit(x, y, 1)  # Linear fit in log space
+            linear_extrapolated_vals = np.exp(np.poly1d(linear_coeffs)(new_x))
+
+            log_y = np.log(y)
+            coeffs = np.polyfit(x, log_y, 1)  # Linear fit in log space
+            exp_extrapolated_vals = np.exp(np.poly1d(coeffs)(new_x))
+            if any(np.isinf(exp_extrapolated_vals) | np.isnan(exp_extrapolated_vals)):
+                logger.warning(
+                    f"Extrapolated values for {col} contain inf or nan values. "
+                    "Using linear extrapolation instead."
+                )
+                extrapolated_vals = linear_extrapolated_vals
+            else:
+                extrapolated_vals = exp_extrapolated_vals
+
         result.append(extrapolated_vals)
     extrapolated_df = pd.DataFrame(
         np.vstack(result).T, index=new_x, columns=group_usage.columns
