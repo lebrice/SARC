@@ -865,6 +865,7 @@ def get_group_usage_projections(
     usage_start: datetime = datetime(2022, 1, 1),
     usage_end: datetime = datetime(2025, 1, 1),
     projection_end: datetime = datetime(2027, 1, 1),
+    use_exponential_trend: bool = True,
 ) -> pd.DataFrame:
     """Extrapolates the group compute usage and returns projection data for years from `start` to `end` (inclusive).
 
@@ -875,19 +876,25 @@ def get_group_usage_projections(
     )
 
     return _get_group_usage_projections(
-        group_usage=group_usage, projection_end=projection_end
+        group_usage=group_usage,
+        projection_end=projection_end,
+        use_exponential_trend=use_exponential_trend,
     )
 
 
 def _get_group_usage_projections(
     group_usage: pd.DataFrame,
     projection_end: datetime = datetime(2027, 1, 1),
+    use_exponential_trend: bool = True,
 ) -> pd.DataFrame:
 
     projection_start_year = group_usage["year"].max() + 1
     assert projection_start_year < projection_end.year
     new_x = list(range(projection_start_year, projection_end.year))
-    extrapolations = extrapolate_linear(group_usage, new_x).clip(lower=0)
+
+    extrapolations = extrapolate(
+        group_usage, new_x, use_exponential_trend=use_exponential_trend
+    ).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
         students=extrapolations["students"].round()
@@ -895,7 +902,9 @@ def _get_group_usage_projections(
     return extrapolations
 
 
-def extrapolate_linear(group_usage: pd.DataFrame, new_x: list[int]) -> pd.DataFrame:
+def extrapolate(
+    group_usage: pd.DataFrame, new_x: list[int], use_exponential_trend: bool = True
+) -> pd.DataFrame:
     # Linear extrapolation function
     x = group_usage["year"].to_numpy().astype(int)
     result: list[np.ndarray] = []
@@ -903,8 +912,9 @@ def extrapolate_linear(group_usage: pd.DataFrame, new_x: list[int]) -> pd.DataFr
         if col == "year":
             result.append(np.asarray(new_x))
             continue
+
         y = group_usage[col].values
-        if col == "students":
+        if col == "students" or not use_exponential_trend:
             coeffs = np.polyfit(x, y, 1)  # Linear fit
             extrapolated_vals = np.poly1d(coeffs)(new_x)
         else:
