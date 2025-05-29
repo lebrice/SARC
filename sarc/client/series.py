@@ -165,6 +165,9 @@ def load_job_series(
 
     jobs_frame = pandas.DataFrame(rows)
 
+    if jobs_frame.empty:
+        return pandas.DataFrame()
+
     # Merge jobs with users info, only if users available.
     if users_frame.shape[0]:
         # Get name pf fields used to merge frames.
