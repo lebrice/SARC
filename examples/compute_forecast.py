@@ -427,9 +427,7 @@ def main():
                 )
                 print(group_usage_per_student[mask].nlargest(5, "gpu_years"))
             # Also always cached.
-            group_usage = get_group_usage(
-                prof_email=prof, students=students, start=start, end=end
-            )
+            group_usage = get_group_usage(prof_email=prof, start=start, end=end)
             all_profs_dataframes[prof] = group_usage
             # NOTE: Dataframe arguments are ignored by the `cached` wrapper.
             # Here this function is not cached by default, and the `cached` wrapper is only added
@@ -616,13 +614,11 @@ def get_group_students(
 @cached
 def get_group_usage(
     prof_email: str,
-    students: list[User] | None = None,
     start: datetime = datetime(2022, 1, 1),
     end: datetime = datetime(2025, 1, 1),
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
-    if students is None:
-        students = get_group_students(prof_email, start=start, end=end)
+    students = get_group_students(prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
     if not students:
         logger.warning(f"No students found for {prof_email}. Returning zeros.")
@@ -649,8 +645,7 @@ def get_group_usage(
         end=end.astimezone(MTL),
         user=[s.mila.email for s in students],
     )
-    # todo: Cache this step also once we're sure that no other patches are needed.
-    sarc_data = _get_cleaned_df(options)
+    sarc_data = cached(_get_cleaned_df)(options)
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
@@ -755,7 +750,7 @@ def get_group_usage_by_student(
     start = start.astimezone(MTL)
     end = end.astimezone(MTL)
     options = Options(start=start, end=end, user=students_emails)
-    sarc_data = _get_cleaned_df(options)
+    sarc_data = cached(_get_cleaned_df)(options)
     if sarc_data.empty:
         logger.warning(
             f"No data found in SARC for {prof_email} from {start} to {end}. Returning empty dataframe."
@@ -779,6 +774,9 @@ def get_group_usage_by_student(
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
+
+    assert all(gpu_job_stats["allocated.gres_gpu"] > 0)
+
     # Create two new columns for the CPU and GPU memory usage in gigabytes.
     gpu_job_stats = gpu_job_stats.assign(
         gpu_mem_gb=(
