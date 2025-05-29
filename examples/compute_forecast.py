@@ -462,6 +462,31 @@ def main():
     print(f"Total for {len(profs)} profs:")
     _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
+    plot_usage_projections(total_profs_data, usage_projections)
+
+
+def plot_usage_projections(total_profs_data: pd.DataFrame, usage_projections: pd.DataFrame):
+    df = pd.concat([total_profs_data, usage_projections])
+    new_rows  =df.iloc[:2] * np.nan
+    new_rows['year'] = [2020, 2021]
+    df = pd.concat([new_rows, df], ignore_index=True)
+    df["available"] = [
+        np.mean(y)
+        for y in [
+            [709, 1352, 1155],
+            [1487, 1651, 2000],
+            [2300, 2702, 3201],
+            [3235, 3199, 3199],
+            [3263, 3113, 6884],
+            [7740, 10444, 11223],
+            [16585, 16585, 16858],
+        ]
+    ]
+
+    df[["year", "gpu_years", "available"]].plot(x="year", kind="bar", figsize=(12, 6))
+    plt.savefig("outputs/usage_projections.png")
+
+
 
 def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
     """Caches a function in a given cache dir."""
