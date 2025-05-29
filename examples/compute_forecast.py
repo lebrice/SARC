@@ -404,13 +404,14 @@ def main():
         with open(output_file, "w") as f, contextlib.redirect_stdout(f):
             # Always cached. No need to wrap.
             students = get_group_students(prof_email=prof, start=start, end=end)
+            get_group_students_emails(prof_email=prof, start=start, end=end)
             print(f"Students supervised by {prof}: {[s.name for s in students]}")
             if not students:
                 logger.error(f"Prof {prof} has no students in SARC! Skipping.")
                 continue
             # Always cached. No need to wrap.
             group_usage_per_student = get_group_usage_by_student(
-                prof, students=students, start=start, end=end
+                prof_email=prof, start=start, end=end
             )
             if group_usage_per_student.empty:
                 logger.error(
@@ -434,8 +435,11 @@ def main():
             # Here this function is not cached by default, and the `cached` wrapper is only added
             # here instead, because we use this function below with only the `group_usage` argument
             # (not passing `prof_email`).
-            usage_projections = cached(get_group_usage_projections)(
-                prof, group_usage=group_usage, start=2025, end=2026
+            usage_projections = get_group_usage_projections(
+                prof_email=prof,
+                usage_start=datetime(2022, 1, 1),
+                usage_end=datetime(2025, 1, 1),
+                projection_end=datetime(2027, 1, 1),
             )
             _print_like_form_shows(pd.concat([group_usage, usage_projections]))
 
@@ -454,7 +458,7 @@ def main():
 
     total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
     # Uncached, because we pass the dataframe as the argument.
-    usage_projections = get_group_usage_projections(group_usage=total_profs_data)
+    usage_projections = _get_group_usage_projections(group_usage=total_profs_data)
     print(f"Total for {len(profs)} profs:")
     _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
 
@@ -541,6 +545,17 @@ _hard_coded_values: dict[str, list[str]] = {
         "om.patel@mila.quebec",
     ]
 }
+
+
+@cached
+def get_group_students_emails(
+    prof_email: str,
+    start: datetime = datetime(2022, 1, 1),
+    end: datetime = datetime(2025, 1, 1),
+) -> list[str]:
+    """Get list of student emails supervised by a professor."""
+    students = get_group_students(prof_email, start=start, end=end)
+    return [student.mila.email for student in students]
 
 
 @cached
@@ -694,17 +709,15 @@ def get_group_usage(
 @cached
 def get_group_usage_by_student(
     prof_email: str,
-    students: list[User] | None = None,
     start: datetime = datetime(2022, 1, 1),
     end: datetime = datetime(2025, 1, 1),
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
-    if students is None:
-        students = get_group_students(prof_email, start=start, end=end)
-    logger.info(f"{prof_email} has apparently {len(students)} students.")
+    students_emails = get_group_students_emails(prof_email, start=start, end=end)
+    logger.info(f"{prof_email} has apparently {len(students_emails)} students.")
     start = start.astimezone(MTL)
     end = end.astimezone(MTL)
-    options = Options(start=start, end=end, user=[s.mila.email for s in students])
+    options = Options(start=start, end=end, user=students_emails)
     sarc_data = _get_cleaned_df(options)
     if sarc_data.empty:
         logger.warning(
@@ -770,14 +783,14 @@ def get_group_usage_by_student(
     years = sorted(usage_stats["timestamp"].dt.year.astype(int).unique())
     assert len(years) == len(timestamps)
     for year, timestamp in zip(years, timestamps):
-        for student in students:
-            index.append((year, student.mila.email))
+        for student_email in students_emails:
+            index.append((year, student_email))
 
             def _get(df: pd.DataFrame, column: str, default=np.nan) -> float:
-                return df[column].get((timestamp, student.mila.email), default)
+                return df[column].get((timestamp, student_email), default)
 
             user_year_values = {
-                "user": student.mila.email,
+                "user": student_email,
                 "year": year,
                 "gpu_years": _get(gpu_sum_metrics_years, "rgu_equivalent_cost", 0.0),
                 "gpu_mem_mean": _get(gpu_mean_stats, "gpu_mem_gb"),
@@ -801,23 +814,34 @@ def get_group_usage_by_student(
     return df
 
 
+@cached
 def get_group_usage_projections(
-    prof_email: str | None = None,
-    group_usage: pd.DataFrame | None = None,
-    start: int = 2025,
-    end: int = 2026,
+    prof_email: str,
+    usage_start: datetime = datetime(2022, 1, 1),
+    usage_end: datetime = datetime(2025, 1, 1),
+    projection_end: datetime = datetime(2027, 1, 1),
 ) -> pd.DataFrame:
     """Extrapolates the group compute usage and returns projection data for years from `start` to `end` (inclusive).
 
     By default assumes that the data is for years leading to 2025 and makes predictions for 2025 and 2026.
     """
-    if group_usage is None:
-        assert (
-            prof_email is not None
-        ), "Either prof_email or group_usage must be provided."
-        group_usage = get_group_usage(prof_email)
+    group_usage = get_group_usage(
+        prof_email=prof_email, start=usage_start, end=usage_end
+    )
 
-    new_x = list(range(start, end + 1))
+    return _get_group_usage_projections(
+        group_usage=group_usage, projection_end=projection_end
+    )
+
+
+def _get_group_usage_projections(
+    group_usage: pd.DataFrame,
+    projection_end: datetime = datetime(2027, 1, 1),
+) -> pd.DataFrame:
+
+    projection_start_year = group_usage["year"].max() + 1
+    assert projection_start_year < projection_end.year
+    new_x = list(range(projection_start_year, projection_end.year))
     extrapolations = extrapolate_linear(group_usage, new_x).clip(lower=0)
     # Note: round students to the nearest integer? (small detail perhaps)
     extrapolations = extrapolations.astype({"year": int}).assign(
