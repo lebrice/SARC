@@ -402,7 +402,9 @@ def main():
         ):
             # Always cached. No need to wrap.
             students = get_group_students(prof_email=prof, start=start, end=end)
-            get_group_students_emails(prof_email=prof, start=start, end=end)
+            _student_emails = get_group_students_emails(
+                prof_email=prof, start=start, end=end
+            )
             print(f"Students supervised by {prof}: {[s.name for s in students]}")
             if not students:
                 logger.error(f"Prof {prof} has no students in SARC! Skipping.")
@@ -678,6 +680,14 @@ def get_group_usage(
             * (gpu_job_stats["allocated.mem"] // 1024)
         ),
     )
+    gpu_job_stats = gpu_job_stats.assign(
+        cpu_cost_per_gpu=(
+            gpu_job_stats["cpu_equivalent_cost"] / gpu_job_stats["allocated.gres_gpu"]
+        ),
+        cpu_mem_gb_per_gpu=(
+            gpu_job_stats["cpu_mem_gb"] / gpu_job_stats["allocated.gres_gpu"]
+        ),
+    )
     cpu_job_stats = cpu_job_stats.assign(
         cpu_mem_gb=(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
@@ -685,11 +695,13 @@ def get_group_usage(
     )
     grouped_gpu_stats = gpu_job_stats.groupby(["timestamp"])
     gpu_sum_metrics_years = (
-        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
+        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_cost_per_gpu"]].sum()
         / seconds_in_a_year
     )
-    gpu_mean_stats = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
-    gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb"]].max()
+    gpu_mean_stats = grouped_gpu_stats[
+        ["gpu_utilization", "gpu_mem_gb", "cpu_mem_gb_per_gpu"]
+    ].mean()
+    gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb_per_gpu"]].max()
 
     grouped_cpu_stats = cpu_job_stats.groupby(["timestamp"])
     cpu_sum_metrics_years = (
@@ -712,9 +724,9 @@ def get_group_usage(
         "gpu_mem_mean": gpu_mean_stats["gpu_mem_gb"],
         "gpu_mem_max": gpu_max_stats["gpu_mem_gb"],
         "gpu_util_mean": gpu_mean_stats["gpu_utilization"],
-        "gpu_cpu_years": gpu_sum_metrics_years["cpu_equivalent_cost"],
-        "gpu_cpu_mem_mean": gpu_mean_stats["gpu_mem_gb"],
-        "gpu_cpu_mem_max": gpu_max_stats["cpu_mem_gb"],
+        "gpu_cpu_years": gpu_sum_metrics_years["cpu_cost_per_gpu"],
+        "gpu_cpu_mem_mean": gpu_mean_stats["cpu_mem_gb_per_gpu"],
+        "gpu_cpu_mem_max": gpu_max_stats["cpu_mem_gb_per_gpu"],
         "cpu_years": cpu_sum_metrics_years["cpu_equivalent_cost"],
         "cpu_mem_mean": cpu_mean_stats["cpu_mem_gb"],
         "cpu_mem_max": cpu_max_stats["cpu_mem_gb"],
@@ -780,18 +792,29 @@ def get_group_usage_by_student(
             * (gpu_job_stats["allocated.mem"] // 1024)
         ),
     )
+    gpu_job_stats = gpu_job_stats.assign(
+        cpu_cost_per_gpu=(
+            gpu_job_stats["cpu_equivalent_cost"] / gpu_job_stats["allocated.gres_gpu"]
+        ),
+        cpu_mem_gb_per_gpu=(
+            gpu_job_stats["cpu_mem_gb"] / gpu_job_stats["allocated.gres_gpu"]
+        ),
+    )
     cpu_job_stats = cpu_job_stats.assign(
         cpu_mem_gb=(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
         ),
     )
+
     grouped_gpu_stats = gpu_job_stats.groupby(["timestamp", "user.primary_email"])
     gpu_sum_metrics_years = (
-        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_equivalent_cost"]].sum()
+        grouped_gpu_stats[["rgu_equivalent_cost", "cpu_cost_per_gpu"]].sum()
         / seconds_in_a_year
     )
-    gpu_mean_stats = grouped_gpu_stats[["gpu_utilization", "gpu_mem_gb"]].mean()
-    gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb"]].max()
+    gpu_mean_stats = grouped_gpu_stats[
+        ["gpu_utilization", "gpu_mem_gb", "cpu_mem_gb_per_gpu"]
+    ].mean()
+    gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb_per_gpu"]].max()
 
     grouped_cpu_stats = cpu_job_stats.groupby(["timestamp", "user.primary_email"])
     cpu_sum_metrics_years = (
@@ -820,11 +843,9 @@ def get_group_usage_by_student(
                 "gpu_mem_mean": _get(gpu_mean_stats, "gpu_mem_gb"),
                 "gpu_mem_max": _get(gpu_max_stats, "gpu_mem_gb"),
                 "gpu_util_mean": _get(gpu_mean_stats, "gpu_utilization"),
-                "gpu_cpu_years": _get(
-                    gpu_sum_metrics_years, "cpu_equivalent_cost", 0.0
-                ),
-                "gpu_cpu_mem_mean": _get(gpu_mean_stats, "gpu_mem_gb"),
-                "gpu_cpu_mem_max": _get(gpu_max_stats, "cpu_mem_gb"),
+                "gpu_cpu_years": _get(gpu_sum_metrics_years, "cpu_cost_per_gpu", 0.0),
+                "gpu_cpu_mem_mean": _get(gpu_mean_stats, "cpu_mem_gb_per_gpu"),
+                "gpu_cpu_mem_max": _get(gpu_max_stats, "cpu_mem_gb_per_gpu"),
                 "cpu_years": _get(cpu_sum_metrics_years, "cpu_equivalent_cost", 0.0),
                 "cpu_mem_mean": _get(cpu_mean_stats, "cpu_mem_gb"),
                 "cpu_mem_max": _get(cpu_max_stats, "cpu_mem_gb"),
