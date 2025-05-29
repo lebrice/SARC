@@ -649,7 +649,8 @@ def get_group_usage(
         end=end.astimezone(MTL),
         user=[s.mila.email for s in students],
     )
-    sarc_data = cached(_get_cleaned_df)(options)
+    # todo: Cache this step also once we're sure that no other patches are needed.
+    sarc_data = _get_cleaned_df(options)
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
@@ -665,7 +666,7 @@ def get_group_usage(
     assert not gpu_job_stats["allocated.gpu_type"].isna().any(), gpu_job_stats[
         "allocated.gpu_type"
     ].unique()
-
+    assert (gpu_job_stats["allocated.gres_gpu"] >= 0).all()
     # Create two new columns for the CPU and GPU memory usage in gigabytes.
     gpu_job_stats = gpu_job_stats.assign(
         gpu_mem_gb=(
@@ -1120,11 +1121,13 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     df = _fix_missing_gpu_type(df)
 
     _fix_rgu_discrepencies_inplace(df)
+
+    df = _fix_requested_allocated_gres_gpu(df)
+
     # todo: double-check if this is still needed here.
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
     _fix_allocated_cpus_drac_inplace(df)
-
     # todo: Do we want to get the averages from the other jobs of the same user on other clusers?
     # Or from the average utilization on that same cluster by different users?
     # IF so, we might need to reload the data for all users here
@@ -1148,6 +1151,46 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
 
     return df
+
+
+def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
+    """Fix: Some jobs on Narval have requested.gres_gpu>0 but have allocated.gres_gpu=0!
+
+    Job ids of examples: 5083814, 5083815, 5113377
+    """
+    # Note: This is a workaround for a bug in SARC, where some jobs have requested.gres_gpu > 0
+    # but allocated.gres_gpu = 0. This is not correct, since it means that the job was not actually
+    # allocated any GPUs, but it was requested.
+    # So we set allocated.gres_gpu = requested.gres_gpu for those jobs.
+    # mask = (df["requested.gres_gpu"] > 0) & (df["allocated.gres_gpu"] == 0)
+    # Some jobs on Narval have requested.gres_gpu>0 but have allocated.gres_gpu=0!
+
+    requested_gres_gpu = df["requested.gres_gpu"]
+    allocated_gres_gpu = df["allocated.gres_gpu"]
+    # If a job requested a GPU, it has to be allocated at least one GPU.
+    # In general, we assume that 1 <= requested.gres_gpu <= allocated.gres_gpu
+    # If 0 < requested.gres_gpu < 1, then set it to 1.0.
+    # NOTE: Actually, because of MIG GPUs, we can have requested.gres_gpu < 1.0
+    # so we leave it as-is.
+    # requested_gres_gpu = requested_gres_gpu.where(
+    #     requested_gres_gpu > 0, np.maximum(requested_gres_gpu, 1.0)
+    # )
+
+    # IDEA:
+    # requested_gres_gpu = requested_gres_gpu.where(
+    #     requested_gres_gpu > 0, np.maximum(requested_gres_gpu, 1.0)
+    # )
+
+    # If allocated.gres_gpu == 0 but requested.gres_gpu > 0, set it to requested.gres_gpu.
+    allocated_gres_gpu = allocated_gres_gpu.where(
+        (requested_gres_gpu > 0) & (allocated_gres_gpu == 0), requested_gres_gpu
+    )
+    return df.assign(
+        **{
+            # "requested.gres_gpu": requested_gres_gpu,
+            "allocated.gres_gpu": allocated_gres_gpu,
+        }
+    )
 
 
 def _find_missing_user_to_mila_emails(
