@@ -649,7 +649,7 @@ def get_group_usage(
         end=end.astimezone(MTL),
         user=[s.mila.email for s in students],
     )
-    sarc_data = _get_cleaned_df(options)
+    sarc_data = cached(_get_cleaned_df)(options)
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
