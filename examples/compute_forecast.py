@@ -26,8 +26,6 @@ import yaml
 from matplotlib import pyplot as plt
 from typing_extensions import Self
 
-os.environ["SARC_CONFIG"] = "config/sarc-client.yaml"
-
 from sarc.client.job import JobStatistics
 from sarc.client.series import (
     compute_cost_and_waste,
@@ -38,6 +36,13 @@ from sarc.config import MTL, ClusterConfig
 from sarc.jobs.series import (
     update_cluster_job_series_rgu,
 )
+
+# os.environ["SARC_CONFIG"] = "config/sarc-client.yaml"
+
+if Path(os.environ.get("SARC_CONFIG", "")).exists():
+    CONFIG_FOLDER = Path(os.environ.get("SARC_CONFIG")).parent
+else:
+    CONFIG_FOLDER = Path(__file__).parent / "config"
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +171,7 @@ _PROFS = [
     # - Some students transitioned away from Mila/DRAC clusters and towards using corporate clusters?
     "rabussgu@mila.quebec",
     "siva.reddy@mila.quebec",
+    "hernanga@mila.quebec",
     "alex.hernandez-garcia@mila.quebec",  # Missing student mapping in users db
     "tegan.maharaj@mila.quebec",  # Missing student mapping in users db
     "arbeltal@mila.quebec",
@@ -700,6 +706,26 @@ def get_group_usage_by_student(
     end = end.astimezone(MTL)
     options = Options(start=start, end=end, user=[s.mila.email for s in students])
     sarc_data = _get_cleaned_df(options)
+    if sarc_data.empty:
+        logger.warning(
+            f"No data found in SARC for {prof_email} from {start} to {end}. Returning empty dataframe."
+        )
+        return pd.DataFrame(
+            columns=[
+                "user",
+                "year",
+                "gpu_years",
+                "gpu_mem_mean",
+                "gpu_mem_max",
+                "gpu_util_mean",
+                "gpu_cpu_years",
+                "gpu_cpu_mem_mean",
+                "gpu_cpu_mem_max",
+                "cpu_years",
+                "cpu_mem_mean",
+                "cpu_mem_max",
+            ]
+        )
     usage_stats = _get_stats(sarc_data, options, frame_size="YS")
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
@@ -964,10 +990,13 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
             ),  # support querying for multiple users.
             clip_time=False,  # True,
         )
-        if _user_emails:
+        if _user_emails and "user.primary_email" in df.columns:
             df = df[df["user.primary_email"].isin(_user_emails)]
         logger.info(f"Saving data to {cache_file}")
         df.to_pickle(cache_file)
+
+    if df.empty:
+        return df
 
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
@@ -1223,13 +1252,13 @@ def _validate_gpu_ram():
 def _get_node_to_gpu(cluster_name: str):
     # node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
     # return node_to_gpu
-    with open(Path(__file__).parent.parent / "config/node_to_gpu.json") as f:
+    with open(f"{CONFIG_FOLDER}/node_to_gpu.json") as f:
         cluster_configs: dict[str, dict[str, str]] = json.load(f)
     return cluster_configs[cluster_name]
 
 
 def _get_cluster_configs() -> dict[str, ClusterConfig]:
-    with open(Path(__file__).parent.parent / "config/sarc-dev.json") as f:
+    with open(f"{CONFIG_FOLDER}/sarc-dev.json") as f:
         cluster_configs = {
             k: ClusterConfig(**v) for k, v in json.load(f)["clusters"].items()
         }
