@@ -518,7 +518,7 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
 def _get_cache_file_name(
     fn: Callable[P, Any], *args: P.args, **kwargs: P.kwargs
 ) -> str:
-    # More interpretable than using a hash:
+    # More interpretable than using this:
     # return hashlib.md5(
     #     json.dumps((fn.__name__, args, kwargs), sort_keys=True, default=str).encode()
     # ).hexdigest()
@@ -883,8 +883,15 @@ def extrapolate_linear(group_usage: pd.DataFrame, new_x: list[int]) -> pd.DataFr
             result.append(np.asarray(new_x))
             continue
         y = group_usage[col].values
-        coeffs = np.polyfit(x, y, 1)  # Linear fit
-        extrapolated_vals = np.poly1d(coeffs)(new_x)
+        if col == "students":
+            coeffs = np.polyfit(x, y, 1)  # Linear fit
+            extrapolated_vals = np.poly1d(coeffs)(new_x)
+        else:
+            # Use a linear fit in a log space then exponentiate the result,
+            # so that projections follow an exponential trend.
+            y = np.log(y)
+            coeffs = np.polyfit(x, y, 1)  # Linear fit in log space
+            extrapolated_vals = np.exp(np.poly1d(coeffs)(new_x))
         result.append(extrapolated_vals)
     extrapolated_df = pd.DataFrame(
         np.vstack(result).T, index=new_x, columns=group_usage.columns
