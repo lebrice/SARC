@@ -15,32 +15,22 @@ from typing import Any, Callable, Generic, Mapping, ParamSpec, TypeVar
 import numpy as np
 import pandas as pd
 import rich
-import rich.layout
 import rich.logging
-import rich.panel
-import rich.pretty
-import rich.prompt
-import rich.text
 import simple_parsing
 import yaml
 from matplotlib import pyplot as plt
 from typing_extensions import Self
 
+os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
+
 from sarc.client.job import JobStatistics
-from sarc.client.series import (
-    compute_cost_and_waste,
-    load_job_series,
-)
+from sarc.client.series import compute_cost_and_waste, load_job_series
 from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClusterConfig
-from sarc.jobs.series import (
-    update_cluster_job_series_rgu,
-)
+from sarc.jobs.series import update_cluster_job_series_rgu
 
-# os.environ["SARC_CONFIG"] = "config/sarc-client.yaml"
-
-if Path(os.environ.get("SARC_CONFIG", "")).exists():
-    CONFIG_FOLDER = Path(os.environ.get("SARC_CONFIG")).parent
+if (_sarc_config := os.environ.get("SARC_CONFIG")) and Path(_sarc_config).exists():
+    CONFIG_FOLDER = Path(_sarc_config).parent
 else:
     CONFIG_FOLDER = Path(__file__).parent / "config"
 
@@ -399,9 +389,17 @@ def main():
     all_profs_dataframes: dict[str, pd.DataFrame] = {}
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
+    redirect_output = options.verbose == 0  # when -v is passed, display output instead.
     for prof in profs:
         output_file = output_dir / f"{prof}.txt"
-        with open(output_file, "w") as f, contextlib.redirect_stdout(f):
+        with (
+            open(output_file, "w") as f,
+            (
+                contextlib.redirect_stdout(f)
+                if redirect_output
+                else contextlib.nullcontext()
+            ),
+        ):
             # Always cached. No need to wrap.
             students = get_group_students(prof_email=prof, start=start, end=end)
             get_group_students_emails(prof_email=prof, start=start, end=end)
@@ -465,10 +463,12 @@ def main():
     plot_usage_projections(total_profs_data, usage_projections)
 
 
-def plot_usage_projections(total_profs_data: pd.DataFrame, usage_projections: pd.DataFrame):
+def plot_usage_projections(
+    total_profs_data: pd.DataFrame, usage_projections: pd.DataFrame
+):
     df = pd.concat([total_profs_data, usage_projections])
-    new_rows  =df.iloc[:2] * np.nan
-    new_rows['year'] = [2020, 2021]
+    new_rows = df.iloc[:2] * np.nan
+    new_rows["year"] = [2020, 2021]
     df = pd.concat([new_rows, df], ignore_index=True)
     df["available"] = [
         np.mean(y)
@@ -485,7 +485,6 @@ def plot_usage_projections(total_profs_data: pd.DataFrame, usage_projections: pd
 
     df[["year", "gpu_years", "available"]].plot(x="year", kind="bar", figsize=(12, 6))
     plt.savefig("outputs/usage_projections.png")
-
 
 
 def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
