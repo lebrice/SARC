@@ -500,7 +500,7 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
         """Decorator to cache the results of a function."""
-
+        # TODO: in _get_cache_file_name, use a .txt extension if the return annotation is `str`
         cache_file = cache_dir / _get_cache_file_name(fn, *args, **kwargs)
         if cache_file.exists():
             logger.info(f"Loading result of {fn.__name__} from {cache_file}")
@@ -508,6 +508,7 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
         else:
             logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
             result = fn(*args, **kwargs)
+            # TODO: Save to a text file if the result is a string.
             cache_file.write_bytes(pickle.dumps(result))
             logger.info(f"Saved result of computing {fn.__name__} to {cache_file}")
             return result
