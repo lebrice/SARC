@@ -1,9 +1,12 @@
 import random
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
 from examples.compute_forecast import (
+    _PROFS,
+    _get_group_usage_projections,
     _print_like_form_shows,
     get_group_students,
     get_group_usage,
@@ -108,3 +111,40 @@ def test_get_group_usage_predictions():
     assert actual_df.shape == fake_df.shape
     assert all(actual_df.columns == fake_df.columns)
     assert all(actual_df.dtypes == fake_df.dtypes)
+
+
+def test_predictions_for_2025_with_partial_data():
+    """Compares the output of `get_group_usage_projections` for 2025 vs scaled up the partial data for that year to date."""
+    all_profs_data = pd.concat(
+        {
+            prof: get_group_usage(
+                prof, start=datetime(2022, 1, 1), end=datetime(2025, 1, 1)
+            ).set_index("year")
+            for prof in _PROFS
+        },
+        names=["prof", "year"],
+    )
+    total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
+    all_profs_predictions = _get_group_usage_projections(total_profs_data)
+    predicted_usage_2025 = all_profs_predictions.query("year == 2025")
+
+    end = datetime(2025, 6, 1)  # first of june as cutoff date (6 months)
+    usage_first_half_2025 = (
+        pd.concat(
+            {
+                prof: get_group_usage(
+                    prof, start=datetime(2025, 1, 1), end=end
+                ).set_index("year")
+                for prof in _PROFS
+            },
+            names=["prof", "year"],
+        )
+        .groupby(level="year")
+        .sum()
+    )
+    scaled_usage_prediction_2025 = usage_first_half_2025 * 2  # naive scaling
+    # Display a comparison of the two predictions
+    print("Predicted usage for 2025 with data from 2022-2024:")
+    _print_like_form_shows(predicted_usage_2025)
+    print("Usage in first half of 2025 * 2:")
+    _print_like_form_shows(scaled_usage_prediction_2025)
