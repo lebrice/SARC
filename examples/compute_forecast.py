@@ -1189,8 +1189,13 @@ def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
     # )
 
     # If allocated.gres_gpu == 0 but requested.gres_gpu > 0, set it to requested.gres_gpu.
+    # allocated_gres_gpu = allocated_gres_gpu.mask(
+    #     (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
+    # )
+    # If allocated.gres_gpu < requested.gres_gpu, set it to requested.gres_gpu.
     allocated_gres_gpu = allocated_gres_gpu.mask(
-        (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
+        allocated_gres_gpu < requested_gres_gpu,
+        requested_gres_gpu,
     )
     return df.assign(
         **{
