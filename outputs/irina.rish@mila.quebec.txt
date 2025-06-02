@@ -21,21 +21,21 @@ Compute usage in irina.rish@mila.quebec's group:
 5 students that used the most compute in irina.rish@mila.quebec's group in 2024:
                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
 166     sparsha.mishra@mila.quebec  2024     91.607  ...      0.043         2.646        6.447
-149           arefinmr@mila.quebec  2024     91.512  ...      0.003         7.092       13.754
+149           arefinmr@mila.quebec  2024     91.582  ...      0.003         7.092       13.754
 164           mittalsa@mila.quebec  2024     74.819  ...      0.264         1.485       10.316
 118           mirceara@mila.quebec  2024     53.993  ...      0.878        11.687       55.017
-139  gwendolyne.legate@mila.quebec  2024     25.760  ...      0.041        29.228       47.280
+139  gwendolyne.legate@mila.quebec  2024     30.901  ...      0.041        29.228       47.280
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
 students, 25.000, 37.000, 36.000, 44.000, 49.000
-gpu_years, 159.819, 220.206, 462.762, 583.872, 735.343
-gpu_mem_mean, 6.530, 13.446, 10.933, 14.706, 16.907
-gpu_mem_max, 20.053, 20.053, 43.361, 51.130, 62.783
-gpu_util_mean, 0.399, 0.416, 0.404, 0.411, 0.413
-gpu_cpu_years, 283.688, 214.919, 540.944, 603.774, 732.402
-gpu_cpu_mem_mean, 6.530, 13.446, 10.933, 14.706, 16.907
-gpu_cpu_mem_max, 241.919, 379.627, 3438.576, 4550.030, 6148.359
-cpu_years, 8.660, 56.938, 75.902, 114.408, 148.029
-cpu_mem_mean, 4.492, 8.549, 4.732, 6.164, 6.284
-cpu_mem_max, 53.728, 336.980, 195.999, 337.840, 408.976
+gpu_years, 159.819, 220.450, 477.297, 765.132, 1322.260
+gpu_mem_mean, 6.530, 13.450, 10.586, 15.822, 20.145
+gpu_mem_max, 20.053, 20.053, 43.361, 56.070, 82.449
+gpu_util_mean, 0.399, 0.416, 0.397, 0.402, 0.401
+gpu_cpu_years, 214.753, 134.110, 453.367, 497.119, 722.296
+gpu_cpu_mem_mean, 5.184, 7.863, 6.950, 8.804, 10.194
+gpu_cpu_mem_max, 60.988, 133.275, 121.976, 199.428, 282.034
+cpu_years, 8.660, 56.938, 75.902, 293.173, 867.943
+cpu_mem_mean, 4.492, 8.549, 4.732, 5.967, 6.124
+cpu_mem_max, 53.728, 336.980, 195.999, 556.426, 1062.758

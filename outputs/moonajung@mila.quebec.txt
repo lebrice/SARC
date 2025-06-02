@@ -1,8 +1,8 @@
 Students supervised by moonajung@mila.quebec: ['Ava Gilmour', 'Christopher Wong', 'Gauri Sharma', 'Jocelyn Wong', 'Kadambari Bhujbal', 'Kiara Wimbush', 'Leah Davis', 'Lixiao Zhu', 'Rahatul-Amin Ananto', 'Sandrine Bedard', 'Shalaleh Rismani', 'Tanaka Akiyama']
-[2;36m[06/02/25 14:20:38][0m[2;36m [0m[33mWARNING [0m No data found in SARC for                     ]8;id=438756;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=814838;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#748\[2m748[0m]8;;\
-[2;36m                    [0m         moonajung@mila.quebec from [1;36m2022[0m-[1;36m01[0m-[1;36m01[0m         [2m                       [0m
-[2;36m                    [0m         [1;92m00:00:00[0m-[1;92m05:00[0m to [1;36m2025[0m-[1;36m01[0m-[1;36m01[0m [1;92m00:00:00[0m-[1;92m05:00[0m.  [2m                       [0m
-[2;36m                    [0m         Returning empty dataframe.                    [2m                       [0m
-[2;36m                   [0m[2;36m [0m[1;31mERROR   [0m There is no data in SARC for job from any of  ]8;id=915698;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=135690;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#417\[2m417[0m]8;;\
-[2;36m                    [0m         Prof moonajung@mila.quebec's students!        [2m                       [0m
-[2;36m                    [0m         Skipping.                                     [2m                       [0m
+[2;36m[06/02/25 17:37:19][0m[2;36m [0m[33mWARNING [0m No data found in SARC for                    ]8;id=509051;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=279299;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#750\[2m750[0m]8;;\
+[2;36m                    [0m         moonajung@mila.quebec from [1;36m2022[0m-[1;36m01[0m-[1;36m01[0m        [2m                       [0m
+[2;36m                    [0m         [1;92m00:00:00[0m-[1;92m05:00[0m to [1;36m2025[0m-[1;36m01[0m-[1;36m01[0m [1;92m00:00:00[0m-[1;92m05:00[0m. [2m                       [0m
+[2;36m                    [0m         Returning empty dataframe.                   [2m                       [0m
+[2;36m                   [0m[2;36m [0m[1;31mERROR   [0m There is no data in SARC for job from any of ]8;id=192590;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=914621;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#417\[2m417[0m]8;;\
+[2;36m                    [0m         Prof moonajung@mila.quebec's students!       [2m                       [0m
+[2;36m                    [0m         Skipping.                                    [2m                       [0m

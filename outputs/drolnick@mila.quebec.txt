@@ -20,7 +20,7 @@ Compute usage in drolnick@mila.quebec's group:
 [5 rows x 12 columns]
 5 students that used the most compute in drolnick@mila.quebec's group in 2024:
                              user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-163     pratinav.seth@mila.quebec  2024      8.604  ...      1.275        19.337      101.851
+163     pratinav.seth@mila.quebec  2024      8.790  ...      1.275        19.337      101.851
 176        yuyan.chen@mila.quebec  2024      7.255  ...      1.076         6.089      119.357
 164       qidong.yang@mila.quebec  2024      5.999  ...      1.861        10.062       50.926
 160  nikolaos.bountos@mila.quebec  2024      5.737  ...      1.429        21.528      159.142
@@ -29,13 +29,13 @@ Compute usage in drolnick@mila.quebec's group:
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
 students, 16.000, 26.000, 31.000, 39.000, 47.000
-gpu_years, 24.731, 40.105, 65.103, 83.684, 103.870
-gpu_mem_mean, 13.635, 15.787, 15.415, 16.726, 17.615
-gpu_mem_max, 24.783, 24.783, 33.202, 36.009, 40.219
-gpu_util_mean, 0.454, 0.454, 0.461, 0.464, 0.467
-gpu_cpu_years, 27.184, 43.646, 80.792, 104.150, 130.954
-gpu_cpu_mem_mean, 13.635, 15.787, 15.415, 16.726, 17.615
-gpu_cpu_mem_max, 143.228, 244.750, 393.877, 511.267, 636.592
-cpu_years, 0.295, 12.616, 20.611, 31.490, 41.649
-cpu_mem_mean, 6.326, 17.422, 15.002, 21.592, 25.930
-cpu_mem_max, 66.044, 203.702, 318.284, 448.251, 574.371
+gpu_years, 24.731, 40.105, 65.289, 106.012, 172.247
+gpu_mem_mean, 13.635, 15.787, 15.415, 16.862, 17.929
+gpu_mem_max, 24.783, 24.783, 33.202, 36.602, 42.366
+gpu_util_mean, 0.454, 0.454, 0.461, 0.463, 0.467
+gpu_cpu_years, 18.387, 33.641, 47.227, 79.106, 126.781
+gpu_cpu_mem_mean, 11.231, 12.424, 10.122, 10.112, 9.600
+gpu_cpu_mem_max, 31.033, 68.157, 52.429, 81.168, 105.501
+cpu_years, 0.295, 12.616, 20.611, 297.042, 2483.988
+cpu_mem_mean, 6.326, 17.422, 15.002, 28.041, 43.181
+cpu_mem_max, 66.044, 203.702, 318.284, 782.582, 1717.992

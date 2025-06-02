@@ -1,3 +1,3 @@
 Students supervised by farahmand@mila.quebec: []
-[2;36m[06/02/25 14:00:21][0m[2;36m [0m[1;31mERROR   [0m Prof farahmand@mila.quebec has no students in ]8;id=781634;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=787679;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
-[2;36m                    [0m         SARC! Skipping.                               [2m                       [0m
+[2;36m[06/02/25 17:31:19][0m[2;36m [0m[1;31mERROR   [0m Prof farahmand@mila.quebec has no students   ]8;id=722208;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=257810;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
+[2;36m                    [0m         in SARC! Skipping.                           [2m                       [0m

@@ -1,3 +1,3 @@
 Students supervised by matt.kusner@gmail.com: []
-[2;36m[06/02/25 14:19:53][0m[2;36m [0m[1;31mERROR   [0m Prof matt.kusner@gmail.com has no students in ]8;id=16997;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=900480;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
-[2;36m                    [0m         SARC! Skipping.                               [2m                       [0m
+[2;36m[06/02/25 17:36:41][0m[2;36m [0m[1;31mERROR   [0m Prof matt.kusner@gmail.com has no students   ]8;id=390984;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=615298;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
+[2;36m                    [0m         in SARC! Skipping.                           [2m                       [0m

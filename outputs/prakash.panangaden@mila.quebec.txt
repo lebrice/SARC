@@ -8,15 +8,33 @@ Compute usage in prakash.panangaden@mila.quebec's group:
 3         tyler.kastner@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
 
 [4 rows x 12 columns]
-Year,2022,2023,2024,2025,2026
-students, nan, nan, 1.000, nan, nan
-gpu_years, nan, nan, 0.505, nan, nan
-gpu_mem_mean, nan, nan, 15.359, nan, nan
-gpu_mem_max, nan, nan, 33.913, nan, nan
-gpu_util_mean, nan, nan, 0.498, nan, nan
-gpu_cpu_years, nan, nan, 0.423, nan, nan
-gpu_cpu_mem_mean, nan, nan, 15.359, nan, nan
-gpu_cpu_mem_max, nan, nan, 53.568, nan, nan
-cpu_years, nan, nan, 1.050, nan, nan
-cpu_mem_mean, nan, nan, 9.176, nan, nan
-cpu_mem_max, nan, nan, 18.432, nan, nan
+[2;36m[06/02/25 17:40:11][0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_years contain    ]8;id=519987;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=888285;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_mean contain ]8;id=595189;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=572259;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_max contain  ]8;id=591822;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=351890;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_util_mean        ]8;id=279229;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=803640;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_years        ]8;id=54312;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=429894;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_mean     ]8;id=722204;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=925141;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_max      ]8;id=498418;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=841692;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_years contain    ]8;id=543315;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=436070;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_mem_mean contain ]8;id=932800;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=241355;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_mem_max contain  ]8;id=936067;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=266482;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
+[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
+[2;36m                    [0m         extrapolation instead.                       [2m                       [0m

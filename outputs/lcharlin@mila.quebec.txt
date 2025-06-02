@@ -21,7 +21,7 @@ Compute usage in lcharlin@mila.quebec's group:
 5 students that used the most compute in lcharlin@mila.quebec's group in 2024:
                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
 61       omar.salemohamed@mila.quebec  2024     17.078  ...      0.000           NaN          NaN
-50      emiliano.penaloza@mila.quebec  2024      8.774  ...      0.164         4.515       26.043
+50      emiliano.penaloza@mila.quebec  2024      8.797  ...      0.164         4.515       26.043
 55  mizu.nishikawa-toomey@mila.quebec  2024      3.840  ...      0.029         2.604        2.604
 59               ostapeno@mila.quebec  2024      1.411  ...      0.002         0.521        0.521
 65           yipeng.zhang@mila.quebec  2024      0.948  ...      0.015         1.456        4.167
@@ -29,13 +29,13 @@ Compute usage in lcharlin@mila.quebec's group:
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
 students, 8.000, 9.000, 7.000, 7.000, 7.000
-gpu_years, 14.905, 39.732, 32.832, 47.084, 56.047
-gpu_mem_mean, 9.849, 14.191, 12.848, 15.296, 16.796
-gpu_mem_max, 22.008, 22.008, 23.973, 24.628, 25.611
-gpu_util_mean, 0.469, 0.469, 0.470, 0.470, 0.471
-gpu_cpu_years, 19.028, 32.967, 33.647, 43.166, 50.475
-gpu_cpu_mem_mean, 9.849, 14.191, 12.848, 15.296, 16.796
-gpu_cpu_mem_max, 26.043, 89.129, 75.004, 112.353, 136.833
-cpu_years, 14.266, 99.949, 0.340, 24.259, 17.296
-cpu_mem_mean, 2.563, 2.989, 2.707, 2.896, 2.968
+gpu_years, 14.905, 39.732, 32.856, 59.289, 88.027
+gpu_mem_mean, 9.849, 14.191, 12.804, 15.783, 17.996
+gpu_mem_max, 22.008, 22.008, 23.973, 24.666, 25.744
+gpu_util_mean, 0.469, 0.469, 0.469, 0.468, 0.468
+gpu_cpu_years, 17.370, 31.248, 31.981, 47.673, 64.687
+gpu_cpu_mem_mean, 5.025, 5.949, 6.499, 7.492, 8.521
+gpu_cpu_mem_max, 10.417, 47.186, 48.095, 132.505, 284.711
+cpu_years, 14.266, 99.949, 0.340, 0.187, 0.029
+cpu_mem_mean, 2.563, 2.989, 2.707, 2.901, 2.981
 cpu_mem_max, 26.043, 26.043, 26.043, 26.043, 26.043

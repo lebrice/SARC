@@ -151,8 +151,10 @@ _PROFS = [
     "blake.richards@mila.quebec",
     "christopher.pal@mila.quebec",
     "gidelgau@mila.quebec",
+    # Big drop with the fix for allocated.gres_gpu here, only darshan.patil goes from 31.9 to 9.9 in 2024.
     "glen.berseth@mila.quebec",
-    "pierre-luc.bacon@mila.quebec",
+    # TODO: Weird, getting all NaNs now for Glen's group usage...
+    "pierre-luc.bacon@mila.quebec",  # very large downward trend in usage!
     # Big drop in 2024 compared to 2022 and 2023.
     # Observations:
     # - Pierluca,Tianwei,Evgenii were biggest compute users of that group in 2022 (73,58,51 rgu*years)
@@ -161,39 +163,47 @@ _PROFS = [
     # - Some students transitioned away from Mila/DRAC clusters and towards using corporate clusters?
     "rabussgu@mila.quebec",
     "siva.reddy@mila.quebec",
-    "hernanga@mila.quebec",
+    "hernanga@mila.quebec",  # no data in SARC!
     "alex.hernandez-garcia@mila.quebec",  # Missing student mapping in users db
     "tegan.maharaj@mila.quebec",  # Missing student mapping in users db
     "arbeltal@mila.quebec",
     "cheungja@mila.quebec",
     "drolnick@mila.quebec",
-    "guillaume.lajoie@mila.quebec",
-    "lcharlin@mila.quebec",
+    "guillaume.lajoie@mila.quebec",  # Slight downward trend in usage?
+    "lcharlin@mila.quebec",  # Stable-ish.
     "moonajung@mila.quebec",  # no data in SARC!
     "prakash.panangaden@mila.quebec",
     "reihaneh.rabbany@mila.quebec",
     "david.adelani@mila.quebec",
-    "kruegerd@mila.quebec",
+    # Note: This prof's usage predictions (with exponentials) are very wild even though they only have one student:
+    # Year,2022,2023,2024,2025,2026
+    # gpu_years, 0.178, 5.401, 12.074, 153.828, 1268.437
+    "kruegerd@mila.quebec",  # No students in SARC
     "bzdokdan@mila.quebec",
     "courvila@mila.quebec",
     "dhanya.sridhar@mila.quebec",
+    # Also pretty wild predictions because of exp trend:
+    # 0.582, 5.511, 7.812, 39.256, 143.770
     "farnadig@mila.quebec",
-    "odonnelt@mila.quebec",
-    "paulll@mila.quebec",
+    "odonnelt@mila.quebec",  # Downward trend!
+    "paulll@mila.quebec",  # Downward-ish trend because of bump in 2023
     "siamak.ravanbakhsh@mila.quebec",
     "slacoste@mila.quebec",
-    "farahmand@mila.quebec",
-    "matt.kusner@gmail.com",
+    "farahmand@mila.quebec",  # no students in SARC
+    "matt.kusner@gmail.com",  # No students in SARC
     "derek@mila.quebec",
-    "ioannis@mila.quebec",
-    "irina.rish@mila.quebec",
-    "jpineau@mila.quebec",
+    # Note: Usage stats are actually going down! (same w/ number of students)
+    # Year,2022,2023,2024,2025,2026
+    # gpu_years, 39.160, 18.361, 14.319, 7.955, 4.810
+    "ioannis@mila.quebec",  # Usage Increased in 2024 after fix only for one student in top 5.
+    "irina.rish@mila.quebec",  # Slight usage increase after fix for 2024.
+    "jpineau@mila.quebec",  # BIG downward trend in # of students and usage!
     "precupdo@mila.quebec",
     "sarath.chandar@mila.quebec",
     "tangjian@mila.quebec",
     "wolfguy@mila.quebec",
     "yoshua.bengio@mila.quebec",
-    "kirill.neklyudov@mila.quebec",
+    "kirill.neklyudov@mila.quebec",  # No students in SARC
 ]
 _PROFS = sorted(_PROFS)
 
