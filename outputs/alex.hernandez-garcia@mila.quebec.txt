@@ -1,0 +1,14 @@
+[2;36m[06/02/25 13:37:28][0m[2;36m [0m[33mWARNING [0m Unable to get the students supervised by      ]8;id=464243;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=25386;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#606\[2m606[0m]8;;\
+[2;36m                    [0m         alex.hernandez-garcia@mila.quebec from SARC,  [2m                       [0m
+[2;36m                    [0m         using hard-coded values instead.              [2m                       [0m
+[2;36m                   [0m[2;36m [0m[33mWARNING [0m Unable to get the students supervised by      ]8;id=569756;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=618877;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#606\[2m606[0m]8;;\
+[2;36m                    [0m         alex.hernandez-garcia@mila.quebec from SARC,  [2m                       [0m
+[2;36m                    [0m         using hard-coded values instead.              [2m                       [0m
+Students supervised by alex.hernandez-garcia@mila.quebec: ['Celine Roget', 'Hyeonah Kim', 'Dounia Shaaban-Kabakibo', 'Om Patel']
+[2;36m[06/02/25 13:38:09][0m[2;36m [0m[33mWARNING [0m No data found in SARC for                     ]8;id=27668;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=974791;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#748\[2m748[0m]8;;\
+[2;36m                    [0m         alex.hernandez-garcia@mila.quebec from        [2m                       [0m
+[2;36m                    [0m         [1;36m2022[0m-[1;36m01[0m-[1;36m01[0m [1;92m00:00:00[0m-[1;92m05:00[0m to [1;36m2025[0m-[1;36m01[0m-[1;36m01[0m       [2m                       [0m
+[2;36m                    [0m         [1;92m00:00:00[0m-[1;92m05:00[0m. Returning empty dataframe.    [2m                       [0m
+[2;36m                   [0m[2;36m [0m[1;31mERROR   [0m There is no data in SARC for job from any of  ]8;id=782153;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=300377;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#417\[2m417[0m]8;;\
+[2;36m                    [0m         Prof alex.hernandez-garcia@mila.quebec's      [2m                       [0m
+[2;36m                    [0m         students! Skipping.                           [2m                       [0m

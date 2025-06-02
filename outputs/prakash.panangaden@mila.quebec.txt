@@ -1,0 +1,22 @@
+Students supervised by prakash.panangaden@mila.quebec: ['ARIELLA SMOFSKY', 'Clara Lacroce', 'Jonathan Colaco-Carr', 'Tyler Kastner']
+Compute usage in prakash.panangaden@mila.quebec's group:
+5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2024:
+                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+2  jonathan.colaco-carr@mila.quebec  2024      0.505  ...      1.050         9.176       18.432
+0              smofskya@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+1              lacrocec@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+3         tyler.kastner@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+
+[4 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, nan, nan, 1.000, nan, nan
+gpu_years, nan, nan, 0.505, nan, nan
+gpu_mem_mean, nan, nan, 15.359, nan, nan
+gpu_mem_max, nan, nan, 33.913, nan, nan
+gpu_util_mean, nan, nan, 0.498, nan, nan
+gpu_cpu_years, nan, nan, 0.423, nan, nan
+gpu_cpu_mem_mean, nan, nan, 15.359, nan, nan
+gpu_cpu_mem_max, nan, nan, 53.568, nan, nan
+cpu_years, nan, nan, 1.050, nan, nan
+cpu_mem_mean, nan, nan, 9.176, nan, nan
+cpu_mem_max, nan, nan, 18.432, nan, nan

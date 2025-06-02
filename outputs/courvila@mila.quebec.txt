@@ -1,0 +1,41 @@
+Students supervised by courvila@mila.quebec: ['Adrien Ali Taïga', 'Alexandre Ganito', 'Amr-Khalifa Alshaykh', 'Andrei Nicolicioiu', 'Anirban Laha', 'Ankesh Anand', 'Ankit Vani', 'Arian Hosseini', 'Ayush Agrawal', 'Caroline Lebrun', 'Chin-Wei Huang', 'Christos Tsirigotis', 'Dereck Piché', 'Dinghuai Zhang', 'Diz Ganito', 'Faruk Ahmed', 'Florian Strub', 'Johan Samir Obando Ceron', 'José Manuel Rodriguez Sotelo', 'Juan Duque', 'Kyle Kastner', 'Lluis Castrejon', 'Michael Noukhovitch', 'Mohammed Muqeeth', 'Morgane Moss', 'Phong Nguyen', 'Pietro Mazzaglia', 'Razvan Ciuca', 'Reza Bayat', 'SOUMYE SINGHAL', 'Samuel Lavoie-Marchildon', 'Sara Hooker', 'Sarvjeet-Singh Ghotra', 'Shawn Tan', 'Taoli Cheng', 'Tim Cooijmans', 'UdayKaran Kapur', 'Xiaofeng Zhang', 'Yezhen Wang', 'Yuchen Lu', 'Zhixuan Lin']
+Compute usage in courvila@mila.quebec's group:
+5 students that used the most compute in courvila@mila.quebec's group in 2022:
+                          user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+40     zhixuan.lin@mila.quebec  2022     69.670  ...      6.471         5.304       17.213
+30   samuel.lavoie@mila.quebec  2022     34.714  ...      0.015         2.571        8.074
+11        tsirigoc@mila.quebec  2022      9.999  ...     11.555        26.018      573.284
+13  dinghuai.zhang@mila.quebec  2022      9.554  ...      0.000           NaN          NaN
+6         vanianki@mila.quebec  2022      8.735  ...      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+5 students that used the most compute in courvila@mila.quebec's group in 2023:
+                          user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+81     zhixuan.lin@mila.quebec  2023    113.603  ...      4.056         4.069       22.468
+47        vanianki@mila.quebec  2023     24.953  ...      0.001         4.530       10.328
+54  dinghuai.zhang@mila.quebec  2023     23.881  ...      0.000        16.851       16.851
+71   samuel.lavoie@mila.quebec  2023     13.110  ...      0.038         3.309        8.074
+60      juan.duque@mila.quebec  2023      7.022  ...      0.000         0.702        0.702
+
+[5 rows x 12 columns]
+5 students that used the most compute in courvila@mila.quebec's group in 2024:
+                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+122         zhixuan.lin@mila.quebec  2024    120.790  ...      0.696         9.585       44.936
+85   andrei.nicolicioiu@mila.quebec  2024     26.331  ...      1.192         6.246       44.936
+99          johan.ceron@mila.quebec  2024     10.808  ...      0.136         1.343       14.308
+89             hosseise@mila.quebec  2024      6.671  ...      2.883         8.366       44.936
+112       samuel.lavoie@mila.quebec  2024      4.463  ...      0.012         3.351        5.617
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 19.000, 18.000, 16.000, 15.000, 13.000
+gpu_years, 157.682, 213.432, 187.386, 215.871, 230.723
+gpu_mem_mean, 12.890, 13.860, 16.519, 18.052, 19.866
+gpu_mem_max, 22.030, 40.000, 40.000, 51.980, 60.965
+gpu_util_mean, 0.512, 0.485, 0.520, 0.515, 0.519
+gpu_cpu_years, 221.223, 259.825, 138.505, 123.799, 82.439
+gpu_cpu_mem_mean, 12.890, 13.860, 16.519, 18.052, 19.866
+gpu_cpu_mem_max, 359.487, 134.218, 220.333, 98.858, 29.281
+cpu_years, 18.697, 5.313, 5.472, 0.000, 0.000
+cpu_mem_mean, 8.562, 4.711, 4.460, 1.809, 0.000
+cpu_mem_max, 573.284, 44.936, 44.936, 0.000, 0.000

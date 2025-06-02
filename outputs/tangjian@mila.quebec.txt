@@ -1,0 +1,41 @@
+Students supervised by tangjian@mila.quebec: ['Andreea-Ioana Deac', 'Arian Jamasb', 'Chence Shi', 'Fang Sun', 'Felix Drost', 'Huiyu Cai', 'Jianan Zhao', 'Jiarui Lu', 'Meng Qu', 'Mikhail Galkin', 'Minghao Xu', 'Nicole Duane', 'Shaoning Li', 'Shentong Mo', 'Sophie Xhonneux', 'Stephen Lu', 'Walter Virany', 'Xinyu Yuan', 'Zhaocheng Zhu', 'Zhihao Zhan', 'Zuobai Zhang']
+Compute usage in tangjian@mila.quebec's group:
+5 students that used the most compute in tangjian@mila.quebec's group in 2022:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+20  zuobai.zhang@mila.quebec  2022     36.743  ...      1.751        76.108       78.381
+7      jiarui.lu@mila.quebec  2022      7.008  ...     60.709        49.800       80.585
+18      zhuzhaoc@mila.quebec  2022      3.933  ...      0.000           NaN          NaN
+8         qumeng@mila.quebec  2022      3.544  ...    100.197        42.582       67.993
+0       deacandr@mila.quebec  2022      3.454  ...      0.002        10.073       10.073
+
+[5 rows x 12 columns]
+5 students that used the most compute in tangjian@mila.quebec's group in 2023:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+38    xinyu.yuan@mila.quebec  2023     23.984  ...     10.270       194.075      251.827
+28     jiarui.lu@mila.quebec  2023     11.786  ...      3.596        44.953       75.314
+27   jianan.zhao@mila.quebec  2023      7.227  ...      1.540        30.741       58.839
+40   zhihao.zhan@mila.quebec  2023      6.170  ...      1.352        31.820      220.349
+41  zuobai.zhang@mila.quebec  2023      3.676  ...      5.495         6.059       78.381
+
+[5 rows x 12 columns]
+5 students that used the most compute in tangjian@mila.quebec's group in 2024:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+49     jiarui.lu@mila.quebec  2024     22.179  ...      2.495        23.320       56.485
+48   jianan.zhao@mila.quebec  2024     12.895  ...      0.450        12.321       58.839
+61   zhihao.zhan@mila.quebec  2024      8.305  ...      8.017        28.178      472.176
+57    stephen.lu@mila.quebec  2024      4.233  ...      0.120         2.605        9.414
+62  zuobai.zhang@mila.quebec  2024      3.076  ...      1.539        24.542       37.774
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 11.000, 12.000, 8.000, 7.000, 6.000
+gpu_years, 64.118, 64.396, 52.099, 48.186, 42.177
+gpu_mem_mean, 10.372, 9.449, 13.178, 13.806, 15.209
+gpu_mem_max, 21.983, 24.408, 35.649, 41.012, 47.845
+gpu_util_mean, 0.430, 0.427, 0.407, 0.399, 0.387
+gpu_cpu_years, 123.280, 133.722, 80.268, 69.412, 47.906
+gpu_cpu_mem_mean, 10.372, 9.449, 13.178, 13.806, 15.209
+gpu_cpu_mem_max, 156.762, 225.941, 294.194, 363.064, 431.780
+cpu_years, 240.141, 28.788, 20.122, 0.000, 0.000
+cpu_mem_mean, 3.562, 8.155, 23.598, 31.807, 41.825
+cpu_mem_max, 5016.400, 251.827, 1007.309, 0.000, 0.000

@@ -1,0 +1,41 @@
+Students supervised by siva.reddy@mila.quebec: ['Ada Tur', 'Alejandra Zambrano', 'Amir Hossein Kazemnejad', 'Aravind Krishnan', 'Austin Kraft', 'Benno Krojer', 'Dongchan Shin', 'Dora Jambor', 'Gaurav Kamath', 'Ivan Vulic', 'Jasper Jian', 'Karolina Stanczak', 'Marius Mosbach', 'Mehar Bhatia', 'Nathan Schucher', 'Nicholas Meade', 'Nooshin Soheililangroodi', 'Parishad BehnamGhader', 'Sara Marjanovic', 'Shehzaad-Zuzar Dhuliawala', 'Simran Khanuja', 'Sivan Milton', 'Spandana Gella', 'TomasVergara Browne', 'Vaibhav Adlakha', 'Xing Han Lu', 'Zdenek Kasner', 'Zichao Li', 'tomas vergarabrowne']
+Compute usage in siva.reddy@mila.quebec's group:
+5 students that used the most compute in siva.reddy@mila.quebec's group in 2022:
+                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+5             benno.krojer@mila.quebec  2022      8.558  ...      0.003         0.899        1.799
+2   amirhossein.kazemnejad@mila.quebec  2022      6.633  ...      0.027        16.414       21.586
+27               zichao.li@mila.quebec  2022      2.561  ...      0.020        19.248       28.782
+17   parishad.behnamghader@mila.quebec  2022      0.572  ...      0.004        10.044       14.391
+10             jasper.jian@mila.quebec  2022      0.373  ...      0.003         2.249        4.947
+
+[5 rows x 12 columns]
+5 students that used the most compute in siva.reddy@mila.quebec's group in 2023:
+                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+31  amirhossein.kazemnejad@mila.quebec  2023     12.782  ...      0.776        17.067       57.563
+44          nicholas.meade@mila.quebec  2023      3.036  ...      0.002         8.904       28.782
+56               zichao.li@mila.quebec  2023      3.010  ...      0.017         6.716       17.988
+34            benno.krojer@mila.quebec  2023      0.385  ...      0.009         0.899        0.899
+46   parishad.behnamghader@mila.quebec  2023      0.218  ...      0.000         0.899        0.899
+
+[5 rows x 12 columns]
+5 students that used the most compute in siva.reddy@mila.quebec's group in 2024:
+                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+60  amirhossein.kazemnejad@mila.quebec  2024     10.437  ...      0.790        35.691       57.563
+85               zichao.li@mila.quebec  2024      3.117  ...      0.652         9.570       35.977
+73          nicholas.meade@mila.quebec  2024      1.581  ...      0.003         8.288       14.391
+66           gaurav.kamath@mila.quebec  2024      0.412  ...      3.384         9.281       71.954
+58                 ada.tur@mila.quebec  2024      0.105  ...      0.046         5.209       21.586
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 9.000, 9.000, 8.000, 8.000, 7.000
+gpu_years, 18.911, 19.665, 15.732, 14.924, 13.335
+gpu_mem_mean, 12.139, 17.027, 21.961, 26.864, 31.775
+gpu_mem_max, 23.769, 24.400, 40.000, 45.621, 53.737
+gpu_util_mean, 0.378, 0.379, 0.377, 0.377, 0.377
+gpu_cpu_years, 26.584, 29.705, 15.703, 13.116, 7.675
+gpu_cpu_mem_mean, 12.139, 17.027, 21.961, 26.864, 31.775
+gpu_cpu_mem_max, 112.428, 262.144, 230.252, 319.433, 378.345
+cpu_years, 0.062, 1.113, 4.875, 6.830, 9.237
+cpu_mem_mean, 9.504, 7.111, 9.481, 8.675, 8.663
+cpu_mem_max, 89.942, 57.563, 71.954, 55.165, 46.170

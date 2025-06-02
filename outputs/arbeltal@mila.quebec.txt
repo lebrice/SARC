@@ -1,0 +1,41 @@
+Students supervised by arbeltal@mila.quebec: ['Amar Kumar', 'Anita Kriz', 'Anjun Hu', 'Armin Saadat', 'Berardino Barile', 'Changjian Shui', 'Changjiian Shui', 'Cheng Chen', 'Elizabeth Janes', 'Emily Kaczmarek', 'Eric Zimmermann', 'Ethan Honey', 'Gian Favero', 'Hujun Ni', 'Joshua Durso-Finley', 'Julian Huster', 'Julien Schroeter', 'Justin Szeto', 'Marvin Li', 'Michelle Levy', 'Mohamed Mohamed', 'Mona Wang', 'Nazanin Sepahvand', 'Nima Fathi', 'Omri Bar', 'Parham Saremi', 'Ritchie Yu', 'Samer Abdulkarim', 'Shervin Khalafi', 'Simon Younaki', 'Xing Shen', 'Zahra TehraniNasab']
+Compute usage in arbeltal@mila.quebec's group:
+5 students that used the most compute in arbeltal@mila.quebec's group in 2022:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+22      sepahvan@mila.quebec  2022      0.786  ...      0.000         0.735        2.939
+0       kumarama@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+1     anita.kriz@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+2       anjun.hu@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+3   armin.saadat@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+5 students that used the most compute in arbeltal@mila.quebec's group in 2023:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+54      sepahvan@mila.quebec  2023     19.150  ...      0.000         2.880        2.939
+32      kumarama@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+33    anita.kriz@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+34      anjun.hu@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+35  armin.saadat@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+5 students that used the most compute in arbeltal@mila.quebec's group in 2024:
+                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+86      sepahvan@mila.quebec  2024     12.467  ...      0.441         2.021       23.514
+64      kumarama@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+65    anita.kriz@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+66      anjun.hu@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+67  armin.saadat@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 1.000, 1.000, 1.000, 1.000, 1.000
+gpu_years, 0.786, 19.150, 12.467, 22.482, 28.323
+gpu_mem_mean, 6.814, 10.624, 8.523, 10.362, 11.217
+gpu_mem_max, 15.197, 15.197, 15.197, 15.197, 15.197
+gpu_util_mean, 0.232, 0.232, 0.232, 0.232, 0.232
+gpu_cpu_years, 0.597, 7.674, 13.557, 20.236, 26.716
+gpu_cpu_mem_mean, 6.814, 10.624, 8.523, 10.362, 11.217
+gpu_cpu_mem_max, 8.818, 265.531, 134.152, 261.501, 324.168
+cpu_years, 0.000, 0.000, 0.441, 0.589, 0.809
+cpu_mem_mean, 0.735, 2.880, 2.021, 3.165, 3.808
+cpu_mem_max, 2.939, 2.939, 23.514, 30.372, 40.660

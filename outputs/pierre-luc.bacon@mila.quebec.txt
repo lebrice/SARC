@@ -1,0 +1,41 @@
+Students supervised by pierre-luc.bacon@mila.quebec: ['Adrien Goldszal', 'Aneri Muni', 'Arielle Gazze', 'Artiom Matvei', 'Claire Bouillet', 'Clement Gehring', 'David Yu-Tung Hui', 'Diego Calanzone', 'Eden Macdonald', 'Esther Derman', 'Evgenii Nikishin', 'Franciszek Czyzowicz', 'Justin Veilleux', 'Lama Saouma', 'Lea Cote-Turcotte', 'Lu Li', 'Michel Ma', 'Nikolaus Howe', 'Parker Levesque', 'Paul Crouther', "Pierluca D'Oro", "Ryan D'Orazio", 'Samy Rasmy', 'Simon Dufort-Labbé', 'Sobhan Mohammadpour', 'Tianwei Ni', 'Vamsi-Krishna Munjuluri', 'Vincent Taboga', 'Yihao Sun', 'Yutong Yan']
+Compute usage in pierre-luc.bacon@mila.quebec's group:
+5 students that used the most compute in pierre-luc.bacon@mila.quebec's group in 2022:
+                            user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+20     pierluca.doro@mila.quebec  2022     72.679  ...     29.759         4.605       25.116
+25        tianwei.ni@mila.quebec  2022     57.685  ...      0.034         2.381        4.264
+10  evgenii.nikishin@mila.quebec  2022     51.087  ...    107.310         6.777       13.646
+6           huidavid@mila.quebec  2022     25.810  ...      1.611         6.755        6.823
+16         michel.ma@mila.quebec  2022      3.838  ...      0.004         3.039        3.411
+
+[5 rows x 12 columns]
+5 students that used the most compute in pierre-luc.bacon@mila.quebec's group in 2023:
+                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+55           tianwei.ni@mila.quebec  2023     89.578  ...      0.041         2.132        2.132
+53   simon.dufort-labbe@mila.quebec  2023     31.000  ...      0.007         3.491        7.451
+54  sobhan.mohammadpour@mila.quebec  2023     23.366  ...      0.020         1.361       19.870
+36             huidavid@mila.quebec  2023     14.526  ...      0.000           NaN          NaN
+50        pierluca.doro@mila.quebec  2023     14.485  ...      0.059         0.942       13.646
+
+[5 rows x 12 columns]
+5 students that used the most compute in pierre-luc.bacon@mila.quebec's group in 2024:
+                              user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+83  simon.dufort-labbe@mila.quebec  2024     10.428  ...      0.147         7.744        9.935
+70    evgenii.nikishin@mila.quebec  2024      8.043  ...      0.258         1.600       19.870
+76           michel.ma@mila.quebec  2024      6.410  ...      0.005         4.894        4.967
+67     diego.calanzone@mila.quebec  2024      6.103  ...      0.904         5.708       62.093
+85          tianwei.ni@mila.quebec  2024      4.366  ...      0.000         0.621        0.621
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 9.000, 12.000, 12.000, 14.000, 16.000
+gpu_years, 214.240, 206.276, 40.513, 0.000, 0.000
+gpu_mem_mean, 4.554, 12.064, 16.414, 22.871, 28.801
+gpu_mem_max, 27.756, 32.816, 30.000, 32.435, 33.557
+gpu_util_mean, 0.253, 0.322, 0.392, 0.461, 0.531
+gpu_cpu_years, 404.141, 236.960, 44.405, 0.000, 0.000
+gpu_cpu_mem_mean, 4.554, 12.064, 16.414, 22.871, 28.801
+gpu_cpu_mem_max, 85.286, 268.435, 268.435, 390.535, 482.110
+cpu_years, 138.726, 43.659, 3.258, 0.000, 0.000
+cpu_mem_mean, 6.036, 6.583, 5.401, 5.372, 5.054
+cpu_mem_max, 25.116, 31.046, 62.093, 76.395, 94.884

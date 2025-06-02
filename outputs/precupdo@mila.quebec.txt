@@ -1,0 +1,41 @@
+Students supervised by precupdo@mila.quebec: ['Andrei Lupu', 'Arushi Jain', 'Ayush Jain', 'Bogdan Mazoure', 'Caroline Lebrun', 'Charles COnu', 'David Anthony Venuto', 'Derek Degbedzui', 'Elaine Lau', 'Elodie Cote-Gauthier', 'Flemming Kondrup', 'Franco DelBalso', 'Gabriela Moisescu-Pareja', 'Gandharv Patil', 'Gavin McCracken', 'Guangyuan Wang', 'Haque Ishfaq', 'Howard Huang', 'Jalaj Bhandari', 'Jaume Minano Masip', 'Jonathan Colaco-Carr', 'Jonathan Maloney-Lebensold', 'Keyu Wang', 'Lynn Cherif', 'Mandana Samiei', 'Manoosh Samiei', 'Martin Klissarov', 'Mingde Zhao', 'Mohammad-Sami-Nur Islam', 'Nathan de-Lara', 'Nazanin Sepahvand', 'Neil Girdhar', 'Nikhil Murali Vemgal', 'Nishanth Anand', 'Priyesh Vijayan', 'Raymond Chua', 'Riashat Islam', 'Safa Alver', 'Sahand Rezaei-Shoshtari', 'Samin Yeasar Arnob', 'Scott Fujimoto', 'Shahrad Mohammadzadeh', 'Shishir Sharma', 'Shuyuan Zhang', 'Sitao Luan', 'Srinivas Venkattaramanujam', 'Sumana Basu', 'Veronica Chelu', 'Vincent Luczkow', 'Wesley Chung', 'Zijing Wu', 'mohammad amini', 'padideh nouri']
+Compute usage in precupdo@mila.quebec's group:
+5 students that used the most compute in precupdo@mila.quebec's group in 2022:
+                                   user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+39                 arnobsam@mila.quebec  2022     55.669  ...      2.953         2.927        9.458
+36                 islamria@mila.quebec  2022     30.107  ...      0.000           NaN          NaN
+38  sahand.rezaei-shoshtari@mila.quebec  2022      9.432  ...      0.000           NaN          NaN
+44                 luansito@mila.quebec  2022      5.197  ...      0.000         7.699        7.699
+42                 sharmash@mila.quebec  2022      4.427  ...      0.066         7.699        7.699
+
+[5 rows x 12 columns]
+5 students that used the most compute in precupdo@mila.quebec's group in 2023:
+                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+88  chuaraym@mila.quebec  2023     22.208  ...      0.000           NaN          NaN
+83  sepahvan@mila.quebec  2023     19.150  ...      0.000         5.481        5.593
+89  islamria@mila.quebec  2023     14.058  ...      0.031         1.571       28.373
+95  sharmash@mila.quebec  2023     11.208  ...      0.000           NaN          NaN
+79  klissarm@mila.quebec  2023      9.908  ...      0.021         7.198        8.867
+
+[5 rows x 12 columns]
+5 students that used the most compute in precupdo@mila.quebec's group in 2024:
+                             user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+148          sharmash@mila.quebec  2024    105.073  ...      0.000         0.396        1.398
+142          islamria@mila.quebec  2024     22.181  ...      0.433         2.780       28.373
+152             basus@mila.quebec  2024     18.961  ...      1.134         1.107       22.373
+136          sepahvan@mila.quebec  2024     12.467  ...      0.441         3.845       44.746
+116  flemming.kondrup@mila.quebec  2024     12.424  ...     11.033        10.563       11.186
+
+[5 rows x 12 columns]
+Year,2022,2023,2024,2025,2026
+students, 25.000, 30.000, 34.000, 39.000, 43.000
+gpu_years, 126.618, 117.996, 256.654, 297.126, 362.144
+gpu_mem_mean, 4.695, 5.187, 6.233, 6.909, 7.678
+gpu_mem_max, 13.030, 32.828, 53.517, 73.612, 93.855
+gpu_util_mean, 0.228, 0.214, 0.218, 0.210, 0.205
+gpu_cpu_years, 232.812, 251.958, 262.641, 278.967, 293.881
+gpu_cpu_mem_mean, 4.695, 5.187, 6.233, 6.909, 7.678
+gpu_cpu_mem_max, 43.816, 265.531, 178.983, 297.944, 365.528
+cpu_years, 19.069, 30.798, 92.459, 120.832, 157.527
+cpu_mem_mean, 1.603, 1.289, 3.263, 3.712, 4.542
+cpu_mem_max, 30.795, 28.373, 44.746, 48.589, 55.564

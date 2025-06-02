@@ -1,0 +1,3 @@
+Students supervised by kruegerd@mila.quebec: []
+[2;36m[06/02/25 14:17:36][0m[2;36m [0m[1;31mERROR   [0m Prof kruegerd@mila.quebec has no students in  ]8;id=819021;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=448551;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
+[2;36m                    [0m         SARC! Skipping.                               [2m                       [0m
