@@ -27,36 +27,15 @@ Compute usage in glen.berseth@mila.quebec's group:
 65              parnika.parnika@mila.quebec  2024  ...         1.359        2.379
 
 [5 rows x 12 columns]
-[2;36m[06/02/25 17:32:40][0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_years contain    ]8;id=283281;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=567575;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_mean contain ]8;id=737531;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=249475;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_max contain  ]8;id=407278;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=282533;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_util_mean        ]8;id=572176;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=584746;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_years        ]8;id=758209;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=606500;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_mean     ]8;id=736270;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=437421;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_max      ]8;id=552581;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=377368;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#924\[2m924[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
 Year,2022,2023,2024,2025,2026
 students, 2.000, 7.000, 11.000, 16.000, 20.000
-gpu_years, nan, nan, nan, nan, nan
-gpu_mem_mean, nan, nan, nan, nan, nan
-gpu_mem_max, nan, nan, nan, nan, nan
-gpu_util_mean, nan, nan, nan, nan, nan
-gpu_cpu_years, nan, nan, nan, nan, nan
-gpu_cpu_mem_mean, nan, nan, nan, nan, nan
-gpu_cpu_mem_max, nan, nan, nan, nan, nan
+gpu_years, 0.825, 118.437, 400.619, 16492.101, 363492.113
+gpu_mem_mean, 10.966, 12.426, 10.800, 11.202, 11.117
+gpu_mem_max, 19.873, 19.873, 34.074, 40.782, 53.400
+gpu_util_mean, 0.190, 0.190, 0.198, 0.201, 0.204
+gpu_cpu_years, 0.390, 20.920, 146.430, 3986.740, 77290.931
+gpu_cpu_mem_mean, 6.540, 5.585, 5.813, 5.303, 5.000
+gpu_cpu_mem_max, 14.866, 178.388, 52.423, 182.683, 343.058
 cpu_years, 0.000, 2.026, 10.770, 10674.538, 2863225.997
 cpu_mem_mean, 0.595, 12.857, 7.787, 51.134, 185.045
 cpu_mem_max, 0.595, 267.582, 267.582, 15713.208, 333327.480

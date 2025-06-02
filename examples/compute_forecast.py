@@ -153,7 +153,8 @@ _PROFS = [
     "gidelgau@mila.quebec",
     # Big drop with the fix for allocated.gres_gpu here, only darshan.patil goes from 31.9 to 9.9 in 2024.
     "glen.berseth@mila.quebec",
-    # TODO: Weird, getting all NaNs now for Glen's group usage...
+    # nans with Xavier's fix, but okay now. Very large growth rate for compute!
+    # gpu_years, 0.825, 118.437, 400.619, 16492.101, 363492.113
     "pierre-luc.bacon@mila.quebec",  # very large downward trend in usage!
     # Big drop in 2024 compared to 2022 and 2023.
     # Observations:
@@ -1199,14 +1200,14 @@ def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
     # )
 
     # If allocated.gres_gpu == 0 but requested.gres_gpu > 0, set it to requested.gres_gpu.
-    # allocated_gres_gpu = allocated_gres_gpu.mask(
-    #     (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
-    # )
-    # If allocated.gres_gpu < requested.gres_gpu, set it to requested.gres_gpu.
     allocated_gres_gpu = allocated_gres_gpu.mask(
-        allocated_gres_gpu < requested_gres_gpu,
-        requested_gres_gpu,
+        (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
     )
+    # If allocated.gres_gpu < requested.gres_gpu, set it to requested.gres_gpu.
+    # allocated_gres_gpu = allocated_gres_gpu.mask(
+    #     allocated_gres_gpu < requested_gres_gpu,
+    #     requested_gres_gpu,
+    # )
     return df.assign(
         **{
             # "requested.gres_gpu": requested_gres_gpu,
