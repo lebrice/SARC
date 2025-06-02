@@ -393,7 +393,7 @@ def main():
     for prof in profs:
         output_file = output_dir / f"{prof}.txt"
         with (
-            open(output_file, "w") as f,
+            open(output_file, "w" if redirect_output else "r") as f,
             (
                 contextlib.redirect_stdout(f)
                 if redirect_output
@@ -619,7 +619,7 @@ def get_group_usage(
     end: datetime = datetime(2025, 1, 1),
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
-    students = get_group_students(prof_email, start=start, end=end)
+    students = get_group_students(prof_email=prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
     if not students:
         logger.warning(f"No students found for {prof_email}. Returning zeros.")
@@ -651,18 +651,13 @@ def get_group_usage(
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
 
-    unknown_gpu = gpu_job_stats["allocated.gpu_type"] == "unknown"
-    assert not any(unknown_gpu), gpu_job_stats[unknown_gpu][
-        ["job_id", "cluster_name", "allocated.gres_gpu", "nodes"]
-    ]
-
+    _gpu_type = gpu_job_stats["allocated.gpu_type"]
+    assert not any(_gpu_type == "unknown")
+    assert not any(_gpu_type.isna())
     # Note: good to know: allocated.gres_gpu takes into account the "effective" # of gpus used.
     # For example, if you use all the CPUs on a node, you get billed for all the gpus.
-
-    assert not gpu_job_stats["allocated.gpu_type"].isna().any(), gpu_job_stats[
-        "allocated.gpu_type"
-    ].unique()
     assert (gpu_job_stats["allocated.gres_gpu"] >= 0).all()
+
     # Create two new columns for the CPU and GPU memory usage in gigabytes.
     gpu_job_stats = gpu_job_stats.assign(
         gpu_mem_gb=(
@@ -900,6 +895,7 @@ def _get_group_usage_projections(
         students=extrapolations["students"].round(),
         gpu_util_mean=extrapolations["gpu_util_mean"].clip(upper=1.0),
     )
+    extrapolations = extrapolations.astype({"students": int})
     return extrapolations
 
 
@@ -1121,8 +1117,6 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
 
     _fix_rgu_discrepencies_inplace(df)
 
-    df = _fix_requested_allocated_gres_gpu(df)
-
     # todo: double-check if this is still needed here.
     df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
 
@@ -1134,8 +1128,22 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     #     all_users_data_for_same_period = _get_cleaned_df(
     #         dataclasses.replace(options, user=[], user_file=None)
     #     )
+    df = _fix_requested_allocated_gres_gpu(df)
     df = _fill_missing_metrics_using_means(df)
+
     df = compute_cost_and_waste(df)
+    logger.info(
+        "Means of GPU cost: %s, waste: %s, equivalent cost: %s",
+        df["gpu_cost"].mean(),
+        df["gpu_waste"].mean(),
+        df["gpu_equivalent_cost"].mean(),
+    )
+    logger.info(
+        "Means of CPU cost: %s, waste: %s, equivalent cost: %s",
+        df["cpu_cost"].mean(),
+        df["cpu_waste"].mean(),
+        df["cpu_equivalent_cost"].mean(),
+    )
 
     # Sanity checks.
     assert (df["start_time"] != 0).all()
@@ -1181,8 +1189,8 @@ def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
     # )
 
     # If allocated.gres_gpu == 0 but requested.gres_gpu > 0, set it to requested.gres_gpu.
-    allocated_gres_gpu = allocated_gres_gpu.where(
-        (requested_gres_gpu > 0) & (allocated_gres_gpu == 0), requested_gres_gpu
+    allocated_gres_gpu = allocated_gres_gpu.mask(
+        (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
     )
     return df.assign(
         **{
@@ -1315,7 +1323,6 @@ def _fill_missing_metrics_using_means(
                 cluster_mean
                 if not np.isnan(cluster_mean)
                 else across_cluster_means[col]
-                # todo: else use across-users mean.
             )
             for col, cluster_mean in cluster_mean_stats.items()
         }
