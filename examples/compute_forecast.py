@@ -574,12 +574,12 @@ def _get_cache_file_name(
 
 
 _hard_coded_values: dict[str, list[str]] = {
-    "alex.hernandez-garcia@mila.quebec": [
-        "celine.roget@mila.quebec",
-        "dounia.shaaban-kabakibo@mila.quebec",
-        "hyeonah.kim@mila.quebec",
-        "om.patel@mila.quebec",
-    ]
+    # "alex.hernandez-garcia@mila.quebec": [
+    #     "celine.roget@mila.quebec",
+    #     "dounia.shaaban-kabakibo@mila.quebec",
+    #     "hyeonah.kim@mila.quebec",
+    #     "om.patel@mila.quebec",
+    # ]
 }
 
 
@@ -632,25 +632,27 @@ def get_group_usage(
     """Returns the total compute usage for a prof's group in the given period."""
     students = get_group_students(prof_email=prof_email, start=start, end=end)
     logger.info(f"{prof_email} has apparently {len(students)} students.")
+    years = list(range(start.year, end.year if end.year > start.year else end.year + 1))
+
+    empty_df = pd.DataFrame(
+        {
+            "year": years,
+            "students": np.zeros(len(years), dtype=int),
+            "gpu_years": np.zeros(len(years)),
+            "gpu_mem_mean": np.zeros(len(years)),
+            "gpu_mem_max": np.zeros(len(years)),
+            "gpu_util_mean": np.zeros(len(years)),
+            "gpu_cpu_years": np.zeros(len(years)),
+            "gpu_cpu_mem_mean": np.zeros(len(years)),
+            "gpu_cpu_mem_max": np.zeros(len(years)),
+            "cpu_years": np.zeros(len(years)),
+            "cpu_mem_mean": np.zeros(len(years)),
+            "cpu_mem_max": np.zeros(len(years)),
+        }
+    )
     if not students:
         logger.warning(f"No students found for {prof_email}. Returning zeros.")
-        years = list(range(start.year, end.year))
-        return pd.DataFrame(
-            {
-                "year": years,
-                "students": np.zeros(len(years)),
-                "gpu_years": np.zeros(len(years)),
-                "gpu_mem_mean": np.zeros(len(years)),
-                "gpu_mem_max": np.zeros(len(years)),
-                "gpu_util_mean": np.zeros(len(years)),
-                "gpu_cpu_years": np.zeros(len(years)),
-                "gpu_cpu_mem_mean": np.zeros(len(years)),
-                "gpu_cpu_mem_max": np.zeros(len(years)),
-                "cpu_years": np.zeros(len(years)),
-                "cpu_mem_mean": np.zeros(len(years)),
-                "cpu_mem_max": np.zeros(len(years)),
-            }
-        )
+        return empty_df
 
     options = Options(
         start=start.astimezone(MTL),
@@ -658,7 +660,11 @@ def get_group_usage(
         user=[s.mila.email for s in students],
     )
     sarc_data = cached(_get_cleaned_df)(options)
-    usage_stats = _get_stats(sarc_data, options, frame_size="YS")
+    if sarc_data.empty:
+        return empty_df
+    usage_stats = _get_stats(
+        sarc_data, options, frame_size="YS" if end.year > start.year else "MS"
+    )
     gpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] > 0]
     cpu_job_stats = usage_stats[usage_stats["requested.gres_gpu"] == 0]
 
@@ -696,7 +702,7 @@ def get_group_usage(
             cpu_job_stats["system_memory"] * (cpu_job_stats["allocated.mem"] // 1024)
         ),
     )
-    grouped_gpu_stats = gpu_job_stats.groupby(["timestamp"])
+    grouped_gpu_stats = gpu_job_stats.groupby(gpu_job_stats.timestamp.dt.year)
     gpu_sum_metrics_years = (
         grouped_gpu_stats[["rgu_equivalent_cost", "cpu_cost_per_gpu"]].sum()
         / seconds_in_a_year
@@ -706,22 +712,22 @@ def get_group_usage(
     ].mean()
     gpu_max_stats = grouped_gpu_stats[["gpu_mem_gb", "cpu_mem_gb_per_gpu"]].max()
 
-    grouped_cpu_stats = cpu_job_stats.groupby(["timestamp"])
+    grouped_cpu_stats = cpu_job_stats.groupby(cpu_job_stats.timestamp.dt.year)
     cpu_sum_metrics_years = (
         grouped_cpu_stats[["cpu_equivalent_cost"]].sum() / seconds_in_a_year
     )
     cpu_mean_stats = grouped_cpu_stats[["cpu_mem_gb"]].mean()
     cpu_max_stats = grouped_cpu_stats[["cpu_mem_gb"]].max()
 
-    n_students_per_year = usage_stats.groupby(["timestamp"])[
+    n_students_per_year = usage_stats.groupby(usage_stats.timestamp.dt.year)[
         "user.primary_email"
     ].nunique()
     logger.info(f"Number of students with slurm jobs per year: {n_students_per_year}")
 
-    years = sorted(usage_stats["timestamp"].dt.year.unique().astype(int))
+    years_in_data = sorted(usage_stats["timestamp"].dt.year.unique().astype(int))
 
     data = {
-        "year": years,
+        "year": years_in_data,
         "students": n_students_per_year,
         "gpu_years": gpu_sum_metrics_years["rgu_equivalent_cost"],
         "gpu_mem_mean": gpu_mean_stats["gpu_mem_gb"],
@@ -737,10 +743,9 @@ def get_group_usage(
     data = pd.DataFrame(data)
     data = data.astype({"year": int})
     data = data.set_index("year").sort_index()
-    data = data.reindex(range(start.year, end.year), fill_value=np.nan)
-    data = (
-        data.reset_index()
-    )  # don't actually want `year` as the index (sticking to Xavier's interface)
+    data = data.reindex(years, fill_value=np.nan)
+    # don't actually want `year` as the index (sticking to Xavier's interface)
+    data = data.reset_index()
     # Change the `year` column to have int dtype:
     return data
 
