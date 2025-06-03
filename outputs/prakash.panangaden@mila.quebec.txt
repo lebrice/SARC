@@ -1,40 +1,47 @@
-Students supervised by prakash.panangaden@mila.quebec: ['ARIELLA SMOFSKY', 'Clara Lacroce', 'Jonathan Colaco-Carr', 'Tyler Kastner']
+Students supervised by prakash.panangaden@mila.quebec: ['Clara Lacroce', 'ARIELLA SMOFSKY', 'Tyler Kastner', 'Joey Bose', 'Samuel Garcin', 'Clara Lacroce', 'ARIELLA SMOFSKY', 'Tyler Kastner', 'Jonathan Colaco-Carr']
 Compute usage in prakash.panangaden@mila.quebec's group:
-5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2024:
-                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-2  jonathan.colaco-carr@mila.quebec  2024      0.505  ...      1.050         9.176       18.432
-0              smofskya@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-1              lacrocec@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-3         tyler.kastner@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2022:
+                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+3       bosejoey@mila.quebec  2022      0.823        21.048  ...            7.638      0.000           NaN          NaN
+0       lacrocec@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+1       smofskya@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+2  tyler.kastner@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+4  samuel.garcin@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
 
-[4 rows x 12 columns]
-[2;36m[06/02/25 18:47:29][0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_years contain    ]8;id=391716;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=783029;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_mean contain ]8;id=911042;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=391224;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_mem_max contain  ]8;id=181594;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=592179;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_util_mean        ]8;id=574286;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=711493;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_years        ]8;id=624956;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=332005;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_mean     ]8;id=574081;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=538280;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for gpu_cpu_mem_max      ]8;id=550638;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=280971;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         contain inf or nan values. Using linear      [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_years contain    ]8;id=96291;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=119974;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_mem_mean contain ]8;id=423225;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=807422;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
-[2;36m                   [0m[2;36m [0m[33mWARNING [0m Extrapolated values for cpu_mem_max contain  ]8;id=793673;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=153587;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#934\[2m934[0m]8;;\
-[2;36m                    [0m         inf or nan values. Using linear              [2m                       [0m
-[2;36m                    [0m         extrapolation instead.                       [2m                       [0m
+[5 rows x 12 columns]
+5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2023:
+                         user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+13  samuel.garcin@mila.quebec  2023      7.551        26.706  ...           26.885      0.000         0.318        0.318
+12       bosejoey@mila.quebec  2023      0.100        23.894  ...           20.701      0.000         1.273        1.273
+9        lacrocec@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+10       smofskya@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+11  tyler.kastner@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2024:
+                                user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+22         samuel.garcin@mila.quebec  2024     35.509        20.958  ...           10.396      1.218         4.374        6.206
+21              bosejoey@mila.quebec  2024      7.205        20.609  ...           20.239      0.511         2.623        5.092
+26  jonathan.colaco-carr@mila.quebec  2024      0.505        24.742  ...           10.184      1.050         5.070       10.184
+18              lacrocec@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+19              smofskya@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+
+[5 rows x 12 columns]
+[33mWARNING [0m Extrapolated values for cpu_years contain inf or nan values. Using linear extrapolation    ]8;id=941055;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=825555;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
+         instead.                                                                                   [2m                       [0m
+[33mWARNING [0m Extrapolated values for cpu_mem_mean contain inf or nan values. Using linear extrapolation ]8;id=49834;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=119781;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
+         instead.                                                                                   [2m                       [0m
+[33mWARNING [0m Extrapolated values for cpu_mem_max contain inf or nan values. Using linear extrapolation  ]8;id=919213;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=62480;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
+         instead.                                                                                   [2m                       [0m
+Year,2022,2023,2024,2025,2026
+students, 1.000, 2.000, 3.000, 4.000, 5.000
+gpu_years, 0.823, 7.651, 43.219, 340.354, 2466.690
+gpu_mem_mean, 21.048, 26.651, 21.017, 22.726, 22.709
+gpu_mem_max, 21.250, 35.417, 35.417, 49.786, 64.273
+gpu_util_mean, 0.749, 0.749, 0.749, 0.749, 0.749
+gpu_cpu_years, 1.809, 16.354, 70.698, 499.869, 3125.264
+gpu_cpu_mem_mean, 4.764, 5.103, 5.100, 5.338, 5.524
+gpu_cpu_mem_max, 7.638, 26.885, 20.239, 42.601, 69.345
+cpu_years, nan, 0.000, 2.778, nan, nan
+cpu_mem_mean, nan, 1.082, 4.122, nan, nan
+cpu_mem_max, nan, 1.273, 10.184, nan, nan

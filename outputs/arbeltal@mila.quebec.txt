@@ -1,30 +1,30 @@
-Students supervised by arbeltal@mila.quebec: ['Amar Kumar', 'Anita Kriz', 'Anjun Hu', 'Armin Saadat', 'Berardino Barile', 'Changjian Shui', 'Changjiian Shui', 'Cheng Chen', 'Elizabeth Janes', 'Emily Kaczmarek', 'Eric Zimmermann', 'Ethan Honey', 'Gian Favero', 'Hujun Ni', 'Joshua Durso-Finley', 'Julian Huster', 'Julien Schroeter', 'Justin Szeto', 'Marvin Li', 'Michelle Levy', 'Mohamed Mohamed', 'Mona Wang', 'Nazanin Sepahvand', 'Nima Fathi', 'Omri Bar', 'Parham Saremi', 'Ritchie Yu', 'Samer Abdulkarim', 'Shervin Khalafi', 'Simon Younaki', 'Xing Shen', 'Zahra TehraniNasab']
+Students supervised by arbeltal@mila.quebec: ['Eric Zimmermann', 'Marvin Li', 'Julian Huster', 'Shervin Khalafi', 'Mohamed Mohamed', 'Justin Szeto', 'Anjun Hu', 'Ritchie Yu', 'Armin Saadat', 'Changjian Shui', 'Anita Kriz', 'Nima Fathi', 'Julien Schroeter', 'Berardino Barile', 'Omri Bar', 'Changjiian Shui', 'Joshua Durso-Finley', 'Xing Shen', 'Amar Kumar', 'Cheng Chen', 'Zahra TehraniNasab', 'Emily Kaczmarek', 'Gian Favero', 'Eric Zimmermann', 'Marvin Li', 'Julian Huster', 'Shervin Khalafi', 'Justin Szeto', 'Anjun Hu', 'Ritchie Yu', 'Armin Saadat', 'Changjian Shui', 'Julien Schroeter', 'Omri Bar', 'Changjiian Shui', 'Amar Kumar', 'Cheng Chen', 'Nazanin Sepahvand', 'Parham Saremi', 'Elizabeth Janes', 'Ethan Honey', 'Mona Wang', 'Ritchie Yu', 'Mona Wang', 'Ethan Honey']
 Compute usage in arbeltal@mila.quebec's group:
 5 students that used the most compute in arbeltal@mila.quebec's group in 2022:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-22      sepahvan@mila.quebec  2022      0.786  ...      0.000         0.735        2.939
-0       kumarama@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-1     anita.kriz@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-2       anjun.hu@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-3   armin.saadat@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+                           user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+37         sepahvan@mila.quebec  2022      0.786         6.814  ...            5.878      0.000         0.735        2.939
+0          zimmerme@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+1         marvin.li@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+2     julian.huster@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+3   shervin.khalafi@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in arbeltal@mila.quebec's group in 2023:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-54      sepahvan@mila.quebec  2023     19.150  ...      0.000         2.880        2.939
-32      kumarama@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
-33    anita.kriz@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
-34      anjun.hu@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
-35  armin.saadat@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+                           user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+82         sepahvan@mila.quebec  2023     19.150        10.624  ...           67.109      0.000         2.880        2.939
+45         zimmerme@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+46        marvin.li@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+47    julian.huster@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+48  shervin.khalafi@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in arbeltal@mila.quebec's group in 2024:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-86      sepahvan@mila.quebec  2024     12.467  ...      0.441         2.021       23.514
-64      kumarama@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-65    anita.kriz@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-66      anjun.hu@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-67  armin.saadat@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+                            user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+127         sepahvan@mila.quebec  2024     12.467         8.523  ...           66.783      0.441         2.021       23.514
+90          zimmerme@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+91         marvin.li@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+92     julian.huster@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+93   shervin.khalafi@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

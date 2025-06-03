@@ -1,41 +1,41 @@
-Students supervised by blake.richards@mila.quebec: ['Adel Halawa', 'Adrien Peyrache', 'Aidan Sirbu', 'Aleksei Efremov', 'Alexis Roger', 'Ali SahebPasand', 'Alissia DiMaria', 'Aliya Affdal', 'Antoine Boudreau-LeBlanc', 'Arna Ghosh', 'Augustine Mavor-Parker', 'Benjamin Alsbury-Nealy', 'Charlize Linthorne', 'Christian Schiffer', 'Clara Kumpel', 'Colin Bredenberg', 'Dane Malenfant', 'Daniel Levenstein', 'Divyansha Lachi', 'Dong-Yeop Han', 'Dongyan Lin', 'Emily Tam', 'Erica Cianfarano', 'Ethan Caballero', 'Etienne Barou-Laforie', 'Hee-Hwan Wang', 'Henry Denny', 'J.Quinn Lee', 'Jiayue Zheng', 'Jonathan Cornford', 'Joshua Tindall', 'Le-Thuy-Duong Nguyen', 'Mandana Samiei', 'Maren Wehrheim', 'Mashbayar Tugsbayar', 'Mingze Li', 'Mohammad Yaghoubi', 'Pingsheng Li', 'Raymond Chua', 'Roman Pogodin', 'Roy Eyono', 'Sangyoon Bae', 'Santiago Jaramillo', 'Seven Kelly', 'Shahab Bakhtiari', 'Sonia Joseph', 'Toky Raharison-Ralambomihanta', 'Vemund Schoyen', 'Xuejing Pan', 'Yiran Wang', 'Yuhe Fan', 'Zixiang Huang', 'Zixuan Li']
+Students supervised by blake.richards@mila.quebec: ['Henry Denny', 'Morteza Mahdiani', 'Pingsheng Li', 'Zixiang Huang', 'Roy Eyono', 'Ethan Caballero', 'Shahab Bakhtiari', 'Roman Pogodin', 'Daniel Levenstein', 'Xuejing Pan', 'Jonathan Cornford', 'Charlize Linthorne', 'Mingze Li', 'Dongyan Lin', 'Yiran Wang', 'Surya Penmetsa', 'Jiayue Zheng', 'Joshua Tindall', 'Arna Ghosh', 'Dane Malenfant', 'Christian Schiffer', 'Sonia Joseph', 'Seven Kelly', 'Aleksei Efremov', 'Emily Tam', 'Yuhe Fan', 'Mashbayar Tugsbayar', 'Vemund Schoyen', 'Adrien Peyrache', 'Erica Cianfarano', 'Etienne Barou-Laforie', 'Alissia DiMaria', 'Henry Denny', 'Morteza Mahdiani', 'Pingsheng Li', 'Shahab Bakhtiari', 'Mohammad Yaghoubi', 'Roman Pogodin', 'Charlize Linthorne', 'Mingze Li', 'J.Quinn Lee', 'Yiran Wang', 'Jiayue Zheng', 'Christian Schiffer', 'Seven Kelly', 'Mandana Samiei', 'Colin Bredenberg', 'Emily Tam', 'Raymond Chua', 'Yuhe Fan', 'Augustine Mavor-Parker', 'Divyansha Lachi', 'Santiago Jaramillo', 'Aidan Sirbu', 'Maren Wehrheim', 'Toky Raharison-Ralambomihanta', 'Le-Thuy-Duong Nguyen', 'Alexis Roger', 'Dong-Yeop Han', 'Sangyoon Bae', 'Ali SahebPasand', 'Antoine Boudreau-LeBlanc', 'Clara Kumpel', 'Zixuan Li', 'J.Quinn Lee', 'Santiago Jaramillo', 'Sangyoon Bae']
 Compute usage in blake.richards@mila.quebec's group:
 5 students that used the most compute in blake.richards@mila.quebec's group in 2022:
-                             user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-37       pingsheng.li@mila.quebec  2022     22.654  ...      0.000         0.383        0.383
-23    ethan.caballero@mila.quebec  2022     10.728  ...      0.000           NaN          NaN
-17  daniel.levenstein@mila.quebec  2022      9.796  ...      0.000           NaN          NaN
-20           lindongy@mila.quebec  2022      9.726  ...      0.000           NaN          NaN
-51      zixiang.huang@mila.quebec  2022      3.327  ...      0.000         0.383        0.383
+                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+2        pingsheng.li@mila.quebec  2022     22.654         4.311  ...            4.598      0.000         0.383        0.383
+34       pingsheng.li@mila.quebec  2022     22.654         4.311  ...            4.598      0.000         0.383        0.383
+5     ethan.caballero@mila.quebec  2022     10.728         2.130  ...            6.936      0.000           NaN          NaN
+8   daniel.levenstein@mila.quebec  2022      9.796         4.229  ...            4.407      0.000           NaN          NaN
+13           lindongy@mila.quebec  2022      9.726         6.593  ...           12.262      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in blake.richards@mila.quebec's group in 2023:
-                              user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-73            lindongy@mila.quebec  2023     69.595  ...    118.981        32.037       43.443
-70   daniel.levenstein@mila.quebec  2023     62.962  ...      0.000           NaN          NaN
-104      zixiang.huang@mila.quebec  2023     38.846  ...      0.054         2.224        4.596
-91            chuaraym@mila.quebec  2023     22.208  ...      0.000           NaN          NaN
-98        sonia.joseph@mila.quebec  2023      6.970  ...      1.423         1.329        9.192
+                              user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+80            lindongy@mila.quebec  2023     69.595         6.326  ...           52.429    118.981        32.042       43.443
+75   daniel.levenstein@mila.quebec  2023     62.962         6.428  ...           24.117      0.000           NaN          NaN
+70       zixiang.huang@mila.quebec  2023     38.846         6.357  ...           50.332      0.054         2.225        4.598
+115           chuaraym@mila.quebec  2023     22.208         1.381  ...           23.170      0.000           NaN          NaN
+88        sonia.joseph@mila.quebec  2023      6.970         5.498  ...          132.624      1.423         1.330        9.196
 
 [5 rows x 12 columns]
 5 students that used the most compute in blake.richards@mila.quebec's group in 2024:
                                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-144                chuaraym@mila.quebec  2024     70.250  ...      0.008         0.724        0.724
-126                lindongy@mila.quebec  2024     33.267  ...     55.009        25.697       26.001
-146               roy.eyono@mila.quebec  2024     11.263  ...      0.000           NaN          NaN
-116  augustine.mavor-parker@mila.quebec  2024     10.919  ...      0.029         1.721       12.256
-122          dane.malenfant@mila.quebec  2024     10.119  ...      3.186         2.308        7.660
+182                chuaraym@mila.quebec  2024     70.250  ...      0.008         0.724        0.724
+147                lindongy@mila.quebec  2024     33.267  ...     55.009        25.705       26.010
+138               roy.eyono@mila.quebec  2024     11.263  ...      0.000           NaN          NaN
+184  augustine.mavor-parker@mila.quebec  2024     10.919  ...      0.029         1.722       12.262
+153          dane.malenfant@mila.quebec  2024     10.119  ...      3.186         2.309        7.664
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 18.000, 24.000, 22.000, 25.000, 27.000
-gpu_years, 68.311, 239.373, 194.126, 417.648, 704.057
-gpu_mem_mean, 3.715, 5.091, 4.429, 5.217, 5.696
-gpu_mem_max, 7.930, 7.930, 33.574, 54.313, 111.751
+students, 18.000, 25.000, 22.000, 26.000, 28.000
+gpu_years, 68.311, 239.452, 194.126, 417.694, 704.134
+gpu_mem_mean, 3.713, 5.088, 4.427, 5.214, 5.693
+gpu_mem_max, 7.927, 7.927, 33.574, 54.321, 111.794
 gpu_util_mean, 0.130, 0.130, 0.130, 0.130, 0.130
-gpu_cpu_years, 85.029, 248.201, 112.694, 176.912, 203.668
-gpu_cpu_mem_mean, 2.260, 4.816, 4.187, 6.618, 9.009
-gpu_cpu_mem_max, 12.256, 132.624, 130.031, 631.984, 2058.529
-cpu_years, 0.468, 121.834, 75.734, 2635.200, 33522.517
-cpu_mem_mean, 12.049, 3.702, 6.011, 3.217, 2.272
-cpu_mem_max, 50.791, 73.535, 26.001, 23.530, 16.836
+gpu_cpu_years, 85.029, 248.297, 112.694, 176.935, 203.694
+gpu_cpu_mem_mean, 2.260, 4.817, 4.188, 6.620, 9.011
+gpu_cpu_mem_max, 12.262, 132.624, 130.031, 631.775, 2057.340
+cpu_years, 0.468, 121.838, 75.734, 2635.233, 33522.942
+cpu_mem_mean, 12.051, 3.702, 6.013, 3.218, 2.273
+cpu_mem_max, 50.791, 73.572, 26.010, 23.544, 16.848

@@ -1,41 +1,41 @@
-Students supervised by cheungja@mila.quebec: ['Abdelmomen BenNasr', 'Aishik Chakraborty', 'Akshatha Arodi Nagaraja', 'Andre Cianflone', 'Antoine Dangeard', 'Aylin Erman', 'Bonaventure Dossou', 'Caleb Moses', 'Cesare Spinoso', 'David Austin', 'Frederic Beaupre', 'Ian Porada', 'Ines Arous', 'Jad Kabbara', 'Jules Gagnon-Marchand', 'Konstantinos Tsiolis', 'Kushal Arora', 'Lorenzo Flores', 'Martin Pomsl', 'Maxime Darrin', 'Meng Cao', 'Michael Runningwolf', 'Muawiz Chaudhary', 'Nadhem Benhadjali', 'Nathan Zeweniuk', 'Nirav Diwan', 'Ori Ernst', 'Rahul Aralikatte', 'Sabina Elkins', 'Sienna Hsu', 'Sihui Wei', 'Sina Salmannia', 'Steven Koniaev', 'Xiyuan Zou', 'Yu Bai', 'Yu Lu Liu', 'Ziling Cheng']
+Students supervised by cheungja@mila.quebec: ['Kushal Arora', 'Rahul Aralikatte', 'Ziling Cheng', 'Ian Porada', 'Zixuan Li', 'Caleb Moses', 'Andre Cianflone', 'Michael Runningwolf', 'Konstantinos Tsiolis', 'Cesare Spinoso', 'Meng Cao', 'Maxime Darrin', 'Martin Pomsl', 'Ines Arous', 'Aylin Erman', 'Aishik Chakraborty', 'Yu Lu Liu', 'Yu Bai', 'Muawiz Chaudhary', 'Jules Gagnon-Marchand', 'Akshatha Arodi Nagaraja', 'Frederic Beaupre', 'Xiyuan Zou', 'Sabina Elkins', 'Nirav Diwan', 'Jad Kabbara', 'Konstantinos Tsiolis', 'Bonaventure Dossou', 'Muawiz Chaudhary', 'Frederic Beaupre', 'Sabina Elkins', 'Nirav Diwan', 'Jad Kabbara', 'Antoine Dangeard', 'Haowei Qiu', 'Nathan Zeweniuk', 'Ori Ernst', 'Steven Koniaev', 'Sienna Hsu', 'Sina Salmannia', 'David Austin', 'Lorenzo Flores', 'Antoine Dangeard', 'Nathan Zeweniuk', 'Steven Koniaev', 'Lorenzo Flores']
 Compute usage in cheungja@mila.quebec's group:
 5 students that used the most compute in cheungja@mila.quebec's group in 2022:
                                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-14                 gagnonju@mila.quebec  2022     20.905  ...      0.000           NaN          NaN
-2   akshatha.arodi-nagaraja@mila.quebec  2022      8.913  ...      0.142         1.000        7.783
-20                  caomeng@mila.quebec  2022      8.230  ...      0.000           NaN          NaN
-22         muawiz.chaudhary@mila.quebec  2022      3.819  ...      0.000         4.607        4.865
-36             ziling.cheng@mila.quebec  2022      2.872  ...      0.264        11.866       39.889
+19                 gagnonju@mila.quebec  2022     20.905  ...      0.000           NaN          NaN
+20  akshatha.arodi-nagaraja@mila.quebec  2022      8.913  ...      0.142         1.042        8.109
+10                  caomeng@mila.quebec  2022      8.230  ...      0.000           NaN          NaN
+18         muawiz.chaudhary@mila.quebec  2022      3.819  ...      0.000         4.800        5.068
+28         muawiz.chaudhary@mila.quebec  2022      3.819  ...      0.000         4.800        5.068
 
 [5 rows x 12 columns]
 5 students that used the most compute in cheungja@mila.quebec's group in 2023:
-                              user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-51            gagnonju@mila.quebec  2023     28.336  ...      0.686         2.926       62.266
-57             caomeng@mila.quebec  2023     12.651  ...      0.000           NaN          NaN
-43  bonaventure.dossou@mila.quebec  2023      6.919  ...      0.000           NaN          NaN
-73        ziling.cheng@mila.quebec  2023      6.571  ...      0.516         7.302       70.632
-71              yu.bai@mila.quebec  2023      5.468  ...      0.315         1.715        5.837
+                              user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+65            gagnonju@mila.quebec  2023     28.336        12.555  ...           46.740      0.686         3.048       64.870
+56             caomeng@mila.quebec  2023     12.651        16.268  ...           60.464      0.000           NaN          NaN
+73  bonaventure.dossou@mila.quebec  2023      6.919        17.275  ...           25.166      0.000           NaN          NaN
+48        ziling.cheng@mila.quebec  2023      6.571        11.725  ...           25.166      0.516         7.562       70.632
+50           zixuan.li@mila.quebec  2023      5.535        17.016  ...           50.332      0.024         0.507        0.507
 
 [5 rows x 12 columns]
 5 students that used the most compute in cheungja@mila.quebec's group in 2024:
-                               user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-80   bonaventure.dossou@mila.quebec  2024     11.746  ...      0.000           NaN          NaN
-96     muawiz.chaudhary@mila.quebec  2024     10.653  ...      0.008         7.702       23.593
-94              caomeng@mila.quebec  2024      5.124  ...      0.000           NaN          NaN
-88             gagnonju@mila.quebec  2024      4.095  ...      0.094         2.189        9.729
-108              yu.bai@mila.quebec  2024      3.701  ...      0.205         1.948        5.837
+                               user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+119  bonaventure.dossou@mila.quebec  2024     11.746        14.797  ...           13.244      0.000           NaN          NaN
+110    muawiz.chaudhary@mila.quebec  2024     10.653        19.001  ...           23.684      0.008         8.024       24.580
+120    muawiz.chaudhary@mila.quebec  2024     10.653        19.001  ...           23.684      0.008         8.024       24.580
+102             caomeng@mila.quebec  2024      5.124        18.252  ...           16.266      0.000           NaN          NaN
+96            zixuan.li@mila.quebec  2024      5.031        15.803  ...           62.915      0.016         2.365       12.163
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 16.000, 19.000, 19.000, 21.000, 23.000
-gpu_years, 55.067, 75.387, 46.992, 49.492, 45.719
-gpu_mem_mean, 10.832, 12.988, 17.443, 21.721, 27.564
-gpu_mem_max, 19.238, 19.238, 28.666, 32.742, 39.967
-gpu_util_mean, 0.437, 0.438, 0.438, 0.439, 0.440
-gpu_cpu_years, 31.479, 26.208, 21.070, 17.338, 14.185
-gpu_cpu_mem_mean, 5.503, 5.477, 5.713, 5.775, 5.884
-gpu_cpu_mem_max, 19.251, 67.109, 50.332, 105.135, 169.997
-cpu_years, 1.281, 2.142, 1.044, 1.157, 1.044
-cpu_mem_mean, 8.452, 3.157, 2.826, 1.413, 0.817
-cpu_mem_max, 97.291, 70.632, 72.968, 59.584, 51.601
+students, 16.000, 20.000, 21.000, 24.000, 26.000
+gpu_years, 55.067, 80.922, 54.018, 61.022, 60.438
+gpu_mem_mean, 10.754, 13.071, 17.059, 21.232, 26.742
+gpu_mem_max, 19.100, 19.100, 28.666, 32.821, 40.208
+gpu_util_mean, 0.438, 0.439, 0.439, 0.440, 0.441
+gpu_cpu_years, 31.479, 27.368, 23.615, 20.480, 17.738
+gpu_cpu_mem_mean, 5.729, 5.803, 6.249, 6.459, 6.746
+gpu_cpu_mem_max, 19.251, 67.109, 62.915, 141.566, 255.923
+cpu_years, 1.281, 2.166, 1.059, 1.185, 1.077
+cpu_mem_mean, 8.801, 3.266, 2.934, 1.462, 0.844
+cpu_mem_max, 101.360, 70.632, 76.020, 61.234, 53.030

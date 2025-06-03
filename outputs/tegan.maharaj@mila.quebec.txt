@@ -1,3 +1,2 @@
 Students supervised by tegan.maharaj@mila.quebec: []
-[2;36m[06/02/25 14:50:27][0m[2;36m [0m[1;31mERROR   [0m Prof tegan.maharaj@mila.quebec has no students in  ]8;id=705826;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=518003;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#410\[2m410[0m]8;;\
-[2;36m                    [0m         SARC! Skipping.                                    [2m                       [0m
+[1;31mERROR   [0m Prof tegan.maharaj@mila.quebec has no students in SARC! Skipping.                          ]8;id=610412;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=201987;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#422\[2m422[0m]8;;\

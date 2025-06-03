@@ -1,41 +1,41 @@
-Students supervised by dhanya.sridhar@mila.quebec: ['Andrea Dittadi', 'Cristian Dragos Manta', 'Joshi Shruti', 'Maitreyi Swaroop', 'Navita Goyal', 'Philippe Brouillard', 'Skylar Gu', 'Sophia Gunluk', 'Tom Marty']
+Students supervised by dhanya.sridhar@mila.quebec: ['Navita Goyal', 'Maitreyi Swaroop', 'Sophia Gunluk', 'Tejas Vaidhya', 'Tom Marty', 'Philippe Brouillard', 'Joshi Shruti', 'Andrea Dittadi', 'Cristian Dragos Manta']
 Compute usage in dhanya.sridhar@mila.quebec's group:
 5 students that used the most compute in dhanya.sridhar@mila.quebec's group in 2022:
-                                user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-1  cristian-dragos.manta@mila.quebec  2022      0.578  ...      0.004         1.135        3.535
-2           joshi.shruti@mila.quebec  2022      0.004  ...      0.013         1.172        1.415
-0         andrea.dittadi@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-3       maitreyi.swaroop@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-4           navita.goyal@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+                                user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+3          tejas.vaidhya@mila.quebec  2022      1.203         6.628  ...            4.063      1.031         4.469       14.626
+8  cristian-dragos.manta@mila.quebec  2022      0.578         9.969  ...            3.900      0.004         1.252        3.900
+6           joshi.shruti@mila.quebec  2022      0.004         2.597  ...            5.879      0.013         1.184        1.415
+0           navita.goyal@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+1       maitreyi.swaroop@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in dhanya.sridhar@mila.quebec's group in 2023:
                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-10  cristian-dragos.manta@mila.quebec  2023      5.398  ...      0.168         1.004        5.303
-11           joshi.shruti@mila.quebec  2023      0.073  ...      0.009         0.064        1.415
-14               brouilph@mila.quebec  2023      0.039  ...      6.415         1.326        1.326
-9          andrea.dittadi@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
-12       maitreyi.swaroop@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
+12          tejas.vaidhya@mila.quebec  2023      7.515  ...      0.336         7.904       15.845
+17  cristian-dragos.manta@mila.quebec  2023      5.398  ...      0.168         1.108        5.851
+15           joshi.shruti@mila.quebec  2023      0.073  ...      0.009         0.064        1.415
+14               brouilph@mila.quebec  2023      0.039  ...      6.415         1.463        1.463
+9            navita.goyal@mila.quebec  2023      0.000  ...      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in dhanya.sridhar@mila.quebec's group in 2024:
                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-26              tom.marty@mila.quebec  2024      5.964  ...      0.061         1.665        3.535
-19  cristian-dragos.manta@mila.quebec  2024      1.445  ...      0.031         1.229        1.768
-20           joshi.shruti@mila.quebec  2024      0.403  ...      0.007         2.516       11.048
-18         andrea.dittadi@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
-21       maitreyi.swaroop@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
+22              tom.marty@mila.quebec  2024      5.964  ...      0.061         1.837        3.900
+26  cristian-dragos.manta@mila.quebec  2024      1.445  ...      0.031         1.356        1.950
+21          tejas.vaidhya@mila.quebec  2024      1.419  ...      1.005        24.292      111.161
+24           joshi.shruti@mila.quebec  2024      0.403  ...      0.007         2.775       12.189
+18           navita.goyal@mila.quebec  2024      0.000  ...      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 3.000, 3.000, 3.000, 3.000, 3.000
-gpu_years, 0.582, 5.511, 7.812, 39.256, 143.770
-gpu_mem_mean, 9.306, 9.108, 8.006, 7.560, 7.012
-gpu_mem_max, 13.526, 13.526, 51.138, 79.667, 154.908
-gpu_util_mean, 0.334, 0.334, 0.338, 0.339, 0.342
-gpu_cpu_years, 0.313, 3.180, 5.430, 30.447, 126.814
-gpu_cpu_mem_mean, 2.387, 4.495, 3.483, 4.879, 5.894
-gpu_cpu_mem_max, 5.334, 58.003, 11.048, 31.199, 44.901
-cpu_years, 0.019, 6.592, 0.098, 1.208, 2.768
-cpu_mem_mean, 1.331, 1.323, 1.701, 1.842, 2.082
-cpu_mem_max, 11.048, 5.303, 11.048, 8.650, 8.650
+students, 4.000, 4.000, 4.000, 4.000, 4.000
+gpu_years, 1.786, 13.026, 9.231, 30.955, 70.379
+gpu_mem_mean, 8.557, 9.486, 8.337, 8.554, 8.443
+gpu_mem_max, 13.856, 13.856, 51.138, 79.028, 151.823
+gpu_util_mean, 0.333, 0.333, 0.337, 0.338, 0.340
+gpu_cpu_years, 1.661, 5.814, 5.818, 13.413, 25.099
+gpu_cpu_mem_mean, 2.329, 4.948, 3.893, 5.941, 7.681
+gpu_cpu_mem_max, 5.879, 58.003, 42.237, 174.800, 468.531
+cpu_years, 1.050, 6.928, 1.103, 2.105, 2.158
+cpu_mem_mean, 2.072, 1.479, 5.248, 6.392, 10.173
+cpu_mem_max, 14.626, 15.845, 111.161, 224.463, 618.801

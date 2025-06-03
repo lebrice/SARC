@@ -1,30 +1,30 @@
-Students supervised by bzdokdan@mila.quebec: ['Anny Maza', 'Anwesha Bhattacharya', 'Badr AitHammou', 'Celesrte vanDokkum', 'Chloé Savignac', 'David Payette', 'Enning Yang', 'Gregory Bell', 'Jack Stanley', 'Justin Marotta', 'Karam Ghanem', 'Karan Bali', 'Karin Saltoun', 'Kimia Shafighi', 'Le Zhou', 'Liam Hodgson', 'Nicole Osayande', 'Pedro Carneiro', 'Praneet Suresh', 'Ryan McPhedrain', 'Sepehr Radmannia', 'Shambhavi Aggarwal', 'Vaibhav Sharma', 'Zachary Loewenstein', 'jakub Kopal']
+Students supervised by bzdokdan@mila.quebec: ['Gregory Bell', 'Kimia Shafighi', 'Nicole Osayande', 'Zilong Wang', 'Karam Ghanem', 'Anwesha Bhattacharya', 'Karin Saltoun', 'Liam Hodgson', 'Jack Stanley', 'jakub Kopal', 'Shambhavi Aggarwal', 'Chloé Savignac', 'Zachary Loewenstein', 'Justin Marotta', 'Le Zhou', 'Enning Yang', 'Vaibhav Sharma', 'Zachary Loewenstein', 'Anny Maza', 'Enning Yang', 'Vaibhav Sharma', 'Badr AitHammou', 'Karam Ghanem', 'David Payette', 'Ryan McPhedrain', 'Praneet Suresh', 'Nicole Osayande', 'Sepehr Radmannia', 'Anny Maza']
 Compute usage in bzdokdan@mila.quebec's group:
 5 students that used the most compute in bzdokdan@mila.quebec's group in 2022:
-                          user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-22  vaibhav.sharma@mila.quebec  2022      0.277  ...      0.000           NaN          NaN
-8     jack.stanley@mila.quebec  2022      0.019  ...      0.000         4.145       16.045
-10    karam.ghanem@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
-15    liam.hodgson@mila.quebec  2022      0.000  ...      0.000         9.785       10.697
-0        anny.maza@mila.quebec  2022      0.000  ...      0.000           NaN          NaN
+                          user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+16  vaibhav.sharma@mila.quebec  2022      0.277        11.110  ...           20.725      0.000           NaN          NaN
+20  vaibhav.sharma@mila.quebec  2022      0.277        11.110  ...           20.725      0.000           NaN          NaN
+8     jack.stanley@mila.quebec  2022      0.019        10.884  ...           20.056      0.000         4.145       16.045
+4     karam.ghanem@mila.quebec  2022      0.000        12.559  ...            3.343      0.000           NaN          NaN
+22    karam.ghanem@mila.quebec  2022      0.000        12.559  ...            3.343      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in bzdokdan@mila.quebec's group in 2023:
-                          user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-40    liam.hodgson@mila.quebec  2023      3.562  ...      3.104        17.515       85.573
-35    karam.ghanem@mila.quebec  2023      2.874  ...      0.137         0.688        5.348
-38  kimia.shafighi@mila.quebec  2023      1.336  ...      0.000         1.671        1.671
-33    jack.stanley@mila.quebec  2023      0.166  ...      0.006         2.072        3.677
-43  praneet.suresh@mila.quebec  2023      0.041  ...      0.000           NaN          NaN
+                          user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+36    liam.hodgson@mila.quebec  2023      3.562        14.395  ...           62.231      3.104        17.515       85.573
+33    karam.ghanem@mila.quebec  2023      2.874        13.137  ...           21.858      0.137         0.688        5.348
+51    karam.ghanem@mila.quebec  2023      2.874        13.137  ...           21.858      0.137         0.688        5.348
+30  kimia.shafighi@mila.quebec  2023      1.336        13.964  ...           52.042      0.000         1.671        1.671
+37    jack.stanley@mila.quebec  2023      0.166        11.861  ...           24.117      0.006         2.072        3.677
 
 [5 rows x 12 columns]
 5 students that used the most compute in bzdokdan@mila.quebec's group in 2024:
-                          user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-65    liam.hodgson@mila.quebec  2024     12.904  ...      7.515        31.295      233.988
-52  badr.aithammou@mila.quebec  2024     11.381  ...     27.324        94.150      434.549
-58    jack.stanley@mila.quebec  2024      5.385  ...      0.072         4.862       16.045
-68  praneet.suresh@mila.quebec  2024      1.632  ...      0.000         2.674        2.674
-63  kimia.shafighi@mila.quebec  2024      0.167  ...      0.000           NaN          NaN
+                          user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+65    liam.hodgson@mila.quebec  2024     12.904        11.581  ...           64.779      7.515        31.295      233.988
+79  badr.aithammou@mila.quebec  2024     11.381        15.680  ...           20.892     27.324        94.150      434.549
+66    jack.stanley@mila.quebec  2024      5.385        12.945  ...           20.056      0.072         4.862       16.045
+83  praneet.suresh@mila.quebec  2024      1.632        11.205  ...           10.697      0.000         2.674        2.674
+59  kimia.shafighi@mila.quebec  2024      0.167        11.391  ...           11.534      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

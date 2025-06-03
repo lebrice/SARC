@@ -1,41 +1,41 @@
-Students supervised by tangjian@mila.quebec: ['Andreea-Ioana Deac', 'Arian Jamasb', 'Chence Shi', 'Fang Sun', 'Felix Drost', 'Huiyu Cai', 'Jianan Zhao', 'Jiarui Lu', 'Meng Qu', 'Mikhail Galkin', 'Minghao Xu', 'Nicole Duane', 'Shaoning Li', 'Shentong Mo', 'Sophie Xhonneux', 'Stephen Lu', 'Walter Virany', 'Xinyu Yuan', 'Zhaocheng Zhu', 'Zhihao Zhan', 'Zuobai Zhang']
+Students supervised by tangjian@mila.quebec: ['Xinyu Yuan', 'Ryan-Rhys Griffiths', 'Jiarui Lu', 'Chence Shi', 'Fang Sun', 'Wentao Zhang', 'Mikhail Galkin', 'Jianan Zhao', 'Zuobai Zhang', 'Felix Drost', 'Meng Qu', 'Andreea-Ioana Deac', 'Yangtian Zhang', 'Bozitao Zhong', 'Arian Jamasb', 'Zhaocheng Zhu', 'Shengchao Liu', 'Huiyu Cai', 'Minghao Xu', 'Chuanrui Wang', 'Zhihao Zhan', 'Sophie Xhonneux', 'Shaoning Li', 'Zewen Chi', 'Fang Sun', 'Felix Drost', 'Arian Jamasb', 'Shaoning Li', 'Nicole Duane', 'Stephen Lu', 'Walter Virany', 'Nicole Duane', 'Walter Virany', 'Stephen Lu']
 Compute usage in tangjian@mila.quebec's group:
 5 students that used the most compute in tangjian@mila.quebec's group in 2022:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-20  zuobai.zhang@mila.quebec  2022     36.743  ...      1.751        76.108       78.381
-7      jiarui.lu@mila.quebec  2022      7.008  ...     60.709        49.800       80.585
-18      zhuzhaoc@mila.quebec  2022      3.933  ...      0.000           NaN          NaN
-8         qumeng@mila.quebec  2022      3.544  ...    100.197        42.582       67.993
-0       deacandr@mila.quebec  2022      3.454  ...      0.002        10.073       10.073
+                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+16      liusheng@mila.quebec  2022     51.951         8.665  ...           19.011      0.067        17.503       17.503
+8   zuobai.zhang@mila.quebec  2022     36.743        11.248  ...           29.705      1.751        57.456       59.172
+5   wentao.zhang@mila.quebec  2022     13.697        12.235  ...           23.348      0.009         0.671        2.918
+2      jiarui.lu@mila.quebec  2022      7.008         7.359  ...           22.813     60.709        37.840       60.835
+15      zhuzhaoc@mila.quebec  2022      3.933         9.932  ...           29.586      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in tangjian@mila.quebec's group in 2023:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-38    xinyu.yuan@mila.quebec  2023     23.984  ...     10.270       194.075      251.827
-28     jiarui.lu@mila.quebec  2023     11.786  ...      3.596        44.953       75.314
-27   jianan.zhao@mila.quebec  2023      7.227  ...      1.540        30.741       58.839
-40   zhihao.zhan@mila.quebec  2023      6.170  ...      1.352        31.820      220.349
-41  zuobai.zhang@mila.quebec  2023      3.676  ...      5.495         6.059       78.381
+                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+50      liusheng@mila.quebec  2023     58.698         9.068  ...           60.835     10.609        19.724      121.671
+34    xinyu.yuan@mila.quebec  2023     25.855         9.464  ...           57.033     10.270       146.598      190.110
+36     jiarui.lu@mila.quebec  2023     11.786         7.162  ...           44.145      3.596        40.765       74.712
+39  wentao.zhang@mila.quebec  2023      9.355        15.025  ...           62.382      5.568        98.980      149.425
+41   jianan.zhao@mila.quebec  2023      7.227        15.086  ...           52.429      1.540        30.495       58.369
 
 [5 rows x 12 columns]
 5 students that used the most compute in tangjian@mila.quebec's group in 2024:
-                        user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-49     jiarui.lu@mila.quebec  2024     22.179  ...      2.495        23.320       56.485
-48   jianan.zhao@mila.quebec  2024     12.895  ...      0.450        12.321       58.839
-61   zhihao.zhan@mila.quebec  2024      8.305  ...      8.017        28.178      472.176
-57    stephen.lu@mila.quebec  2024      4.233  ...      0.120         2.605        9.414
-62  zuobai.zhang@mila.quebec  2024      3.076  ...      1.539        24.542       37.774
+                       user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+70    jiarui.lu@mila.quebec  2024     22.191         9.988  ...           37.356      2.495        19.395       56.034
+88  zhihao.zhan@mila.quebec  2024     18.666        11.738  ...           95.055      8.017        23.834      356.457
+68   xinyu.yuan@mila.quebec  2024     13.543        11.319  ...           59.410      7.500       475.276      760.442
+75  jianan.zhao@mila.quebec  2024     12.895        12.883  ...           37.356      0.450        12.223       58.369
+84     liusheng@mila.quebec  2024      4.985         9.605  ...           60.835      0.721        27.031       60.835
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 11.000, 12.000, 8.000, 7.000, 6.000
-gpu_years, 64.118, 64.396, 52.099, 48.186, 42.177
-gpu_mem_mean, 10.372, 9.449, 13.178, 13.806, 15.209
-gpu_mem_max, 21.983, 24.408, 35.649, 41.012, 47.845
-gpu_util_mean, 0.430, 0.427, 0.407, 0.399, 0.387
-gpu_cpu_years, 123.280, 133.722, 80.268, 69.412, 47.906
-gpu_cpu_mem_mean, 10.372, 9.449, 13.178, 13.806, 15.209
-gpu_cpu_mem_max, 156.762, 225.941, 294.194, 363.064, 431.780
-cpu_years, 240.141, 28.788, 20.122, 0.000, 0.000
-cpu_mem_mean, 3.562, 8.155, 23.598, 31.807, 41.825
-cpu_mem_max, 5016.400, 251.827, 1007.309, 0.000, 0.000
+students, 16.000, 17.000, 12.000, 11.000, 9.000
+gpu_years, 134.111, 143.667, 83.861, 73.376, 58.024
+gpu_mem_mean, 9.268, 10.393, 12.334, 14.094, 16.259
+gpu_mem_max, 22.023, 22.023, 35.649, 41.856, 53.252
+gpu_util_mean, 0.397, 0.402, 0.398, 0.399, 0.400
+gpu_cpu_years, 184.423, 160.887, 42.384, 24.807, 11.892
+gpu_cpu_mem_mean, 8.596, 10.694, 14.860, 19.181, 25.220
+gpu_cpu_mem_max, 29.705, 134.218, 134.218, 366.831, 779.754
+cpu_years, 240.220, 47.719, 20.870, 5.393, 1.590
+cpu_mem_mean, 2.865, 12.870, 18.785, 58.017, 148.566
+cpu_mem_max, 3787.000, 190.110, 760.442, 164.271, 73.611

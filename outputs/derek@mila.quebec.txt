@@ -1,41 +1,41 @@
-Students supervised by derek@mila.quebec: ['Alexandre Sirois-Vigneux', 'Banafsheh Asadi', 'Daniel Bairamian', 'Hossam Mohamed', 'Jithendaraa Subramanian', 'Joey Litalien', 'Junha Yoo', 'Ken-Ming Lee', 'Mattie Tesfaldet', 'Paul Barde', 'Somjit Nath', 'Tooba Rahimnia', 'Xiangyu Kong', 'Yasaman Sabbagh', 'Yuanyuan Tao']
+Students supervised by derek@mila.quebec: ['Joey Litalien', 'Mattie Tesfaldet', 'Tooba Rahimnia', 'Alexandre Sirois-Vigneux', 'Jithendaraa Subramanian', 'Banafsheh Asadi', 'Ken-Ming Lee', 'Paul Barde', 'Daniel Bairamian', 'Florian Golemo', 'Alexandre Sirois-Vigneux', 'Somjit Nath', 'Banafsheh Asadi', 'Paul Barde', 'Yasaman Sabbagh', 'Xiangyu Kong', 'Hossam Mohamed', 'Yuanyuan Tao']
 Compute usage in derek@mila.quebec's group:
 5 students that used the most compute in derek@mila.quebec's group in 2022:
                                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-9                  bardepau@mila.quebec  2022     25.540  ...      0.094         0.877        8.173
+7                  bardepau@mila.quebec  2022     25.540  ...      0.094         0.885        8.241
+13                 bardepau@mila.quebec  2022     25.540  ...      0.094         0.885        8.241
 4   jithendaraa.subramanian@mila.quebec  2022      5.650  ...      0.000           NaN          NaN
-8          mattie.tesfaldet@mila.quebec  2022      4.625  ...      0.000           NaN          NaN
-5                  litaliej@mila.quebec  2022      1.485  ...      0.000           NaN          NaN
-10              somjit.nath@mila.quebec  2022      1.425  ...      0.007         0.859        1.194
+1          mattie.tesfaldet@mila.quebec  2022      4.625  ...      0.000           NaN          NaN
+0                  litaliej@mila.quebec  2022      1.485  ...      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in derek@mila.quebec's group in 2023:
-                                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-19   jithendaraa.subramanian@mila.quebec  2023     11.562  ...      0.000         0.327        0.327
-24                  bardepau@mila.quebec  2023      3.716  ...      0.002         0.976        1.625
-20                  litaliej@mila.quebec  2023      1.733  ...      0.000           NaN          NaN
-25               somjit.nath@mila.quebec  2023      0.635  ...      0.767         5.789       10.399
-15  alexandre.sirois-vigneux@mila.quebec  2023      0.357  ...      0.172         0.384        1.635
+                                   user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
+22  jithendaraa.subramanian@mila.quebec  2023     11.562  ...      0.000         0.330        0.330
+25                 bardepau@mila.quebec  2023      3.716  ...      0.002         0.983        1.637
+31                 bardepau@mila.quebec  2023      3.716  ...      0.002         0.983        1.637
+18                 litaliej@mila.quebec  2023      1.733  ...      0.000           NaN          NaN
+29              somjit.nath@mila.quebec  2023      0.635  ...      0.767         5.812       10.479
 
 [5 rows x 12 columns]
 5 students that used the most compute in derek@mila.quebec's group in 2024:
                                    user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-38         mattie.tesfaldet@mila.quebec  2024      6.169  ...      0.000           NaN          NaN
-39                 bardepau@mila.quebec  2024      5.811  ...      0.034         2.441        5.231
-34  jithendaraa.subramanian@mila.quebec  2024      2.274  ...      0.003         2.753        7.846
-35                 litaliej@mila.quebec  2024      0.060  ...      0.000           NaN          NaN
-40              somjit.nath@mila.quebec  2024      0.005  ...      0.097         2.448        5.231
+37         mattie.tesfaldet@mila.quebec  2024      6.169  ...      0.000           NaN          NaN
+43                 bardepau@mila.quebec  2024      5.811  ...      0.034         2.461        5.274
+49                 bardepau@mila.quebec  2024      5.811  ...      0.034         2.461        5.274
+40  jithendaraa.subramanian@mila.quebec  2024      2.274  ...      0.003         2.776        7.911
+45                 golemofl@mila.quebec  2024      0.280  ...      0.002         1.506       21.096
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 7.000, 8.000, 5.000, 5.000, 4.000
-gpu_years, 39.160, 18.361, 14.319, 7.955, 4.810
-gpu_mem_mean, 6.904, 10.754, 8.531, 10.612, 11.797
-gpu_mem_max, 13.552, 13.552, 34.355, 46.844, 74.584
-gpu_util_mean, 0.270, 0.274, 0.281, 0.286, 0.291
-gpu_cpu_years, 65.050, 24.718, 16.732, 7.707, 3.909
-gpu_cpu_mem_mean, 4.997, 5.838, 4.659, 4.793, 4.628
-gpu_cpu_mem_max, 10.462, 42.581, 20.924, 42.091, 59.525
-cpu_years, 0.175, 0.974, 0.134, 0.218, 0.190
-cpu_mem_mean, 0.912, 3.486, 2.546, 5.604, 9.362
-cpu_mem_max, 8.173, 10.399, 7.846, 8.387, 8.218
+students, 8.000, 9.000, 6.000, 6.000, 5.000
+gpu_years, 40.043, 18.494, 14.599, 8.062, 4.868
+gpu_mem_mean, 6.681, 10.308, 8.459, 10.575, 11.899
+gpu_mem_max, 13.497, 13.497, 34.355, 46.907, 74.836
+gpu_util_mean, 0.270, 0.273, 0.281, 0.285, 0.291
+gpu_cpu_years, 66.613, 24.723, 16.906, 7.692, 3.875
+gpu_cpu_mem_mean, 5.056, 5.926, 4.681, 4.810, 4.629
+gpu_cpu_mem_max, 10.548, 42.581, 21.096, 42.321, 59.851
+cpu_years, 0.175, 0.975, 0.136, 0.222, 0.196
+cpu_mem_mean, 0.919, 3.329, 2.262, 4.689, 7.355
+cpu_mem_max, 8.241, 16.481, 21.096, 36.359, 58.175

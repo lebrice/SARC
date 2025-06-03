@@ -5,6 +5,7 @@ import functools
 import hashlib
 import json
 import logging
+import operator
 import os
 import pickle
 import tempfile
@@ -417,7 +418,10 @@ def main():
             _student_emails = get_group_students_emails(
                 prof_email=prof, start=start, end=end
             )
-            print(f"Students supervised by {prof}: {[s.name for s in students]}")
+            student_names = sorted(set(s.name for s in students))
+            print(
+                f"Students supervised by {prof}: {len(student_names)}: {student_names}"
+            )
             if not students:
                 logger.error(f"Prof {prof} has no students in SARC! Skipping.")
                 continue
@@ -603,7 +607,7 @@ def get_group_students(
 ) -> list[User]:
     """Get list of student emails supervised by a professor."""
 
-    student_users = get_users(
+    students = get_users(
         query={
             "$and": [
                 {
@@ -633,13 +637,7 @@ def get_group_students(
         },
         latest=False,
     )
-    return student_users
-    students = [
-        user
-        for user in all_users
-        if user.mila_ldap.get("supervisor") == prof_email
-        or user.mila_ldap.get("co_supervisor") == prof_email
-    ]
+    return sorted(students, key=lambda v: v.name)
     students = sorted(students, key=lambda v: v.name)
     # NOTE: In case `students` is empty (no mapping in SARC), we couldn't use the jobs data
     # from SARC to find the supervisor, since the supervisor and co-supervisor
@@ -663,7 +661,9 @@ def get_group_usage(
 ) -> pd.DataFrame:
     """Returns the total compute usage for a prof's group in the given period."""
     students = get_group_students(prof_email=prof_email, start=start, end=end)
-    logger.info(f"{prof_email} has apparently {len(students)} students.")
+    logger.info(
+        f"{prof_email} has apparently {len(set(s.mila.email for s in students))} students."
+    )
     years = list(range(start.year, end.year if end.year > start.year else end.year + 1))
 
     empty_df = pd.DataFrame(

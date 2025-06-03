@@ -1,41 +1,41 @@
-Students supervised by siamak.ravanbakhsh@mila.quebec: ['Arnab Mondal', 'Christopher Morris', 'Daniel Levy', 'Du Han', 'Fabricio Dos-Santos', 'Hugo Sonnery', 'Jain Vineet', 'Jikael Gagnon', 'Julie Larrondo', 'Jun-Kai Liao', 'Kai-Yam Yang', 'Khang Ngo', 'Kusha Sareen', 'Mahsa Massoud', 'Mary Letey', 'Mehran Shakerinava', 'Mohammad Pedramfar', 'Siba-Smarak Panigrahi', 'Sékou-Oumar Kaba', 'Tara Akhound-Sadegh', 'Xiusi Li']
+Students supervised by siamak.ravanbakhsh@mila.quebec: ['Mary Letey', 'Julie Larrondo', 'Xiusi Li', 'Christopher Morris', 'Jain Vineet', 'Mehran Shakerinava', 'Fabricio Dos-Santos', 'Siba-Smarak Panigrahi', 'Daniel Levy', 'Sonnery Hugo', 'Sékou-Oumar Kaba', 'Mahsa Massoud', 'Arnab Mondal', 'Tara Akhound-Sadegh', 'Christopher Morris', 'Victor Livernoche', 'Du Han', 'Jikael Gagnon', 'Kai-Yam Yang', 'Kusha Sareen', 'Mohammad Pedramfar', 'Khang Ngo', 'Hugo Sonnery', 'Jikael Gagnon']
 Compute usage in siamak.ravanbakhsh@mila.quebec's group:
 5 students that used the most compute in siamak.ravanbakhsh@mila.quebec's group in 2022:
-                              user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-18            kabaseko@mila.quebec  2022      7.003  ...      0.000           NaN          NaN
-6          jain.vineet@mila.quebec  2022      4.339  ...      0.005         1.135        5.355
-0         arnab.mondal@mila.quebec  2022      2.719  ...      0.120         3.388        5.231
-1   christopher.morris@mila.quebec  2022      1.336  ...      0.000         2.677        2.677
-19  tara.akhoundsadegh@mila.quebec  2022      0.833  ...      0.000         0.335        0.335
+                              user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+10            kabaseko@mila.quebec  2022      7.003         9.824  ...            5.767      0.000           NaN          NaN
+9         sonnery.hugo@mila.quebec  2022      6.519        10.866  ...            8.651      0.029         5.108        8.651
+4          jain.vineet@mila.quebec  2022      4.339         4.829  ...           11.535      0.005         1.218        5.767
+12        arnab.mondal@mila.quebec  2022      2.719         6.243  ...           11.535      0.120         3.529        5.633
+3   christopher.morris@mila.quebec  2022      1.336        10.234  ...            4.325      0.000         2.884        2.884
 
 [5 rows x 12 columns]
 5 students that used the most compute in siamak.ravanbakhsh@mila.quebec's group in 2023:
                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-27            jain.vineet@mila.quebec  2023     16.126  ...      0.239         5.523       21.419
-38  siba-smarak.panigrahi@mila.quebec  2023     12.647  ...      0.000           NaN          NaN
-36     mehran.shakerinava@mila.quebec  2023      6.410  ...      0.187         7.574       10.709
-40     tara.akhoundsadegh@mila.quebec  2023      2.119  ...      0.000         0.335        0.335
-21           arnab.mondal@mila.quebec  2023      2.047  ...      0.190         5.315        5.355
+28            jain.vineet@mila.quebec  2023     16.126  ...      0.239         5.932       23.069
+31  siba-smarak.panigrahi@mila.quebec  2023     12.647  ...      0.000           NaN          NaN
+29     mehran.shakerinava@mila.quebec  2023      6.410  ...      0.187         8.156       11.535
+39      victor.livernoche@mila.quebec  2023      3.021  ...      0.529         8.635       46.138
+33           sonnery.hugo@mila.quebec  2023      2.394  ...      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in siamak.ravanbakhsh@mila.quebec's group in 2024:
                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-61     tara.akhoundsadegh@mila.quebec  2024      6.756  ...      0.652         5.035        8.032
-59  siba-smarak.panigrahi@mila.quebec  2024      4.855  ...      0.458         6.693       10.709
-55          mahsa.massoud@mila.quebec  2024      3.236  ...      0.248         0.919       10.709
-60               kabaseko@mila.quebec  2024      2.969  ...      0.000           NaN          NaN
-48            jain.vineet@mila.quebec  2024      2.857  ...      0.286        10.709       10.709
+63      victor.livernoche@mila.quebec  2024     12.389  ...      0.045         0.633       23.069
+52            jain.vineet@mila.quebec  2024      8.627  ...      0.286        11.535       11.535
+61     tara.akhoundsadegh@mila.quebec  2024      6.756  ...      0.652         5.423        8.651
+55  siba-smarak.panigrahi@mila.quebec  2024      4.855  ...      0.458         7.209       11.535
+59          mahsa.massoud@mila.quebec  2024      3.236  ...      0.248         0.990       11.535
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
-students, 8.000, 12.000, 11.000, 13.000, 15.000
-gpu_years, 16.662, 45.062, 27.218, 40.203, 45.481
-gpu_mem_mean, 7.415, 12.718, 12.442, 15.886, 18.399
-gpu_mem_max, 18.607, 18.607, 40.000, 47.131, 57.827
-gpu_util_mean, 0.367, 0.393, 0.386, 0.402, 0.411
-gpu_cpu_years, 19.636, 45.375, 25.015, 35.388, 38.077
-gpu_cpu_mem_mean, 7.415, 12.718, 12.442, 15.886, 18.399
-gpu_cpu_mem_max, 85.675, 66.951, 64.256, 50.875, 40.166
-cpu_years, 0.168, 1.054, 1.939, 2.825, 3.710
-cpu_mem_mean, 1.708, 3.864, 2.035, 2.863, 3.026
-cpu_mem_max, 5.355, 21.419, 123.827, 168.672, 227.908
+students, 10.000, 14.000, 12.000, 14.000, 15.000
+gpu_years, 23.733, 50.477, 45.377, 72.429, 100.152
+gpu_mem_mean, 9.159, 13.250, 13.008, 16.537, 19.708
+gpu_mem_max, 19.403, 19.403, 36.576, 45.182, 62.034
+gpu_util_mean, 0.391, 0.403, 0.401, 0.408, 0.414
+gpu_cpu_years, 26.060, 37.940, 22.462, 24.228, 22.494
+gpu_cpu_mem_mean, 5.273, 6.135, 5.132, 5.350, 5.278
+gpu_cpu_mem_max, 11.535, 52.429, 33.554, 79.345, 135.331
+cpu_years, 0.197, 1.584, 1.984, 8.575, 27.196
+cpu_mem_mean, 2.412, 5.726, 1.913, 2.362, 2.104
+cpu_mem_max, 8.651, 46.138, 133.369, 579.940, 2277.082

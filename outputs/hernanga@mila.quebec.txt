@@ -1,8 +1,2 @@
-Students supervised by hernanga@mila.quebec: ['Celine Roget', 'Dounia Shaaban-Kabakibo', 'Hyeonah Kim', 'Om Patel']
-[2;36m[06/02/25 18:40:33][0m[2;36m [0m[33mWARNING [0m No data found in SARC for                    ]8;id=244665;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=804456;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#760\[2m760[0m]8;;\
-[2;36m                    [0m         hernanga@mila.quebec from [1;36m2022[0m-[1;36m01[0m-[1;36m01[0m         [2m                       [0m
-[2;36m                    [0m         [1;92m00:00:00[0m-[1;92m05:00[0m to [1;36m2025[0m-[1;36m01[0m-[1;36m01[0m [1;92m00:00:00[0m-[1;92m05:00[0m. [2m                       [0m
-[2;36m                    [0m         Returning empty dataframe.                   [2m                       [0m
-[2;36m                   [0m[2;36m [0m[1;31mERROR   [0m There is no data in SARC for job from any of ]8;id=92865;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=753529;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#427\[2m427[0m]8;;\
-[2;36m                    [0m         Prof hernanga@mila.quebec's students!        [2m                       [0m
-[2;36m                    [0m         Skipping.                                    [2m                       [0m
+Students supervised by hernanga@mila.quebec: []
+[1;31mERROR   [0m Prof hernanga@mila.quebec has no students in SARC! Skipping.                               ]8;id=920983;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=466126;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#422\[2m422[0m]8;;\
