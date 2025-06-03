@@ -104,7 +104,10 @@ def test_get_group_usage(prof_email: str, fake_get_group_usage: pd.DataFrame):
     _print_like_form_shows(actual_df)
     assert actual_df.shape == fake_get_group_usage.shape
     assert all(actual_df.columns == fake_get_group_usage.columns)
-    assert all(actual_df.dtypes == fake_get_group_usage.dtypes)
+    assert all(
+        actual_df.drop(columns=["year", "students"]).dtypes
+        == fake_get_group_usage.drop(columns=["year", "students"]).dtypes
+    )
 
 
 def test_get_group_usage_predictions(

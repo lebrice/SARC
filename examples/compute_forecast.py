@@ -8,6 +8,7 @@ import logging
 import os
 import pickle
 import tempfile
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Generic, Mapping, ParamSpec, TypeVar
@@ -173,7 +174,7 @@ _PROFS = [
     "guillaume.lajoie@mila.quebec",  # Slight downward trend in usage?
     "lcharlin@mila.quebec",  # Stable-ish.
     "moonajung@mila.quebec",  # no data in SARC!
-    "prakash.panangaden@mila.quebec",
+    "prakash.panangaden@mila.quebec",  # Only has data for 2024!
     "reihaneh.rabbany@mila.quebec",
     "david.adelani@mila.quebec",
     # Note: This prof's usage predictions (with exponentials) are very wild even though they only have one student:
@@ -339,7 +340,7 @@ class Options:
 
 def _setup_logging(verbose: int):
     logging.basicConfig(
-        handlers=[rich.logging.RichHandler()],
+        handlers=[rich.logging.RichHandler(show_time=False)],
         format="%(message)s",
         level=logging.ERROR,
     )
@@ -601,7 +602,38 @@ def get_group_students(
     end: datetime = datetime(2025, 1, 1),
 ) -> list[User]:
     """Get list of student emails supervised by a professor."""
-    all_users = get_users()
+
+    student_users = get_users(
+        query={
+            "$and": [
+                {
+                    # Is the supervisor or co-supervisor of the student.
+                    "$or": [
+                        {"mila_ldap.supervisor": {"$eq": prof_email}},
+                        {"mila_ldap.co_supervisor": {"$eq": prof_email}},
+                    ]
+                },
+                {
+                    # We have a record with either no start (before 2023), or a start before the end of the period.
+                    "$or": [
+                        {"record_start": {"$exists": False}},
+                        {"record_start": {"$lt": end}},
+                    ]
+                },
+                {
+                    # We noticed a change in the users data at some point after the start of the period,
+                    # or we didnt notice a change (and the user is still active).
+                    "$or": [
+                        {"record_end": {"$exists": False}},
+                        {"record_end": None},
+                        {"record_end": {"$gt": start}},
+                    ]
+                },
+            ]
+        },
+        latest=False,
+    )
+    return student_users
     students = [
         user
         for user in all_users
@@ -911,7 +943,7 @@ def _get_group_usage_projections(
         students=extrapolations["students"].round(),
         gpu_util_mean=extrapolations["gpu_util_mean"].clip(upper=1.0),
     )
-    extrapolations = extrapolations.astype({"students": int})
+    extrapolations = extrapolations.assign(students=extrapolations.students.round())
     return extrapolations
 
 
@@ -1041,25 +1073,35 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     _user_emails = options.get_users(assume_mila_email=True)
     assert all(map(_check_is_email_and_lower, _user_emails))
 
-    email_to_user: dict[str, User] = {
-        # NOTE: assuming that all students have a mila email would be ok for now,
-        # but perhaps this will be a bit more resilient.
-        (user.mila.email or (user.drac.email if user.drac else "")): user
-        for user in get_users()
-    }
-
-    def get_usernames(email: str) -> list[str]:
-        if email not in email_to_user:
-            # Note: Would be weird to get here atm, since we get the emails from the user database.
-            # But if we made a query with a particular email of a researcher for example, we might
-            # get here, in which case perhaps we can use the first part of the email as username?
-            raise RuntimeError(f"Email '{email}' is not found in the user database!")
-            username = email.partition("@")[0]
-            return [username]
-        user = email_to_user[email]
-        if user.drac is not None:
-            return [user.mila.username, user.drac.username]
-        return [user.mila.username]
+    _all_users = get_users(
+        query={
+            "$and": [
+                {"mila.email": {"$in": _user_emails}},
+                {
+                    # We have a record with either no start (before 2023), or a start before the end of the period.
+                    "$or": [
+                        {"record_start": {"$exists": False}},
+                        {"record_start": {"$lt": options.end}},
+                    ]
+                },
+                {
+                    # We noticed a change in the users data at some point after the start of the period,
+                    # or we didnt notice a change (and the user is still active).
+                    "$or": [
+                        {"record_end": {"$exists": False}},
+                        {"record_end": None},
+                        {"record_end": {"$gt": options.start}},
+                    ]
+                },
+            ]
+        },
+        latest=False,
+    )
+    email_to_usernames: dict[str, list[str]] = defaultdict(list)
+    for user in _all_users:
+        email_to_usernames[user.mila.email].append(user.mila.username)
+        if user.drac:
+            email_to_usernames[user.mila.email].append(user.drac.username)
 
     logger.debug(
         f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
@@ -1087,7 +1129,9 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
         logger.info(
             f"Did not find previous results at {cache_file}. Fetching job data."
         )
-        all_usernames_of_students = sum(map(get_usernames, _user_emails), [])
+        all_usernames_of_students = sum(
+            [email_to_usernames[email] for email in _user_emails], []
+        )
         logger.debug(f"Usernames used when querying SARC: {all_usernames_of_students}")
         # In SARC we currently can't query by user.mila.email, so we query with all
         # usernames and filter by user.mila.email after.
