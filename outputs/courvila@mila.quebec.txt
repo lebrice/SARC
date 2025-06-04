@@ -1,30 +1,30 @@
-Students supervised by courvila@mila.quebec: ['Dinghuai Zhang', 'Milad Aghajohari', 'Adrien Ali Taïga', 'Samuel Lavoie-Marchildon', 'Michael Noukhovitch', 'Max Schwarzer', 'Shawn Tan', 'SOUMYE SINGHAL', 'Ankesh Anand', 'Anirban Laha', 'Vishal Gupta', 'Zhixuan Lin', 'Yezhen Wang', 'Taoli Cheng', 'Tim Cooijmans', 'José Manuel Rodriguez Sotelo', 'Christos Tsirigotis', 'Florian Golemo', 'Chin-Wei Huang', 'Lluis Castrejon', 'Ching-Lam Choi', 'Ankit Vani', 'Arian Hosseini', 'Phong Nguyen', 'Andrei Nicolicioiu', 'Sara Hooker', 'Faruk Ahmed', 'Caroline Lebrun', 'Amr-Khalifa Alshaykh', 'Florian Strub', 'Yuchen Lu', 'Kyle Kastner', 'Rishabh Agarwal', 'Juan Duque', 'Diz Ganito', 'Xiaofeng Zhang', 'Manoosh Samiei', 'Mohammed Muqeeth', 'Morgane Moss', 'Razvan Ciuca', 'SOUMYE SINGHAL', 'Anirban Laha', 'Yezhen Wang', 'Taoli Cheng', 'José Manuel Rodriguez Sotelo', 'Chin-Wei Huang', 'Lluis Castrejon', 'Johan Samir Obando Ceron', 'Phong Nguyen', 'Sara Hooker', 'Florian Strub', 'Yuchen Lu', 'Kyle Kastner', 'Diz Ganito', 'Mohammed Muqeeth', 'Alexandre Ganito', 'Pietro Mazzaglia', 'Mohammed Muqeeth', 'Dereck Piché', 'Sarvjeet-Singh Ghotra', 'Ayush Agrawal', 'Pietro Mazzaglia']
+Students supervised by courvila@mila.quebec: 46: ['Adrien Ali Taïga', 'Alexandre Ganito', 'Amr-Khalifa Alshaykh', 'Andrei Nicolicioiu', 'Anirban Laha', 'Ankesh Anand', 'Ankit Vani', 'Arian Hosseini', 'Ayush Agrawal', 'Caroline Lebrun', 'Chin-Wei Huang', 'Ching-Lam Choi', 'Christos Tsirigotis', 'Dereck Piché', 'Dinghuai Zhang', 'Diz Ganito', 'Faruk Ahmed', 'Florian Golemo', 'Florian Strub', 'Johan Samir Obando Ceron', 'José Manuel Rodriguez Sotelo', 'Juan Duque', 'Kyle Kastner', 'Lluis Castrejon', 'Manoosh Samiei', 'Max Schwarzer', 'Michael Noukhovitch', 'Milad Aghajohari', 'Mohammed Muqeeth', 'Morgane Moss', 'Phong Nguyen', 'Pietro Mazzaglia', 'Razvan Ciuca', 'Rishabh Agarwal', 'SOUMYE SINGHAL', 'Samuel Lavoie-Marchildon', 'Sara Hooker', 'Sarvjeet-Singh Ghotra', 'Shawn Tan', 'Taoli Cheng', 'Tim Cooijmans', 'Vishal Gupta', 'Xiaofeng Zhang', 'Yezhen Wang', 'Yuchen Lu', 'Zhixuan Lin']
 Compute usage in courvila@mila.quebec's group:
 5 students that used the most compute in courvila@mila.quebec's group in 2022:
-                          user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-11     zhixuan.lin@mila.quebec  2022     69.670        13.231  ...           50.759      6.471         5.216       16.920
-3    samuel.lavoie@mila.quebec  2022     34.714        12.637  ...           42.299      0.015         2.544        7.992
-5         schwarzm@mila.quebec  2022     13.959        13.265  ...           42.299      0.000           NaN          NaN
-16        tsirigoc@mila.quebec  2022      9.999         9.534  ...           49.490     11.555        25.381      557.474
-0   dinghuai.zhang@mila.quebec  2022      9.554        14.333  ...            6.768      0.000           NaN          NaN
+                          user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+11     zhixuan.lin@mila.quebec  2022     69.670        13.231       20.656  ...            10.871           50.759      6.471         5.216       16.920
+3    samuel.lavoie@mila.quebec  2022     34.714        12.637       20.656  ...            11.141           42.299      0.015         2.544        7.992
+5         schwarzm@mila.quebec  2022     13.959        13.265       14.714  ...            31.210           42.299      0.000           NaN          NaN
+16        tsirigoc@mila.quebec  2022      9.999         9.534       20.656  ...            10.478           49.490     11.555        25.381      557.474
+0   dinghuai.zhang@mila.quebec  2022      9.554        14.333       14.714  ...             3.679            6.768      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in courvila@mila.quebec's group in 2023:
-                          user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-73     zhixuan.lin@mila.quebec  2023    113.603        13.164  ...          121.206      4.056         4.003       22.238
-83        vanianki@mila.quebec  2023     28.754        15.604  ...           43.719      0.001         4.457       10.152
-62  dinghuai.zhang@mila.quebec  2023     23.881        10.880  ...           33.554      0.000        16.678       16.678
-65   samuel.lavoie@mila.quebec  2023     15.700        14.372  ...           27.214      0.038         3.276        7.992
-82  ching-lam.choi@mila.quebec  2023     10.582        14.087  ...           38.375      0.023         9.266       11.119
+                          user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+73     zhixuan.lin@mila.quebec  2023    113.603        13.164       20.656  ...            10.551          121.206      4.056         4.003       22.238
+83        vanianki@mila.quebec  2023     28.754        15.604       20.656  ...            11.225           43.719      0.001         4.457       10.152
+62  dinghuai.zhang@mila.quebec  2023     23.881        10.880       20.656  ...            11.279           33.554      0.000        16.678       16.678
+65   samuel.lavoie@mila.quebec  2023     15.700        14.372       20.656  ...            11.486           27.214      0.038         3.276        7.992
+82  ching-lam.choi@mila.quebec  2023     10.582        14.087       20.656  ...            10.507           38.375      0.023         9.266       11.119
 
 [5 rows x 12 columns]
 5 students that used the most compute in courvila@mila.quebec's group in 2024:
-                               user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-135         zhixuan.lin@mila.quebec  2024    135.755        15.804  ...           27.883      0.696         9.464       44.475
-159      xiaofeng.zhang@mila.quebec  2024     30.738        14.421  ...           27.071      0.217         1.704       11.119
-148  andrei.nicolicioiu@mila.quebec  2024     26.331        12.570  ...           33.554      1.192         6.182       44.475
-145            vanianki@mila.quebec  2024     22.949        17.190  ...           33.554      0.000         6.768        6.768
-127       samuel.lavoie@mila.quebec  2024     12.479        16.125  ...           44.475      0.012         3.317        5.559
+                               user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+135         zhixuan.lin@mila.quebec  2024    135.755        15.804       20.656  ...             6.994           27.883      0.696         9.464       44.475
+159      xiaofeng.zhang@mila.quebec  2024     30.738        14.421       36.556  ...             4.805           27.071      0.217         1.704       11.119
+148  andrei.nicolicioiu@mila.quebec  2024     26.331        12.570       36.904  ...            11.346           33.554      1.192         6.182       44.475
+145            vanianki@mila.quebec  2024     22.949        17.190       20.656  ...            12.118           33.554      0.000         6.768        6.768
+127       samuel.lavoie@mila.quebec  2024     12.479        16.125       20.656  ...            10.448           44.475      0.012         3.317        5.559
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

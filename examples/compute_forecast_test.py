@@ -1,15 +1,19 @@
 import random
 import warnings
 from datetime import datetime
+from itertools import groupby
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib import pyplot as plt
 
 from examples.compute_forecast import (
     _PROFS,
     _get_group_usage_projections,
     _print_like_form_shows,
+    aggregate_usage_data,
     get_group_students,
     get_group_usage,
     get_group_usage_projections,
@@ -146,12 +150,19 @@ def test_predictions_for_2025_with_partial_data():
         },
         names=["prof", "year"],
     )
-    total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
+    total_profs_data = aggregate_usage_data(
+        all_profs_data, groupby_level="year"
+    ).reset_index()
     all_profs_predictions = _get_group_usage_projections(total_profs_data)
-    predicted_usage_2025 = all_profs_predictions.query("year == 2025")
+    predicted_usage_2025 = all_profs_predictions.query("year == 2025")[
+        ["year", "gpu_years", "gpu_cpu_years", "cpu_years"]
+    ]
+    linear_predicted_usage_2025 = _get_group_usage_projections(
+        total_profs_data, use_exponential_trend=False
+    ).query("year == 2025")[["year", "gpu_years", "gpu_cpu_years", "cpu_years"]]
 
     end = datetime(2025, 6, 1)  # first of june as cutoff date ( months)
-    usage_first_half_2025 = (
+    usage_first_half_2025 = aggregate_usage_data(
         pd.concat(
             {
                 prof: get_group_usage(
@@ -160,25 +171,41 @@ def test_predictions_for_2025_with_partial_data():
                 for prof in profs
             },
             names=["prof", "year"],
-        )
-        .groupby(level="year")
-        .sum()
-        .reset_index()
-    )
+        ),
+        groupby_level="year",
+    ).reset_index()
     _print_like_form_shows(usage_first_half_2025)
-    scaled_usage_prediction_2025 = usage_first_half_2025 * 12 / 5  # naive scaling
+    scaled_usage_prediction_2025 = (
+        usage_first_half_2025.set_index("year")[
+            ["gpu_years", "gpu_cpu_years", "cpu_years"]
+        ]
+        * 12
+        / 5
+    )  # naive scaling
     # Display a comparison of the two predictions
 
     compared = pd.concat(
         {
-            "scaled": scaled_usage_prediction_2025.set_index("year"),
-            "predicted": predicted_usage_2025.set_index("year"),
+            "scaled": scaled_usage_prediction_2025,
+            "predicted_linear_trend": linear_predicted_usage_2025.set_index("year"),
+            "predicted_exponential_trend": predicted_usage_2025.set_index("year"),
         },
         names=["type", "year"],
+    ).xs(2025, level="year")
+
+    compared[["gpu_years", "gpu_cpu_years", "cpu_years"]].plot(
+        kind="bar",
+        legend=True,
+        title="Comparison of scaled usage prediction vs predicted usage for 2025",
+        figsize=(12, 6),
     )
-    print("Comparison of scaled usage prediction vs predicted usage for 2025:")
-    print(compared.to_markdown())
-    compared.to_csv("scaled_vs_predicted_2025.csv")
+    # Use leading underscore so files show up at the top in the folder.
+    plt.savefig("outputs/_projections_2025.png")
+    Path("outputs/_scaled_vs_predicted_2025.md").write_text(compared.to_markdown())
+    Path("outputs/_scaled_vs_predicted_2025.csv").write_text(
+        compared.to_csv(float_format="%.2f")
+    )
+    # compared.pivot(columns="type").to_csv("scaled_vs_predicted_2025_pivot.csv")
     # print("Predicted usage for 2025 with data from 2022-2024:")
     # _print_like_form_shows(predicted_usage_2025)
     # print("Usage in five months of 2025 * 12/5:")

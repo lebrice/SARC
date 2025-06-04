@@ -1,30 +1,30 @@
-Students supervised by drolnick@mila.quebec: ['Carlos Prieto', 'Nikolaos Bountos', 'Saad Lahrich', 'Jenny Hamer', 'Michelle Lin', 'Omer Moussa', 'Yuyan Chen', 'Ruben Cartuyvels', 'Gabriel Tseng', 'Charlotte Lange', 'Venkatesh Ramesh', 'Alvaro Carbonero', 'Paula Harder', 'Devin Kwok', 'Qidong Yang', 'Thomas Wright', 'Udbhav Bamba', 'Jose Gonzalez-Abad', 'Michael Bunsen', 'Salva Rühling Cachay', 'Mehrab Hamidi', 'Deva Sou', 'Benjamin Akera', 'Fagner Cunha', 'Julia Kaltenborn', 'Gaurav iyer', 'Julien Boussard', 'Chandni Nagda', 'Alexandre Duval', 'Arthur Ouaknine', 'Amna Elmustafa', 'Tiffany Vlaar', 'Basile Terver', 'Christina Winkler', 'Juan-Sebastian Canas-Silva', 'Ali Ramlaoui', 'Ayush Prasad', 'Carlos Prieto', 'Saad Lahrich', 'Jenny Hamer', 'Omer Moussa', 'Alvaro Carbonero', 'Thomas Wright', 'Udbhav Bamba', 'Jose Gonzalez-Abad', 'Salva Rühling Cachay', 'Theo Saulus', 'Leonard Pasi', 'Raesetje Sefala', 'Deva Sou', 'Anna Viklund', 'Catherine Villeneuve', 'Christina Humer', 'David Mickisch', 'Eya Cherif', 'Felix-Andreas Nahrstedt', 'Gul-Sena Altintas', 'Ilija Trajkovic', 'Marlena Reil', 'Mohit Anand', 'Pratinav Seth', 'Sebastian Hickman', 'Viktor Todosijevic', 'Marlena Reil', 'Vanessa Mac', 'Elena Podina', 'Ruben Cartuyvels', 'Fagner Cunha', 'Chandni Nagda', 'Basile Terver', 'Christina Winkler', 'Theo Saulus', 'Graham Clyne', 'Viktor Todosijevic', 'Vanessa Mac']
+Students supervised by drolnick@mila.quebec: 56: ['Alexandre Duval', 'Ali Ramlaoui', 'Alvaro Carbonero', 'Amna Elmustafa', 'Anna Viklund', 'Arthur Ouaknine', 'Ayush Prasad', 'Basile Terver', 'Benjamin Akera', 'Carlos Prieto', 'Catherine Villeneuve', 'Chandni Nagda', 'Charlotte Lange', 'Christina Humer', 'Christina Winkler', 'David Mickisch', 'Deva Sou', 'Devin Kwok', 'Elena Podina', 'Eya Cherif', 'Fagner Cunha', 'Felix-Andreas Nahrstedt', 'Gabriel Tseng', 'Gaurav iyer', 'Graham Clyne', 'Gul-Sena Altintas', 'Ilija Trajkovic', 'Jenny Hamer', 'Jose Gonzalez-Abad', 'Juan-Sebastian Canas-Silva', 'Julia Kaltenborn', 'Julien Boussard', 'Leonard Pasi', 'Marlena Reil', 'Mehrab Hamidi', 'Michael Bunsen', 'Michelle Lin', 'Mohit Anand', 'Nikolaos Bountos', 'Omer Moussa', 'Paula Harder', 'Pratinav Seth', 'Qidong Yang', 'Raesetje Sefala', 'Ruben Cartuyvels', 'Saad Lahrich', 'Salva Rühling Cachay', 'Sebastian Hickman', 'Theo Saulus', 'Thomas Wright', 'Tiffany Vlaar', 'Udbhav Bamba', 'Vanessa Mac', 'Venkatesh Ramesh', 'Viktor Todosijevic', 'Yuyan Chen']
 Compute usage in drolnick@mila.quebec's group:
 5 students that used the most compute in drolnick@mila.quebec's group in 2022:
-                                user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-19  salva.ruhling-cachay@mila.quebec  2022      9.684        13.763  ...           29.202      0.000           NaN          NaN
-45  salva.ruhling-cachay@mila.quebec  2022      9.684        13.763  ...           29.202      0.000           NaN          NaN
-28       alexandre.duval@mila.quebec  2022      5.779        12.984  ...           23.960      0.000         1.498        1.498
-30        amna.elmustafa@mila.quebec  2022      2.812        12.443  ...           22.463      0.029        10.137       62.147
-10      venkatesh.ramesh@mila.quebec  2022      2.051        12.652  ...           22.463      0.000           NaN          NaN
+                                user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+19  salva.ruhling-cachay@mila.quebec  2022      9.684        13.763       13.917  ...            13.976           29.202      0.000           NaN          NaN
+45  salva.ruhling-cachay@mila.quebec  2022      9.684        13.763       13.917  ...            13.976           29.202      0.000           NaN          NaN
+28       alexandre.duval@mila.quebec  2022      5.779        12.984       23.195  ...             8.081           23.960      0.000         1.498        1.498
+30        amna.elmustafa@mila.quebec  2022      2.812        12.443       23.195  ...            13.190           22.463      0.029        10.137       62.147
+10      venkatesh.ramesh@mila.quebec  2022      2.051        12.652       23.195  ...            11.978           22.463      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in drolnick@mila.quebec's group in 2023:
-                            user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-103  alexandre.duval@mila.quebec  2023      8.467        14.845  ...           67.109      0.000         5.101       11.980
-83     gabriel.tseng@mila.quebec  2023      4.988        14.486  ...           25.454      0.166        10.534       23.960
-88        devin.kwok@mila.quebec  2023      4.738        13.943  ...           33.554      0.117        12.744       23.960
-95     mehrab.hamidi@mila.quebec  2023      3.900        14.346  ...           25.500      1.476        13.832       59.901
-84   charlotte.lange@mila.quebec  2023      2.599        13.871  ...           68.157      0.013         8.225       11.980
+                            user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+103  alexandre.duval@mila.quebec  2023      8.467        14.845       23.195  ...            18.215           67.109      0.000         5.101       11.980
+83     gabriel.tseng@mila.quebec  2023      4.988        14.486       23.195  ...             6.140           25.454      0.166        10.534       23.960
+88        devin.kwok@mila.quebec  2023      4.738        13.943       23.195  ...            10.895           33.554      0.117        12.744       23.960
+95     mehrab.hamidi@mila.quebec  2023      3.900        14.346       23.195  ...            11.757           25.500      1.476        13.832       59.901
+84   charlotte.lange@mila.quebec  2023      2.599        13.871       23.195  ...            19.820           68.157      0.013         8.225       11.980
 
 [5 rows x 12 columns]
 5 students that used the most compute in drolnick@mila.quebec's group in 2024:
-                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-210     pratinav.seth@mila.quebec  2024      8.790        13.289  ...           47.921      1.275        18.216       95.842
-156        yuyan.chen@mila.quebec  2024      7.255        14.898  ...           47.921      1.076         5.730      112.315
-164       qidong.yang@mila.quebec  2024      5.999        13.910  ...           41.753      1.861         9.468       47.921
-151  nikolaos.bountos@mila.quebec  2024      5.737        14.043  ...           52.429      1.429        20.258      149.753
-160  venkatesh.ramesh@mila.quebec  2024      5.098        15.381  ...           29.951      0.000           NaN          NaN
+                             user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+210     pratinav.seth@mila.quebec  2024      8.790        13.289       23.195  ...            15.305           47.921      1.275        18.216       95.842
+156        yuyan.chen@mila.quebec  2024      7.255        14.898       23.195  ...             7.254           47.921      1.076         5.730      112.315
+164       qidong.yang@mila.quebec  2024      5.999        13.910       23.195  ...            14.328           41.753      1.861         9.468       47.921
+151  nikolaos.bountos@mila.quebec  2024      5.737        14.043       32.233  ...            15.579           52.429      1.429        20.258      149.753
+160  venkatesh.ramesh@mila.quebec  2024      5.098        15.381       23.195  ...            13.093           29.951      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

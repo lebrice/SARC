@@ -1,38 +1,32 @@
-Students supervised by prakash.panangaden@mila.quebec: ['Clara Lacroce', 'ARIELLA SMOFSKY', 'Tyler Kastner', 'Joey Bose', 'Samuel Garcin', 'Clara Lacroce', 'ARIELLA SMOFSKY', 'Tyler Kastner', 'Jonathan Colaco-Carr']
+Students supervised by prakash.panangaden@mila.quebec: 6: ['ARIELLA SMOFSKY', 'Clara Lacroce', 'Joey Bose', 'Jonathan Colaco-Carr', 'Samuel Garcin', 'Tyler Kastner']
 Compute usage in prakash.panangaden@mila.quebec's group:
 5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2022:
-                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-3       bosejoey@mila.quebec  2022      0.823        21.048  ...            7.638      0.000           NaN          NaN
-0       lacrocec@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
-1       smofskya@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
-2  tyler.kastner@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
-4  samuel.garcin@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+                        user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+3       bosejoey@mila.quebec  2022      0.823        21.048       21.250  ...             4.764            7.638      0.000           NaN          NaN
+0       lacrocec@mila.quebec  2022      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+1       smofskya@mila.quebec  2022      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+2  tyler.kastner@mila.quebec  2022      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+4  samuel.garcin@mila.quebec  2022      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2023:
-                         user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-13  samuel.garcin@mila.quebec  2023      7.551        26.706  ...           26.885      0.000         0.318        0.318
-12       bosejoey@mila.quebec  2023      0.100        23.894  ...           20.701      0.000         1.273        1.273
-9        lacrocec@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
-10       smofskya@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
-11  tyler.kastner@mila.quebec  2023      0.000           NaN  ...              NaN      0.000           NaN          NaN
+                         user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+13  samuel.garcin@mila.quebec  2023      7.551        26.706       35.417  ...             5.076           26.885      0.000         0.318        0.318
+12       bosejoey@mila.quebec  2023      0.100        23.894       35.417  ...             6.452           20.701      0.000         1.273        1.273
+9        lacrocec@mila.quebec  2023      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+10       smofskya@mila.quebec  2023      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+11  tyler.kastner@mila.quebec  2023      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in prakash.panangaden@mila.quebec's group in 2024:
-                                user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-22         samuel.garcin@mila.quebec  2024     35.509        20.958  ...           10.396      1.218         4.374        6.206
-21              bosejoey@mila.quebec  2024      7.205        20.609  ...           20.239      0.511         2.623        5.092
-26  jonathan.colaco-carr@mila.quebec  2024      0.505        24.742  ...           10.184      1.050         5.070       10.184
-18              lacrocec@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
-19              smofskya@mila.quebec  2024      0.000           NaN  ...              NaN      0.000           NaN          NaN
+                                user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+22         samuel.garcin@mila.quebec  2024     35.509        20.958       35.417  ...             5.141           10.396      1.218         4.374        6.206
+21              bosejoey@mila.quebec  2024      7.205        20.609       35.417  ...             4.615           20.239      0.511         2.623        5.092
+26  jonathan.colaco-carr@mila.quebec  2024      0.505        24.742       35.417  ...             4.359           10.184      1.050         5.070       10.184
+18              lacrocec@mila.quebec  2024      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
+19              smofskya@mila.quebec  2024      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
-[33mWARNING [0m Extrapolated values for cpu_years contain inf or nan values. Using linear extrapolation    ]8;id=941055;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=825555;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
-         instead.                                                                                   [2m                       [0m
-[33mWARNING [0m Extrapolated values for cpu_mem_mean contain inf or nan values. Using linear extrapolation ]8;id=49834;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=119781;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
-         instead.                                                                                   [2m                       [0m
-[33mWARNING [0m Extrapolated values for cpu_mem_max contain inf or nan values. Using linear extrapolation  ]8;id=919213;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=62480;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#975\[2m975[0m]8;;\
-         instead.                                                                                   [2m                       [0m
 Year,2022,2023,2024,2025,2026
 students, 1.000, 2.000, 3.000, 4.000, 5.000
 gpu_years, 0.823, 7.651, 43.219, 340.354, 2466.690

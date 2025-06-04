@@ -463,20 +463,28 @@ def main():
         {k: v.set_index("year") for k, v in all_profs_dataframes.items()},
         names=["prof", "year"],
     )
-
-    # todo: make some nice plots!
-    # all_profs_data[["gpu_years", "cpu_years"]].plot(
-    #     x="year", kind="bar", figsize=(12, 6)
-    # )
-    # plt.show()
-
-    total_profs_data = all_profs_data.groupby(level="year").sum().reset_index()
+    total_profs_data = aggregate_usage_data(
+        all_profs_data, groupby_level="year"
+    ).reset_index()
     # Uncached, because we pass the dataframe as the argument.
     usage_projections = _get_group_usage_projections(group_usage=total_profs_data)
-    print(f"Total for {len(profs)} profs:")
-    _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
-
+    with (
+        open(output_dir / "_total.txt", "w" if redirect_output else "r") as f,
+        contextlib.redirect_stdout(f) if redirect_output else contextlib.nullcontext(),
+    ):
+        print(f"Total for {len(profs)} profs:")
+        _print_like_form_shows(pd.concat([total_profs_data, usage_projections]))
     plot_usage_projections(total_profs_data, usage_projections)
+
+
+def aggregate_usage_data(df: pd.DataFrame, groupby_level: str):
+    """Does the mean of the cols with 'mean', max of cols with 'max', and sum other columns."""
+    grouped = df.groupby(level=groupby_level)
+    agg_per_column = {
+        c: "mean" if c.endswith("mean") else "max" if c.endswith("max") else "sum"
+        for c in df.columns
+    }
+    return grouped.aggregate(agg_per_column)
 
 
 def plot_usage_projections(
@@ -930,7 +938,8 @@ def _get_group_usage_projections(
     projection_end: datetime = datetime(2027, 1, 1),
     use_exponential_trend: bool = True,
 ) -> pd.DataFrame:
-
+    if "year" not in group_usage.columns:
+        group_usage = group_usage.reset_index()
     projection_start_year = group_usage["year"].max() + 1
     assert projection_start_year < projection_end.year
     new_x = list(range(projection_start_year, projection_end.year))
@@ -988,6 +997,8 @@ def extrapolate(
 
 
 def _print_like_form_shows(df: pd.DataFrame):
+    if "year" not in df.columns:
+        df = df.reset_index()
     print("Year," + ",".join(df["year"].astype(str).tolist()))
     # print("Students," + ",".join(df["students"].astype(str).tolist()))
     columns = [
@@ -1106,6 +1117,8 @@ def _get_cleaned_df(options: Options) -> pd.DataFrame:
     logger.debug(
         f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
     )
+
+    # TODO: Somethign weird
     if cache_file.exists():
         logger.info(f"Reading previous data from {cache_file}.")
         df = pd.read_pickle(cache_file)

@@ -1,30 +1,30 @@
-Students supervised by lcharlin@mila.quebec: ['Mizu Nishikawa-Toomey', 'Awa Dieng', 'Nicholas Vachon', 'Massimo Caccia', 'Shubham Agarwal', 'François-Xavier Devailly', 'Nitarshan Rajkumar', 'Nicole Fitzgerald', 'Oleksiy Ostapenko', 'Olivier Gouvert', 'AliAkbar Ghayouri-Sales', 'Dawen Liang', 'Omar Salemohamed', 'David Berger', 'Zeyuan Yin', 'Yipeng Zhang', 'Ben Hudson', 'Emiliano Penaloza', 'Nicholas Vachon', 'Massimo Caccia', 'Sara Ebrahim-Elkafrawy', 'François-Xavier Devailly', 'Nitarshan Rajkumar', 'Nicole Fitzgerald', 'AliAkbar Ghayouri-Sales', 'Dawen Liang', 'Anirudh Buvanesh', 'Sara Ebrahim-Elkafrawy']
+Students supervised by lcharlin@mila.quebec: 20: ['AliAkbar Ghayouri-Sales', 'Anirudh Buvanesh', 'Awa Dieng', 'Ben Hudson', 'David Berger', 'Dawen Liang', 'Emiliano Penaloza', 'François-Xavier Devailly', 'Massimo Caccia', 'Mizu Nishikawa-Toomey', 'Nicholas Vachon', 'Nicole Fitzgerald', 'Nitarshan Rajkumar', 'Oleksiy Ostapenko', 'Olivier Gouvert', 'Omar Salemohamed', 'Sara Ebrahim-Elkafrawy', 'Shubham Agarwal', 'Yipeng Zhang', 'Zeyuan Yin']
 Compute usage in lcharlin@mila.quebec's group:
 5 students that used the most compute in lcharlin@mila.quebec's group in 2022:
-                                  user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-20  sara.ebrahim-elkafrawy@mila.quebec  2022      7.125  ...      0.795         4.884       16.667
-27  sara.ebrahim-elkafrawy@mila.quebec  2022      7.125  ...      0.795         4.884       16.667
-12        omar.salemohamed@mila.quebec  2022      2.728  ...      0.000           NaN          NaN
-9          olivier.gouvert@mila.quebec  2022      2.379  ...      0.000         0.521        0.521
-8                 ostapeno@mila.quebec  2022      1.050  ...      0.000         0.521        0.521
+                                  user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+20  sara.ebrahim-elkafrawy@mila.quebec  2022      7.125        12.941       22.008  ...             4.973            8.334      0.795         4.884       16.667
+27  sara.ebrahim-elkafrawy@mila.quebec  2022      7.125        12.941       22.008  ...             4.973            8.334      0.795         4.884       16.667
+12        omar.salemohamed@mila.quebec  2022      2.728        11.739       22.008  ...             3.258           10.417      0.000           NaN          NaN
+9          olivier.gouvert@mila.quebec  2022      2.379        12.044       22.008  ...             3.218            8.334      0.000         0.521        0.521
+8                 ostapeno@mila.quebec  2022      1.050         6.578       13.205  ...             7.782            8.339      0.000         0.521        0.521
 
 [5 rows x 12 columns]
 5 students that used the most compute in lcharlin@mila.quebec's group in 2023:
-                                   user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-48   sara.ebrahim-elkafrawy@mila.quebec  2023     11.480  ...      0.071         2.332        5.990
-55   sara.ebrahim-elkafrawy@mila.quebec  2023     11.480  ...      0.071         2.332        5.990
-40         omar.salemohamed@mila.quebec  2023     11.459  ...      0.000           NaN          NaN
-28    mizu.nishikawa-toomey@mila.quebec  2023      4.863  ...      0.000         1.302        1.302
-38  aliakbar.ghayouri-sales@mila.quebec  2023      4.628  ...      0.137         2.137       26.043
+                                   user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+48   sara.ebrahim-elkafrawy@mila.quebec  2023     11.480        17.784       22.008  ...             9.419           25.166      0.071         2.332        5.990
+55   sara.ebrahim-elkafrawy@mila.quebec  2023     11.480        17.784       22.008  ...             9.419           25.166      0.071         2.332        5.990
+40         omar.salemohamed@mila.quebec  2023     11.459        14.260       22.008  ...            13.001           41.943      0.000           NaN          NaN
+28    mizu.nishikawa-toomey@mila.quebec  2023      4.863        15.707       22.008  ...             2.694           16.667      0.000         1.302        1.302
+38  aliakbar.ghayouri-sales@mila.quebec  2023      4.628        14.477       22.008  ...             3.450           47.186      0.137         2.137       26.043
 
 [5 rows x 12 columns]
 5 students that used the most compute in lcharlin@mila.quebec's group in 2024:
-                                 user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-68       omar.salemohamed@mila.quebec  2024     17.078  ...      0.000           NaN          NaN
-73      emiliano.penaloza@mila.quebec  2024      8.797  ...      0.164         4.515       26.043
-56  mizu.nishikawa-toomey@mila.quebec  2024      3.840  ...      0.029         2.604        2.604
-64               ostapeno@mila.quebec  2024      1.411  ...      0.002         0.521        0.521
-71           yipeng.zhang@mila.quebec  2024      0.948  ...      0.015         1.456        4.167
+                                 user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+68       omar.salemohamed@mila.quebec  2024     17.078        12.354       23.973  ...             2.714           31.204      0.000           NaN          NaN
+73      emiliano.penaloza@mila.quebec  2024      8.797        13.024       22.008  ...            11.945           48.095      0.164         4.515       26.043
+56  mizu.nishikawa-toomey@mila.quebec  2024      3.840        12.700       22.008  ...             3.782           10.417      0.029         2.604        2.604
+64               ostapeno@mila.quebec  2024      1.411        13.590       22.008  ...             9.587           10.417      0.002         0.521        0.521
+71           yipeng.zhang@mila.quebec  2024      0.948        13.205       13.205  ...             4.391            8.334      0.015         1.456        4.167
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

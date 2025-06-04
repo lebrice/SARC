@@ -1,30 +1,30 @@
-Students supervised by christopher.pal@mila.quebec: ['Christopher Beckham', 'Amine El hattami', 'Jae Hyun Lim', 'Mats-Leon Richter', 'Matthew Fortier', 'Can Chen', 'Shubham Agarwal', 'Vikram Voleti', 'Anthony Gosselin', 'Mattie Tesfaldet', 'Haozhe Zhang', 'Julien Roy', 'Georges BelangerAlbarran', 'Simon Guiroy', 'Martin Weiss', 'Florian Golemo', 'Jonathan Pilault', 'Simon Chamorro', 'Abdou Mousas', 'Olga Xu', 'Alexandre Piché', 'Zhi Hao Luo', 'Roger Girgis', 'Abhinav Gupta', 'Paul Barde', 'Luke Rowe', 'Haozhe Zhang', 'Florian Golemo', 'Léa Demeule', 'Chris Emezue', 'Hugo Baudchon', 'Juan Rodriguez', 'Aristides Milios', 'Michelle Lin']
+Students supervised by christopher.pal@mila.quebec: 32: ['Abdou Mousas', 'Abhinav Gupta', 'Alexandre Piché', 'Amine El hattami', 'Anthony Gosselin', 'Aristides Milios', 'Can Chen', 'Chris Emezue', 'Christopher Beckham', 'Florian Golemo', 'Georges BelangerAlbarran', 'Haozhe Zhang', 'Hugo Baudchon', 'Jae Hyun Lim', 'Jonathan Pilault', 'Juan Rodriguez', 'Julien Roy', 'Luke Rowe', 'Léa Demeule', 'Martin Weiss', 'Mats-Leon Richter', 'Matthew Fortier', 'Mattie Tesfaldet', 'Michelle Lin', 'Olga Xu', 'Paul Barde', 'Roger Girgis', 'Shubham Agarwal', 'Simon Chamorro', 'Simon Guiroy', 'Vikram Voleti', 'Zhi Hao Luo']
 Compute usage in christopher.pal@mila.quebec's group:
 5 students that used the most compute in christopher.pal@mila.quebec's group in 2022:
-                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-24           bardepau@mila.quebec  2022     25.540         8.010  ...           22.286      0.094         1.415       13.798
-14           weissmar@mila.quebec  2022      7.764        13.416  ...           40.116      0.802         7.882       26.075
-3   mats-leon.richter@mila.quebec  2022      5.439        11.631  ...           11.210      0.022         5.048        8.407
-9    mattie.tesfaldet@mila.quebec  2022      4.625        12.896  ...            8.407      0.000           NaN          NaN
-7            voletivi@mila.quebec  2022      4.535        13.207  ...           10.698      0.000           NaN          NaN
+                             user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+24           bardepau@mila.quebec  2022     25.540         8.010       21.493  ...            10.567           22.286      0.094         1.415       13.798
+14           weissmar@mila.quebec  2022      7.764        13.416       21.493  ...             7.250           40.116      0.802         7.882       26.075
+3   mats-leon.richter@mila.quebec  2022      5.439        11.631       21.493  ...             6.228           11.210      0.022         5.048        8.407
+9    mattie.tesfaldet@mila.quebec  2022      4.625        12.896       12.896  ...             4.390            8.407      0.000           NaN          NaN
+7            voletivi@mila.quebec  2022      4.535        13.207       16.811  ...             4.230           10.698      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in christopher.pal@mila.quebec's group in 2023:
-                               user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-53               xugeya@mila.quebec  2023     14.041        14.098  ...           89.129      0.022         2.102       13.136
-63         chris.emezue@mila.quebec  2023     11.428        15.324  ...           62.188      7.313         9.317      269.031
-36             limjaehy@mila.quebec  2023     10.499        14.306  ...           42.790      0.000         5.349        5.349
-37    mats-leon.richter@mila.quebec  2023      8.724         9.354  ...           33.554      0.048         7.356        8.407
-34  christopher.beckham@mila.quebec  2023      7.346        12.538  ...           10.509      0.170         3.421        8.407
+                               user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+53               xugeya@mila.quebec  2023     14.041        14.098       21.493  ...            17.033           89.129      0.022         2.102       13.136
+63         chris.emezue@mila.quebec  2023     11.428        15.324       21.493  ...             9.825           62.188      7.313         9.317      269.031
+36             limjaehy@mila.quebec  2023     10.499        14.306       21.493  ...            10.297           42.790      0.000         5.349        5.349
+37    mats-leon.richter@mila.quebec  2023      8.724         9.354       21.493  ...             8.930           33.554      0.048         7.356        8.407
+34  christopher.beckham@mila.quebec  2023      7.346        12.538       21.493  ...             5.357           10.509      0.170         3.421        8.407
 
 [5 rows x 12 columns]
 5 students that used the most compute in christopher.pal@mila.quebec's group in 2024:
-                       user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-93    luke.rowe@mila.quebec  2024     13.534        15.442  ...           32.841      2.889         4.865       33.629
-87       xugeya@mila.quebec  2024      9.939        18.035  ...           33.629      1.210         0.621        2.102
-96  lea.demeule@mila.quebec  2024      7.863        13.411  ...           12.229      0.075         6.544       33.629
-70     limjaehy@mila.quebec  2024      7.493        18.749  ...           42.790      0.183         8.201       10.698
-89     luozhiha@mila.quebec  2024      6.372        13.328  ...            8.407      0.028         0.525        0.525
+                       user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+93    luke.rowe@mila.quebec  2024     13.534        15.442       21.493  ...             7.297           32.841      2.889         4.865       33.629
+87       xugeya@mila.quebec  2024      9.939        18.035       33.057  ...             6.953           33.629      1.210         0.621        2.102
+96  lea.demeule@mila.quebec  2024      7.863        13.411       21.493  ...             5.418           12.229      0.075         6.544       33.629
+70     limjaehy@mila.quebec  2024      7.493        18.749       21.493  ...             6.122           42.790      0.183         8.201       10.698
+89     luozhiha@mila.quebec  2024      6.372        13.328       30.467  ...             3.551            8.407      0.028         0.525        0.525
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

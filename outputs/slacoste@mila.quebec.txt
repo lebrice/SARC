@@ -1,30 +1,30 @@
-Students supervised by slacoste@mila.quebec: ['Jose Gallego', 'Jihye Kim', 'Aristide Baratin', 'Antonio Orvieto', 'Rémi Le Priol', 'Sébastien Lachapelle', 'Mansi Rankawat', 'Sharan Vaswani', 'Antonio-Miguel Gois', 'Motahareh Sohrabi', 'Rozhin Nobahari', 'Vitoria Barin-Pacela', 'DOHA HWANG', 'Pedram Khorsandi', 'Juan Camilo Ramirez De Los Rios', 'Reza Babanezhad Harikandeh', 'Tianyue Zhang', 'Gabriel Huang', 'Lucas Maes', 'Boris Knyazev', 'Antonio Orvieto', 'Rémi Le Priol', 'Yan Zhang', 'Michelle Liu', 'Sharan Vaswani', 'Damien Scieur', 'Seyed Meraj Hashemizadehaghda', 'Kiho Cho', 'Yash Goyal', 'Alexia Jolicoeur-Martineau', 'Marwa El Halabi', 'Gabriel Huang', 'Jaewoo Lee', 'Kwon Kisoo', 'Kiho Cho', 'Jaewoo Lee', 'Kwon Kisoo']
+Students supervised by slacoste@mila.quebec: 30: ['Alexia Jolicoeur-Martineau', 'Antonio Orvieto', 'Antonio-Miguel Gois', 'Aristide Baratin', 'Boris Knyazev', 'DOHA HWANG', 'Damien Scieur', 'Gabriel Huang', 'Jaewoo Lee', 'Jihye Kim', 'Jose Gallego', 'Juan Camilo Ramirez De Los Rios', 'Kiho Cho', 'Kwon Kisoo', 'Lucas Maes', 'Mansi Rankawat', 'Marwa El Halabi', 'Michelle Liu', 'Motahareh Sohrabi', 'Pedram Khorsandi', 'Reza Babanezhad Harikandeh', 'Rozhin Nobahari', 'Rémi Le Priol', 'Seyed Meraj Hashemizadehaghda', 'Sharan Vaswani', 'Sébastien Lachapelle', 'Tianyue Zhang', 'Vitoria Barin-Pacela', 'Yan Zhang', 'Yash Goyal']
 Compute usage in slacoste@mila.quebec's group:
 5 students that used the most compute in slacoste@mila.quebec's group in 2022:
-                           user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-1         jihye.kim@mila.quebec  2022     48.182         8.329  ...           32.303      0.000        10.894       10.894
-19         knyazevb@mila.quebec  2022     33.352         7.150  ...           20.674      0.824        64.167      133.787
-30  marwa.el-halabi@mila.quebec  2022     10.231        10.389  ...            8.443     86.628         7.943       10.014
-29         jolicoea@mila.quebec  2022      8.144         3.315  ...           10.337      0.001         4.927        8.562
-12       doha.hwang@mila.quebec  2022      3.991        15.389  ...           13.618      0.000         0.272        0.545
+                           user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+1         jihye.kim@mila.quebec  2022     48.182         8.329       30.287  ...             5.852           32.303      0.000        10.894       10.894
+19         knyazevb@mila.quebec  2022     33.352         7.150       30.287  ...             6.394           20.674      0.824        64.167      133.787
+30  marwa.el-halabi@mila.quebec  2022     10.231        10.389       18.172  ...             5.557            8.443     86.628         7.943       10.014
+29         jolicoea@mila.quebec  2022      8.144         3.315       18.172  ...             7.457           10.337      0.001         4.927        8.562
+12       doha.hwang@mila.quebec  2022      3.991        15.389       18.172  ...             6.056           13.618      0.000         0.272        0.545
 
 [5 rows x 12 columns]
 5 students that used the most compute in slacoste@mila.quebec's group in 2023:
-                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-56           knyazevb@mila.quebec  2023     34.563        17.244  ...           66.888      1.204        43.621      139.444
-66           jolicoea@mila.quebec  2023     26.378         3.698  ...           16.424     16.307        45.564      139.444
-46  motahareh.sohrabi@mila.quebec  2023      8.953        21.075  ...           25.166      0.139         4.039        6.536
-38          jihye.kim@mila.quebec  2023      6.952         7.962  ...           13.618      0.000           NaN          NaN
-50   pedram.khorsandi@mila.quebec  2023      4.843         3.522  ...           14.859    134.413         3.317       12.331
+                             user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+56           knyazevb@mila.quebec  2023     34.563        17.244       30.287  ...            11.146           66.888      1.204        43.621      139.444
+66           jolicoea@mila.quebec  2023     26.378         3.698       30.287  ...             9.704           16.424     16.307        45.564      139.444
+46  motahareh.sohrabi@mila.quebec  2023      8.953        21.075       30.287  ...             5.004           25.166      0.139         4.039        6.536
+38          jihye.kim@mila.quebec  2023      6.952         7.962       30.287  ...             6.713           13.618      0.000           NaN          NaN
+50   pedram.khorsandi@mila.quebec  2023      4.843         3.522       10.321  ...             7.190           14.859    134.413         3.317       12.331
 
 [5 rows x 12 columns]
 5 students that used the most compute in slacoste@mila.quebec's group in 2024:
-                         user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-93       knyazevb@mila.quebec  2024     25.969        19.536  ...           52.387      0.170        47.726      139.444
-103      jolicoea@mila.quebec  2024     16.512        24.692  ...           67.109      5.068        59.967      204.264
-88   juan.ramirez@mila.quebec  2024     16.193        22.081  ...           20.972      0.290         0.297        0.545
-100      merajhse@mila.quebec  2024      5.682        25.022  ...            8.715      0.000           NaN          NaN
-92     lucas.maes@mila.quebec  2024      5.171        16.516  ...           34.861      0.518         3.243       17.431
+                         user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+93       knyazevb@mila.quebec  2024     25.969        19.536       35.275  ...             8.724           52.387      0.170        47.726      139.444
+103      jolicoea@mila.quebec  2024     16.512        24.692       30.287  ...            13.234           67.109      5.068        59.967      204.264
+88   juan.ramirez@mila.quebec  2024     16.193        22.081       30.287  ...             5.856           20.972      0.290         0.297        0.545
+100      merajhse@mila.quebec  2024      5.682        25.022       30.287  ...             7.310            8.715      0.000           NaN          NaN
+92     lucas.maes@mila.quebec  2024      5.171        16.516       30.287  ...            10.900           34.861      0.518         3.243       17.431
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

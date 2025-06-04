@@ -1,30 +1,30 @@
-Students supervised by tangjian@mila.quebec: ['Xinyu Yuan', 'Ryan-Rhys Griffiths', 'Jiarui Lu', 'Chence Shi', 'Fang Sun', 'Wentao Zhang', 'Mikhail Galkin', 'Jianan Zhao', 'Zuobai Zhang', 'Felix Drost', 'Meng Qu', 'Andreea-Ioana Deac', 'Yangtian Zhang', 'Bozitao Zhong', 'Arian Jamasb', 'Zhaocheng Zhu', 'Shengchao Liu', 'Huiyu Cai', 'Minghao Xu', 'Chuanrui Wang', 'Zhihao Zhan', 'Sophie Xhonneux', 'Shaoning Li', 'Zewen Chi', 'Fang Sun', 'Felix Drost', 'Arian Jamasb', 'Shaoning Li', 'Nicole Duane', 'Stephen Lu', 'Walter Virany', 'Nicole Duane', 'Walter Virany', 'Stephen Lu']
+Students supervised by tangjian@mila.quebec: 27: ['Andreea-Ioana Deac', 'Arian Jamasb', 'Bozitao Zhong', 'Chence Shi', 'Chuanrui Wang', 'Fang Sun', 'Felix Drost', 'Huiyu Cai', 'Jianan Zhao', 'Jiarui Lu', 'Meng Qu', 'Mikhail Galkin', 'Minghao Xu', 'Nicole Duane', 'Ryan-Rhys Griffiths', 'Shaoning Li', 'Shengchao Liu', 'Sophie Xhonneux', 'Stephen Lu', 'Walter Virany', 'Wentao Zhang', 'Xinyu Yuan', 'Yangtian Zhang', 'Zewen Chi', 'Zhaocheng Zhu', 'Zhihao Zhan', 'Zuobai Zhang']
 Compute usage in tangjian@mila.quebec's group:
 5 students that used the most compute in tangjian@mila.quebec's group in 2022:
-                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-16      liusheng@mila.quebec  2022     51.951         8.665  ...           19.011      0.067        17.503       17.503
-8   zuobai.zhang@mila.quebec  2022     36.743        11.248  ...           29.705      1.751        57.456       59.172
-5   wentao.zhang@mila.quebec  2022     13.697        12.235  ...           23.348      0.009         0.671        2.918
-2      jiarui.lu@mila.quebec  2022      7.008         7.359  ...           22.813     60.709        37.840       60.835
-15      zhuzhaoc@mila.quebec  2022      3.933         9.932  ...           29.586      0.000           NaN          NaN
+                        user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+16      liusheng@mila.quebec  2022     51.951         8.665       10.598  ...             8.777           19.011      0.067        17.503       17.503
+8   zuobai.zhang@mila.quebec  2022     36.743        11.248       13.214  ...            14.138           29.705      1.751        57.456       59.172
+5   wentao.zhang@mila.quebec  2022     13.697        12.235       22.023  ...             4.446           23.348      0.009         0.671        2.918
+2      jiarui.lu@mila.quebec  2022      7.008         7.359       10.598  ...            14.748           22.813     60.709        37.840       60.835
+15      zhuzhaoc@mila.quebec  2022      3.933         9.932       13.214  ...            16.518           29.586      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in tangjian@mila.quebec's group in 2023:
-                        user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-50      liusheng@mila.quebec  2023     58.698         9.068  ...           60.835     10.609        19.724      121.671
-34    xinyu.yuan@mila.quebec  2023     25.855         9.464  ...           57.033     10.270       146.598      190.110
-36     jiarui.lu@mila.quebec  2023     11.786         7.162  ...           44.145      3.596        40.765       74.712
-39  wentao.zhang@mila.quebec  2023      9.355        15.025  ...           62.382      5.568        98.980      149.425
-41   jianan.zhao@mila.quebec  2023      7.227        15.086  ...           52.429      1.540        30.495       58.369
+                        user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+50      liusheng@mila.quebec  2023     58.698         9.068       10.598  ...            14.338           60.835     10.609        19.724      121.671
+34    xinyu.yuan@mila.quebec  2023     25.855         9.464       22.023  ...            23.668           57.033     10.270       146.598      190.110
+36     jiarui.lu@mila.quebec  2023     11.786         7.162       22.023  ...             7.683           44.145      3.596        40.765       74.712
+39  wentao.zhang@mila.quebec  2023      9.355        15.025       22.023  ...             2.972           62.382      5.568        98.980      149.425
+41   jianan.zhao@mila.quebec  2023      7.227        15.086       22.023  ...            14.128           52.429      1.540        30.495       58.369
 
 [5 rows x 12 columns]
 5 students that used the most compute in tangjian@mila.quebec's group in 2024:
-                       user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-70    jiarui.lu@mila.quebec  2024     22.191         9.988  ...           37.356      2.495        19.395       56.034
-88  zhihao.zhan@mila.quebec  2024     18.666        11.738  ...           95.055      8.017        23.834      356.457
-68   xinyu.yuan@mila.quebec  2024     13.543        11.319  ...           59.410      7.500       475.276      760.442
-75  jianan.zhao@mila.quebec  2024     12.895        12.883  ...           37.356      0.450        12.223       58.369
-84     liusheng@mila.quebec  2024      4.985         9.605  ...           60.835      0.721        27.031       60.835
+                       user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+70    jiarui.lu@mila.quebec  2024     22.191         9.988       30.676  ...             8.387           37.356      2.495        19.395       56.034
+88  zhihao.zhan@mila.quebec  2024     18.666        11.738       22.023  ...            17.609           95.055      8.017        23.834      356.457
+68   xinyu.yuan@mila.quebec  2024     13.543        11.319       22.023  ...            33.238           59.410      7.500       475.276      760.442
+75  jianan.zhao@mila.quebec  2024     12.895        12.883       35.649  ...            13.396           37.356      0.450        12.223       58.369
+84     liusheng@mila.quebec  2024      4.985         9.605       10.598  ...            32.286           60.835      0.721        27.031       60.835
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

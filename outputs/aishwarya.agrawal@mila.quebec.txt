@@ -1,30 +1,30 @@
-Students supervised by aishwarya.agrawal@mila.quebec: ['Saba Ahmadi', 'Le Zhang', 'Oscar Mañas', 'Sarvjeet-Singh Ghotra', 'Jing-Yu Koh', 'Vitaly Kondulukov', 'Rabiul Awal', 'Qian Yang', 'Vanya Bannihatti', 'Kanishk Jain', 'Shravan Nayak', 'Jing-Yu Koh', 'Vitaly Kondulukov', 'Vanya Bannihatti', 'Ankur Sikarwar']
+Students supervised by aishwarya.agrawal@mila.quebec: 12: ['Ankur Sikarwar', 'Jing-Yu Koh', 'Kanishk Jain', 'Le Zhang', 'Oscar Mañas', 'Qian Yang', 'Rabiul Awal', 'Saba Ahmadi', 'Sarvjeet-Singh Ghotra', 'Shravan Nayak', 'Vanya Bannihatti', 'Vitaly Kondulukov']
 Compute usage in aishwarya.agrawal@mila.quebec's group:
 5 students that used the most compute in aishwarya.agrawal@mila.quebec's group in 2022:
-                                user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-2            oscar.manas@mila.quebec  2022     17.837        18.698  ...           23.100      0.000           NaN          NaN
-0            saba.ahmadi@mila.quebec  2022      2.625        20.751  ...           30.800      0.000        31.281       61.600
-3  sarvjeet-singh.ghotra@mila.quebec  2022      1.243        19.428  ...           23.100      0.114        10.350       30.800
-1               le.zhang@mila.quebec  2022      0.571        19.599  ...           15.400      0.001         0.962        0.962
-4            jing-yu.koh@mila.quebec  2022      0.000           NaN  ...              NaN      0.000           NaN          NaN
+                                user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+2            oscar.manas@mila.quebec  2022     17.837        18.698       34.628  ...            11.221           23.100      0.000           NaN          NaN
+0            saba.ahmadi@mila.quebec  2022      2.625        20.751       34.628  ...            14.718           30.800      0.000        31.281       61.600
+3  sarvjeet-singh.ghotra@mila.quebec  2022      1.243        19.428       34.628  ...            12.296           23.100      0.114        10.350       30.800
+1               le.zhang@mila.quebec  2022      0.571        19.599       34.628  ...             7.931           15.400      0.001         0.962        0.962
+4            jing-yu.koh@mila.quebec  2022      0.000           NaN          NaN  ...               NaN              NaN      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in aishwarya.agrawal@mila.quebec's group in 2023:
-                                 user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-21            rabiul.awal@mila.quebec  2023     25.226  ...      0.116         2.968       15.400
-17            oscar.manas@mila.quebec  2023     10.168  ...      0.008        53.900       61.600
-16               le.zhang@mila.quebec  2023      5.482  ...      0.013         6.029       48.125
-22              qian.yang@mila.quebec  2023      3.091  ...      0.317        10.613       30.800
-18  sarvjeet-singh.ghotra@mila.quebec  2023      2.766  ...      0.096        12.726       30.800
+                                 user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+21            rabiul.awal@mila.quebec  2023     25.226        23.057       34.628  ...            14.348           63.702      0.116         2.968       15.400
+17            oscar.manas@mila.quebec  2023     10.168        28.750       34.628  ...            13.040           37.156      0.008        53.900       61.600
+16               le.zhang@mila.quebec  2023      5.482        27.536       34.628  ...            11.876           64.987      0.013         6.029       48.125
+22              qian.yang@mila.quebec  2023      3.091        27.666       34.628  ...            12.257           49.324      0.317        10.613       30.800
+18  sarvjeet-singh.ghotra@mila.quebec  2023      2.766        26.503       34.628  ...            17.027          100.508      0.096        12.726       30.800
 
 [5 rows x 12 columns]
 5 students that used the most compute in aishwarya.agrawal@mila.quebec's group in 2024:
-                         user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-36    rabiul.awal@mila.quebec  2024     33.068        25.240  ...           40.104      0.075         3.059       11.550
-37      qian.yang@mila.quebec  2024     14.743        30.871  ...           61.600      2.677        13.962       96.250
-39   kanishk.jain@mila.quebec  2024      9.472        32.035  ...           57.750      0.647         4.130       57.750
-31       le.zhang@mila.quebec  2024      8.335        30.897  ...           61.600      0.954        20.777      123.200
-40  shravan.nayak@mila.quebec  2024      2.970        32.932  ...           61.600      0.825         4.998       23.100
+                         user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+36    rabiul.awal@mila.quebec  2024     33.068        25.240       37.657  ...            11.619           40.104      0.075         3.059       11.550
+37      qian.yang@mila.quebec  2024     14.743        30.871       34.628  ...            12.819           61.600      2.677        13.962       96.250
+39   kanishk.jain@mila.quebec  2024      9.472        32.035       34.628  ...            12.049           57.750      0.647         4.130       57.750
+31       le.zhang@mila.quebec  2024      8.335        30.897       34.628  ...            20.032           61.600      0.954        20.777      123.200
+40  shravan.nayak@mila.quebec  2024      2.970        32.932       39.600  ...            14.578           61.600      0.825         4.998       23.100
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

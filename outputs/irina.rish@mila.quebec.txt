@@ -1,30 +1,30 @@
-Students supervised by irina.rish@mila.quebec: ['Mai-Thi Ho', 'Marianna Nezhurina', 'Arian Khorasani', 'Alexis Roger', 'Nizar Islah', 'Andrei Mircea Romascanu', 'Alexandre Simard', 'Ethan Caballero', 'Jean-Christophe Gagnon-Audet', 'Matthew Riemer', 'Gabriela Moisescu-Pareja', 'Reza Bayat', 'Quentin Anthony', 'Ayush Kaushal', 'Benjamin Therien', 'Nadhir Hassen', 'Connor Brennan', 'David Whipps', 'Amin Memarian', 'Timothy Nest', 'Sparsha Mishra', 'Germán Ezequiel Abrevaya', 'Kshitij Gupta', 'Arthur Dehgan', 'Remus Mocanu', 'Andrew Williams', 'Marc-André Piché', 'Timothée Lesort', 'Gopeshh Raaj Subbaraj', 'Md Rifat Arefin', 'Mohammad Javad Darvishi Bayazi', 'Diganta Misra', 'Pascal Tikeng Notsaw', 'Tejas Vaidhya', 'Laleh Touraj', 'Mojtaba Faramarzi', 'Ivan Anokhin', 'Gwendolyne Legate', 'Quentin Fournier', 'Mohammad-Reza Samsami', 'Arnav Kumar Jain', 'Parviz Haggi Mani', 'Mahta Ramezanian', 'Maximilian Puelma Touzel', 'Gavin McCracken', 'Sayed Mansouri-Tehrani', 'Omar Younis', 'Amin Darabi', 'Rishika Bhagwatkar', 'Roland Riachi', 'Ekaterina Lobacheva', 'Birger Moell', 'Mai-Thi Ho', 'Daria Yasafova', 'Marianna Nezhurina', 'Sarthak Mittal', 'Alexandre Simard', 'Mohammad Pezeshki', 'Quentin Anthony', 'Adam Ibrahim', 'Marc-André Piché', 'Parviz Haggi Mani', 'Maximilian Puelma Touzel', 'Arjun Ashok', 'Zahra Sheikhbahaee', 'Birger Moell', 'George Adamopoulos', 'Paolo Cudrano', 'Prateek Humane', 'Ardavan Nobandegani', 'Juan Mayor-Torres', 'David Lemay', 'Alexis Roger', 'Amin Memarian', 'Amin Memarian', 'Juan Mayor-Torres', 'Daria Yasafova', 'George Adamopoulos']
+Students supervised by irina.rish@mila.quebec: 64: ['Adam Ibrahim', 'Alexandre Simard', 'Alexis Roger', 'Amin Darabi', 'Amin Memarian', 'Andrei Mircea Romascanu', 'Andrew Williams', 'Ardavan Nobandegani', 'Arian Khorasani', 'Arjun Ashok', 'Arnav Kumar Jain', 'Arthur Dehgan', 'Ayush Kaushal', 'Benjamin Therien', 'Birger Moell', 'Connor Brennan', 'Daria Yasafova', 'David Lemay', 'David Whipps', 'Diganta Misra', 'Ekaterina Lobacheva', 'Ethan Caballero', 'Gabriela Moisescu-Pareja', 'Gavin McCracken', 'George Adamopoulos', 'Germán Ezequiel Abrevaya', 'Gopeshh Raaj Subbaraj', 'Gwendolyne Legate', 'Ivan Anokhin', 'Jean-Christophe Gagnon-Audet', 'Juan Mayor-Torres', 'Kshitij Gupta', 'Laleh Touraj', 'Mahta Ramezanian', 'Mai-Thi Ho', 'Marc-André Piché', 'Marianna Nezhurina', 'Matthew Riemer', 'Maximilian Puelma Touzel', 'Md Rifat Arefin', 'Mohammad Javad Darvishi Bayazi', 'Mohammad Pezeshki', 'Mohammad-Reza Samsami', 'Mojtaba Faramarzi', 'Nadhir Hassen', 'Nizar Islah', 'Omar Younis', 'Paolo Cudrano', 'Parviz Haggi Mani', 'Pascal Tikeng Notsaw', 'Prateek Humane', 'Quentin Anthony', 'Quentin Fournier', 'Remus Mocanu', 'Reza Bayat', 'Rishika Bhagwatkar', 'Roland Riachi', 'Sarthak Mittal', 'Sayed Mansouri-Tehrani', 'Sparsha Mishra', 'Tejas Vaidhya', 'Timothy Nest', 'Timothée Lesort', 'Zahra Sheikhbahaee']
 Compute usage in irina.rish@mila.quebec's group:
 5 students that used the most compute in irina.rish@mila.quebec's group in 2022:
-                           user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-55         mittalsa@mila.quebec  2022    100.063        11.700  ...           36.313      0.814         4.379        7.819
-5          mirceara@mila.quebec  2022     11.353        10.983  ...           60.521      0.046        23.863       54.692
-7   ethan.caballero@mila.quebec  2022     10.728         5.031  ...            7.819      0.000           NaN          NaN
-43         puelmatm@mila.quebec  2022      8.847        11.708  ...           10.501      0.000           NaN          NaN
-62         puelmatm@mila.quebec  2022      8.847        11.708  ...           10.501      0.000           NaN          NaN
+                           user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+55         mittalsa@mila.quebec  2022    100.063        11.700       20.119  ...             9.176           36.313      0.814         4.379        7.819
+5          mirceara@mila.quebec  2022     11.353        10.983       13.382  ...             7.293           60.521      0.046        23.863       54.692
+7   ethan.caballero@mila.quebec  2022     10.728         5.031        7.346  ...             3.575            7.819      0.000           NaN          NaN
+43         puelmatm@mila.quebec  2022      8.847        11.708       20.119  ...             3.113           10.501      0.000           NaN          NaN
+62         puelmatm@mila.quebec  2022      8.847        11.708       20.119  ...             3.113           10.501      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in irina.rish@mila.quebec's group in 2023:
-                                           user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-133                        mittalsa@mila.quebec  2023     54.290  ...      0.165         4.745       14.001
-117           mohammad-reza.samsami@mila.quebec  2023     26.382  ...      0.112         1.186        7.819
-116                quentin.fournier@mila.quebec  2023     24.236  ...     20.659         4.854      122.664
-108  mohammad-javad.darvishi-bayasi@mila.quebec  2023     20.387  ...      0.466        29.782      154.012
-107                        arefinmr@mila.quebec  2023     16.321  ...      0.000         2.625        2.625
+                                           user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+133                        mittalsa@mila.quebec  2023     54.290        13.162       20.119  ...             4.813           27.219      0.165         4.745       14.001
+117           mohammad-reza.samsami@mila.quebec  2023     26.382        12.255       20.119  ...            18.878           82.134      0.112         1.186        7.819
+116                quentin.fournier@mila.quebec  2023     24.236        12.902       20.119  ...             5.619          134.218     20.659         4.854      122.664
+108  mohammad-javad.darvishi-bayasi@mila.quebec  2023     20.387        17.491       20.119  ...            11.724          126.086      0.466        29.782      154.012
+107                        arefinmr@mila.quebec  2023     16.321        12.632       20.119  ...             6.591           33.202      0.000         2.625        2.625
 
 [5 rows x 12 columns]
 5 students that used the most compute in irina.rish@mila.quebec's group in 2024:
-                              user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-176     sparsha.mishra@mila.quebec  2024     91.607        12.269  ...           16.777      0.043         2.694        6.563
-185           arefinmr@mila.quebec  2024     91.582        12.011  ...           17.488      0.003         7.219       14.001
-211           mittalsa@mila.quebec  2024     74.819        12.361  ...           28.002      0.264         1.511       10.501
-161           mirceara@mila.quebec  2024     53.993        14.338  ...           28.002      0.878        11.897       56.004
-193  gwendolyne.legate@mila.quebec  2024     30.901         7.990  ...          121.042      0.041        29.752       48.129
+                              user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+176     sparsha.mishra@mila.quebec  2024     91.607        12.269       35.235  ...             5.075           16.777      0.043         2.694        6.563
+185           arefinmr@mila.quebec  2024     91.582        12.011       20.119  ...             8.449           17.488      0.003         7.219       14.001
+211           mittalsa@mila.quebec  2024     74.819        12.361       20.119  ...             6.009           28.002      0.264         1.511       10.501
+161           mirceara@mila.quebec  2024     53.993        14.338       20.119  ...             6.720           28.002      0.878        11.897       56.004
+193  gwendolyne.legate@mila.quebec  2024     30.901         7.990       20.119  ...            13.868          121.042      0.041        29.752       48.129
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

@@ -1,30 +1,30 @@
-Students supervised by cheungja@mila.quebec: ['Kushal Arora', 'Rahul Aralikatte', 'Ziling Cheng', 'Ian Porada', 'Zixuan Li', 'Caleb Moses', 'Andre Cianflone', 'Michael Runningwolf', 'Konstantinos Tsiolis', 'Cesare Spinoso', 'Meng Cao', 'Maxime Darrin', 'Martin Pomsl', 'Ines Arous', 'Aylin Erman', 'Aishik Chakraborty', 'Yu Lu Liu', 'Yu Bai', 'Muawiz Chaudhary', 'Jules Gagnon-Marchand', 'Akshatha Arodi Nagaraja', 'Frederic Beaupre', 'Xiyuan Zou', 'Sabina Elkins', 'Nirav Diwan', 'Jad Kabbara', 'Konstantinos Tsiolis', 'Bonaventure Dossou', 'Muawiz Chaudhary', 'Frederic Beaupre', 'Sabina Elkins', 'Nirav Diwan', 'Jad Kabbara', 'Antoine Dangeard', 'Haowei Qiu', 'Nathan Zeweniuk', 'Ori Ernst', 'Steven Koniaev', 'Sienna Hsu', 'Sina Salmannia', 'David Austin', 'Lorenzo Flores', 'Antoine Dangeard', 'Nathan Zeweniuk', 'Steven Koniaev', 'Lorenzo Flores']
+Students supervised by cheungja@mila.quebec: 36: ['Aishik Chakraborty', 'Akshatha Arodi Nagaraja', 'Andre Cianflone', 'Antoine Dangeard', 'Aylin Erman', 'Bonaventure Dossou', 'Caleb Moses', 'Cesare Spinoso', 'David Austin', 'Frederic Beaupre', 'Haowei Qiu', 'Ian Porada', 'Ines Arous', 'Jad Kabbara', 'Jules Gagnon-Marchand', 'Konstantinos Tsiolis', 'Kushal Arora', 'Lorenzo Flores', 'Martin Pomsl', 'Maxime Darrin', 'Meng Cao', 'Michael Runningwolf', 'Muawiz Chaudhary', 'Nathan Zeweniuk', 'Nirav Diwan', 'Ori Ernst', 'Rahul Aralikatte', 'Sabina Elkins', 'Sienna Hsu', 'Sina Salmannia', 'Steven Koniaev', 'Xiyuan Zou', 'Yu Bai', 'Yu Lu Liu', 'Ziling Cheng', 'Zixuan Li']
 Compute usage in cheungja@mila.quebec's group:
 5 students that used the most compute in cheungja@mila.quebec's group in 2022:
-                                   user  year  gpu_years  ...  cpu_years  cpu_mem_mean  cpu_mem_max
-19                 gagnonju@mila.quebec  2022     20.905  ...      0.000           NaN          NaN
-20  akshatha.arodi-nagaraja@mila.quebec  2022      8.913  ...      0.142         1.042        8.109
-10                  caomeng@mila.quebec  2022      8.230  ...      0.000           NaN          NaN
-18         muawiz.chaudhary@mila.quebec  2022      3.819  ...      0.000         4.800        5.068
-28         muawiz.chaudhary@mila.quebec  2022      3.819  ...      0.000         4.800        5.068
+                                   user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+19                 gagnonju@mila.quebec  2022     20.905         9.936       19.100  ...             7.881           12.670      0.000           NaN          NaN
+20  akshatha.arodi-nagaraja@mila.quebec  2022      8.913        11.084       11.460  ...             6.697           16.218      0.142         1.042        8.109
+10                  caomeng@mila.quebec  2022      8.230         8.653       19.100  ...             6.978           15.401      0.000           NaN          NaN
+18         muawiz.chaudhary@mila.quebec  2022      3.819        10.690       19.100  ...             4.990            5.068      0.000         4.800        5.068
+28         muawiz.chaudhary@mila.quebec  2022      3.819        10.690       19.100  ...             4.990            5.068      0.000         4.800        5.068
 
 [5 rows x 12 columns]
 5 students that used the most compute in cheungja@mila.quebec's group in 2023:
-                              user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-65            gagnonju@mila.quebec  2023     28.336        12.555  ...           46.740      0.686         3.048       64.870
-56             caomeng@mila.quebec  2023     12.651        16.268  ...           60.464      0.000           NaN          NaN
-73  bonaventure.dossou@mila.quebec  2023      6.919        17.275  ...           25.166      0.000           NaN          NaN
-48        ziling.cheng@mila.quebec  2023      6.571        11.725  ...           25.166      0.516         7.562       70.632
-50           zixuan.li@mila.quebec  2023      5.535        17.016  ...           50.332      0.024         0.507        0.507
+                              user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+65            gagnonju@mila.quebec  2023     28.336        12.555       19.100  ...             8.426           46.740      0.686         3.048       64.870
+56             caomeng@mila.quebec  2023     12.651        16.268       19.100  ...             7.374           60.464      0.000           NaN          NaN
+73  bonaventure.dossou@mila.quebec  2023      6.919        17.275       19.100  ...             4.559           25.166      0.000           NaN          NaN
+48        ziling.cheng@mila.quebec  2023      6.571        11.725       19.100  ...             5.546           25.166      0.516         7.562       70.632
+50           zixuan.li@mila.quebec  2023      5.535        17.016       19.100  ...             8.949           50.332      0.024         0.507        0.507
 
 [5 rows x 12 columns]
 5 students that used the most compute in cheungja@mila.quebec's group in 2024:
-                               user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-119  bonaventure.dossou@mila.quebec  2024     11.746        14.797  ...           13.244      0.000           NaN          NaN
-110    muawiz.chaudhary@mila.quebec  2024     10.653        19.001  ...           23.684      0.008         8.024       24.580
-120    muawiz.chaudhary@mila.quebec  2024     10.653        19.001  ...           23.684      0.008         8.024       24.580
-102             caomeng@mila.quebec  2024      5.124        18.252  ...           16.266      0.000           NaN          NaN
-96            zixuan.li@mila.quebec  2024      5.031        15.803  ...           62.915      0.016         2.365       12.163
+                               user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+119  bonaventure.dossou@mila.quebec  2024     11.746        14.797       19.100  ...             5.405           13.244      0.000           NaN          NaN
+110    muawiz.chaudhary@mila.quebec  2024     10.653        19.001       19.100  ...             4.928           23.684      0.008         8.024       24.580
+120    muawiz.chaudhary@mila.quebec  2024     10.653        19.001       19.100  ...             4.928           23.684      0.008         8.024       24.580
+102             caomeng@mila.quebec  2024      5.124        18.252       19.100  ...             6.621           16.266      0.000           NaN          NaN
+96            zixuan.li@mila.quebec  2024      5.031        15.803       19.100  ...             9.205           62.915      0.016         2.365       12.163
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026

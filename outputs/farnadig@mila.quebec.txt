@@ -1,30 +1,30 @@
-Students supervised by farnadig@mila.quebec: ['Khaoula Chehbouni', 'Maricarmen Arenas', 'Jesse Thibodeau', 'Rebecca Salganik', 'Afaf Taik', 'Jisoo Lee', 'ROHAN SUKUMARAN', 'Raesetje Sefala', 'Jia Ao Sun', 'Kiarash Mohammadi', 'Mina Arzaghi', 'Nicola Neophytou', 'William St-Arnaud', 'Armin Moradi', 'Prakhar Ganesh', 'Saber Malekmohammadi', 'Yash More', 'Milan Van-den-Heuvel', 'YashRaj More', 'Maricarmen Arenas', 'Rebecca Salganik', 'Jisoo Lee', 'Jia Ao Sun', 'YashRaj More', 'Sebastian Reinhardt', 'Clea Chataigner', 'Florian Carichon', 'Marylou Fauchard', 'Alireza Farashah', 'Aditi Khandelwal', 'Aly Kassem', 'Sebastian Reinhardt']
+Students supervised by farnadig@mila.quebec: 26: ['Aditi Khandelwal', 'Afaf Taik', 'Alireza Farashah', 'Aly Kassem', 'Armin Moradi', 'Clea Chataigner', 'Florian Carichon', 'Jesse Thibodeau', 'Jia Ao Sun', 'Jisoo Lee', 'Khaoula Chehbouni', 'Kiarash Mohammadi', 'Maricarmen Arenas', 'Marylou Fauchard', 'Milan Van-den-Heuvel', 'Mina Arzaghi', 'Nicola Neophytou', 'Prakhar Ganesh', 'ROHAN SUKUMARAN', 'Raesetje Sefala', 'Rebecca Salganik', 'Saber Malekmohammadi', 'Sebastian Reinhardt', 'William St-Arnaud', 'Yash More', 'YashRaj More']
 Compute usage in farnadig@mila.quebec's group:
 5 students that used the most compute in farnadig@mila.quebec's group in 2022:
-                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-3    rebecca.salganik@mila.quebec  2022      4.058        10.094  ...           21.106      0.408        26.077       31.659
-20   rebecca.salganik@mila.quebec  2022      4.058        10.094  ...           21.106      0.408        26.077       31.659
-9   kiarash.mohammadi@mila.quebec  2022      0.639        10.923  ...            2.638      2.450         4.230       52.765
-1   maricarmen.arenas@mila.quebec  2022      0.182        11.340  ...           13.191      0.000           NaN          NaN
-19  maricarmen.arenas@mila.quebec  2022      0.182        11.340  ...           13.191      0.000           NaN          NaN
+                             user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+3    rebecca.salganik@mila.quebec  2022      4.058        10.094       18.950  ...            10.025           21.106      0.408        26.077       31.659
+20   rebecca.salganik@mila.quebec  2022      4.058        10.094       18.950  ...            10.025           21.106      0.408        26.077       31.659
+9   kiarash.mohammadi@mila.quebec  2022      0.639        10.923       11.370  ...             2.407            2.638      2.450         4.230       52.765
+1   maricarmen.arenas@mila.quebec  2022      0.182        11.340       11.370  ...             7.411           13.191      0.000           NaN          NaN
+19  maricarmen.arenas@mila.quebec  2022      0.182        11.340       11.370  ...             7.411           13.191      0.000           NaN          NaN
 
 [5 rows x 12 columns]
 5 students that used the most compute in farnadig@mila.quebec's group in 2023:
-                             user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-35   rebecca.salganik@mila.quebec  2023     13.118        15.042  ...           61.152      0.337         9.282       26.382
-52   rebecca.salganik@mila.quebec  2023     13.118        15.042  ...           61.152      0.337         9.282       26.382
-42       mina.arzaghi@mila.quebec  2023      9.044        11.915  ...           47.787      0.106         1.041        6.068
-32  khaoula.chehbouni@mila.quebec  2023      2.036        11.033  ...           53.942      0.150         2.647        8.442
-43   nicola.neophytou@mila.quebec  2023      1.683        14.703  ...           16.885      1.174        15.285       63.318
+                             user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+35   rebecca.salganik@mila.quebec  2023     13.118        15.042       18.950  ...            12.054           61.152      0.337         9.282       26.382
+52   rebecca.salganik@mila.quebec  2023     13.118        15.042       18.950  ...            12.054           61.152      0.337         9.282       26.382
+42       mina.arzaghi@mila.quebec  2023      9.044        11.915       18.950  ...             9.093           47.787      0.106         1.041        6.068
+32  khaoula.chehbouni@mila.quebec  2023      2.036        11.033       18.950  ...             7.906           53.942      0.150         2.647        8.442
+43   nicola.neophytou@mila.quebec  2023      1.683        14.703       18.950  ...             2.961           16.885      1.174        15.285       63.318
 
 [5 rows x 12 columns]
 5 students that used the most compute in farnadig@mila.quebec's group in 2024:
-                           user  year  gpu_years  gpu_mem_mean  ...  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
-89  clea.chataigner@mila.quebec  2024      9.593        11.821  ...           21.106      0.496         0.970       12.664
-80        yash.more@mila.quebec  2024      3.074        13.932  ...           98.477      0.142         0.702        8.442
-74     mina.arzaghi@mila.quebec  2024      2.455        12.426  ...           39.139      0.076         2.680       12.664
-78   prakhar.ganesh@mila.quebec  2024      2.167        11.085  ...           37.326      0.062         2.015        8.179
-66  jesse.thibodeau@mila.quebec  2024      1.944        10.382  ...            3.166      0.000         0.528        0.528
+                           user  year  gpu_years  gpu_mem_mean  gpu_mem_max  ...  gpu_cpu_mem_mean  gpu_cpu_mem_max  cpu_years  cpu_mem_mean  cpu_mem_max
+89  clea.chataigner@mila.quebec  2024      9.593        11.821       18.950  ...            12.251           21.106      0.496         0.970       12.664
+80        yash.more@mila.quebec  2024      3.074        13.932       33.041  ...            13.071           98.477      0.142         0.702        8.442
+74     mina.arzaghi@mila.quebec  2024      2.455        12.426       18.950  ...            11.723           39.139      0.076         2.680       12.664
+78   prakhar.ganesh@mila.quebec  2024      2.167        11.085       24.360  ...             7.541           37.326      0.062         2.015        8.179
+66  jesse.thibodeau@mila.quebec  2024      1.944        10.382       18.950  ...             2.584            3.166      0.000         0.528        0.528
 
 [5 rows x 12 columns]
 Year,2022,2023,2024,2025,2026
