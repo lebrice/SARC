@@ -390,6 +390,11 @@ def main():
     start = options.start  # datetime(2022, 1, 1)
     end = options.end  # datetime(2025, 1, 1)
 
+    if options.users_file:
+        # Use this (and comment out the `PROFS` default for `users` above) to query for usage stats of some specific users.
+        usage_query(options)
+        return
+
     # Uncomment to download all SARC data for that period only once, and filter it after.
     if set(profs) == set(_PROFS):
         _all_users_option = dataclasses.replace(options, user=[])
@@ -477,6 +482,30 @@ def main():
     plot_usage_projections(total_profs_data, usage_projections)
 
 
+def usage_query(options: Options):
+    """Shows the RGU usage of the selected users and period."""
+    data = _get_cleaned_df(options=options)
+    stats = _get_stats(data, options, frame_size="MS")
+    gpu_job_stats = stats[stats["requested.gres_gpu"] > 0]
+    grouped_gpu_stats = gpu_job_stats.groupby(["user.primary_email"])
+    total_jobs = grouped_gpu_stats["job_id"].nunique()
+    rgu_years_per_user = pd.concat(
+        {
+            "rgu_years": grouped_gpu_stats["rgu_equivalent_cost"].sum()
+            / seconds_in_a_year,
+            # "total_jobs": total_jobs,
+        },
+        axis="columns",
+    )
+    print(
+        rgu_years_per_user.sort_values(by="rgu_years", ascending=False).to_markdown()
+        # rgu_years_per_user.sort_values(by="rgu_years", ascending=False).to_csv(
+        #     float_format=lambda f: f"{f:.3f}"
+        # )
+    )
+    print(f"Total: {rgu_years_per_user.sum()}")
+
+
 def aggregate_usage_data(df: pd.DataFrame, groupby_level: str):
     """Does the mean of the cols with 'mean', max of cols with 'max', and sum other columns."""
     grouped = df.groupby(level=groupby_level)
@@ -501,8 +530,8 @@ def plot_usage_projections(
             [1487, 1651, 2000],
             [2300, 2702, 3201],
             [3235, 3199, 3199],
-            [3263, 3113, 6884],
-            [7740, 10444, 11223],
+            [3263, 3113, 6884],  # 2024
+            [7740, 10444, 11223],  # 2025
             [16585, 16585, 16858],
         ]
     ]
