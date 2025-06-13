@@ -1,44 +1,23 @@
 from __future__ import annotations
 
-import argparse
-import contextlib
 import dataclasses
 import functools
 import hashlib
 import json
-import logging
-import operator
 import os
-import pickle
 import random
+from re import sub
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Generic, Mapping, ParamSpec, TypeVar
+from typing import Callable, Mapping
 
 import numpy as np
 import pandas as pd
-import rich
-import rich.logging
 import simple_parsing
 import yaml
-from matplotlib import pyplot as plt
 from typing_extensions import Self
-
-os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
-
-from sarc.client.job import JobStatistics
-from sarc.client.series import compute_cost_and_waste, load_job_series
-from sarc.client.users.api import User, get_users
-from sarc.config import MTL, ClusterConfig
-from sarc.jobs.series import update_cluster_job_series_rgu
-
-if (_sarc_config := os.environ.get("SARC_CONFIG")) and Path(_sarc_config).exists():
-    CONFIG_FOLDER = Path(_sarc_config).parent
-else:
-    CONFIG_FOLDER = Path(__file__).parent / "config"
-
 import time
 
 from rich.layout import Layout
@@ -47,12 +26,33 @@ from rich.panel import Panel
 from rich.progress import Progress
 from rich.table import Table
 
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    MofNCompleteColumn,
+)
+
+os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
+
+from sarc.client.job import JobStatistics
+from sarc.client.series import compute_cost_and_waste, load_job_series
+from sarc.client.users.api import get_users
+from sarc.config import MTL, ClusterConfig
+from sarc.jobs.series import update_cluster_job_series_rgu
+
+if (_sarc_config := os.environ.get("SARC_CONFIG")) and Path(_sarc_config).exists():
+    CONFIG_FOLDER = Path(_sarc_config).parent
+else:
+    CONFIG_FOLDER = Path(__file__).parent / "config"
+
 
 def main():
-    with Live(make_waste_overview_table(), refresh_per_second=4) as live:
+    with Live(make_layout(), refresh_per_second=4) as live:
         for _ in range(40):
-            time.sleep(5)
             live.update(make_layout())
+            time.sleep(5)
 
 
 def make_layout() -> Layout:
@@ -61,60 +61,146 @@ def make_layout() -> Layout:
 
     layout.split(
         Layout(Header(), name="header", size=3),
-        Layout(name="main", ratio=1),
-        Layout(
-            name="footer", size=7
-        ),  # IDEA: Use this to show a progress bar to the next SARC refresh!
+        Layout(name="main"),
+        Layout(name="footer", size=7),
     )
-    layout["main"].split_row(
-        Layout(name="side"),
-        Layout(make_waste_overview_table(), name="body", ratio=2, minimum_size=60),
+    layout["main"].split_column(
+        Layout(make_waste_overview_table(), name="waste_overview_table"),
+        Layout(make_cluster_overview_table(), name="cluster_overvier"),
+        Layout(make_biggest_waster_job_info_table(), name="biggest_waster_jobs"),
     )
-    layout["side"].split(Layout(name="box1"), Layout(name="box2"))
+    # layout["side"].split(
+    #     Layout(make_avail_gpus_panel(), name="box1"),
+    #     Layout(make_avg_gpu_util_panel(), name="box2"),
+    # )
     return layout
 
 
 def make_waste_overview_table() -> Table:
     """Make a new table."""
-    table = Table()
+    table = Table(expand=True)
     table.add_column("User")
     table.add_column("Cluster")
     table.add_column("Total GPUs")
     table.add_column("Average GPU Utilization")
     table.add_column("Wasted GPU*hours in last 7 days")
-
-    for _row in range(random.randint(2, 6)):
+    n_users = 5
+    used_gpuss = np.random.uniform(0, 100, size=n_users)
+    avg_gpu_util = np.random.uniform(0, 1, size=n_users)
+    wastes = used_gpuss * (1 - avg_gpu_util)
+    for index in reversed(np.argsort(wastes)):
         username = random.choice(["Bob", "Alice", "Charlie", "Dave", "Eve"])
         cluster = random.choice(["mila", "narval", "drac", "beluga", "tamia"])
-        total_gpus = random.randint(1, 10)
-        avg_gpu_utilization = random.uniform(0, 1)
-        wasted_gpu_hours = random.uniform(0, 100)
+        used_gpus = used_gpuss[index]
+        gpu_util = avg_gpu_util[index]
+        waste = wastes[index]
+
         table.add_row(
             username,
             cluster,
-            str(total_gpus),
-            (
-                f"[red]{avg_gpu_utilization:.2%}"
-                if avg_gpu_utilization < 0.2
-                else f"[yellow]{avg_gpu_utilization:.2%}"
-            ),
+            str(used_gpus),
+            (f"[red]{gpu_util:.2%}" if gpu_util < 0.2 else f"[yellow]{gpu_util:.2%}"),
+            f"[blue]{waste:.2f}",
+        )
+    return table
+
+
+def make_cluster_overview_table() -> Table:
+    table = Table(expand=True)
+    table.add_column("Cluster", justify="left")
+    table.add_column("Available / Total GPUs", justify="right")
+    table.add_column("Average GPU Utilization")
+    table.add_column("Mila students using this cluster", justify="right")
+    total_mila_users = 1052
+    for cluster in ["mila", "narval", "drac", "beluga", "tamia"]:
+        total_gpus = random.randint(500, 1000)
+        avail_gpus = random.randint(0, total_gpus)
+        mila_users = random.randint(0, total_mila_users)
+        if cluster == "mila":
+            mila_users = 0.8 * total_mila_users
+        used_gpus_pct = avail_gpus / total_gpus
+        pct_of_mila_users = mila_users / total_mila_users
+        gpu_util = random.random()
+        table.add_row(
+            cluster,
+            f"{avail_gpus} / {total_gpus} ({used_gpus_pct:.2%})",
+            f"{gpu_util:.2%}",
+            f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
+        )
+    return table
+
+
+def make_biggest_waster_job_info_table() -> Table:
+    table = Table(title="Biggest wasting individual jobs", expand=True)
+    table.add_column("Job ID", justify="right")
+    table.add_column("User", justify="left")
+    table.add_column("Cluster", justify="left")
+    table.add_column("Workdir", justify="left")
+    table.add_column("submit command", justify="left")
+    table.add_column("Average GPU Utilization", justify="right")
+    table.add_column("Wasted GPU*hours", justify="right")
+    njobs = 10
+    avg_gpu_utilizations = sorted(np.random.uniform(0, 1, size=njobs), reverse=True)
+
+    for avg_gpu_utilization in avg_gpu_utilizations:
+        job_id = random.randint(1000000, 9999999)
+        username = random.choice(["Bob", "Alice", "Charlie", "Dave", "Eve"])
+        cluster = random.choice(["mila", "narval", "drac", "beluga", "tamia"])
+        workdir = f"/path/to/workdir/{job_id}"
+        submit_command = (
+            f"sbatch --gres=gpu:{random.randint(1, 4)} --time=01:00:00 {workdir}/run.sh"
+        )
+        wasted_gpu_hours = random.uniform(0, 100)
+        table.add_row(
+            str(job_id),
+            username,
+            cluster,
+            workdir,
+            submit_command,
+            f"[red]{avg_gpu_utilization:.2%}"
+            if avg_gpu_utilization < 0.2
+            else f"[green]{avg_gpu_utilization:.2%}",
             f"[blue]{wasted_gpu_hours:.2f}",
         )
     return table
 
 
-def make_clusters_overview_table() -> Table:
-    overall_progress = Progress()
-    overall_task = overall_progress.add_task("All Jobs", total=int(total))
-    progress_table = Table.grid(expand=True)
-    progress_table.add_row(
-        Panel(
-            overall_progress,
-            title="Overall Progress",
-            border_style="green",
-            padding=(2, 2),
-        ),
-        Panel(job_progress, title="[b]Jobs", border_style="red", padding=(1, 2)),
+def make_avail_gpus_panel() -> Panel:
+    avail_gpus = Progress(
+        "{task.description}",
+        # SpinnerColumn(),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+    mila_total_gpus = 853
+    mila_available_gpus = random.randint(0, mila_total_gpus)
+    avail_gpus.add_task("Mila", completed=mila_available_gpus, total=mila_total_gpus)
+    tamia_total_gpus = 164
+    tamia_avail_gpus = random.randint(0, tamia_total_gpus)
+    avail_gpus.add_task("Tamia", completed=tamia_avail_gpus, total=tamia_total_gpus)
+    return Panel(
+        avail_gpus,
+        title="Available GPUs",
+        border_style="green",
+        padding=(2, 2),
+    )
+
+
+def make_avg_gpu_util_panel() -> Table:
+    avg_gpu_util = Progress(
+        "{task.description}",
+        # SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+    avg_gpu_util.add_task("Mila", completed=100 * random.random(), total=100)
+    avg_gpu_util.add_task("Tamia", completed=100 * random.random(), total=100)
+    avg_gpu_util.add_task("Narval", completed=100 * random.random(), total=100)
+    avg_gpu_util.add_task("Beluga", completed=100 * random.random(), total=100)
+    return Panel(
+        avg_gpu_util,
+        title="Available GPUs",  # border_style="green", padding=(2, 2)
     )
 
 
