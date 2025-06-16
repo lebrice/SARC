@@ -135,10 +135,9 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
     table.add_column("Cluster")
     table.add_column("GPU Utilization", justify="right")
     table.add_column("Job success rate", justify="right")
-    table.add_column("Total GPUs/RGUs", justify="right")
-    table.add_column("Used GPU/RGU days", justify="right")
-    table.add_column("Wasted GPU/RGU days", justify="right")
-    table.add_column("Obstructed GPU*days", justify="right")
+    table.add_column("Total allocated GPUs/RGUs", justify="right")
+    table.add_column("Used/Wasted/Obstructed GPU days")
+    table.add_column("U/W/Obs RGU*days")
 
     for index, row in itertools.islice(ordered_by_waste.iterrows(), 20):
         assert isinstance(index, tuple) and len(index) == 2
@@ -152,9 +151,8 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
             f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
             _colorize_utilization(row["job_success_rate"], red=0.1, orange=0.2),
             f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
-            f"{row['gpu_equivalent_cost'].days} / {row['rgu_equivalent_cost'].days}",
-            f"{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
-            f"{row['gpu_overbilling_cost'].days}",
+            f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
+            f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
             # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
         )
     return table
