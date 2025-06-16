@@ -1,2 +1,0 @@
-Students supervised by alex.hernandez-garcia@mila.quebec: 0: []
-[1;31mERROR   [0m Prof alex.hernandez-garcia@mila.quebec has no students in SARC! Skipping.                                                              ]8;id=170448;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=250152;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#426\[2m426[0m]8;;\

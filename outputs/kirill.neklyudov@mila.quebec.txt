@@ -1,2 +1,0 @@
-Students supervised by kirill.neklyudov@mila.quebec: 0: []
-[1;31mERROR   [0m Prof kirill.neklyudov@mila.quebec has no students in SARC! Skipping.                                                                   ]8;id=669080;file:///home/fabrice/repos/SARC/examples/compute_forecast.py\[2mcompute_forecast.py[0m]8;;\[2m:[0m]8;id=173103;file:///home/fabrice/repos/SARC/examples/compute_forecast.py#426\[2m426[0m]8;;\
