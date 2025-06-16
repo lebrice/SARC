@@ -1,54 +1,66 @@
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import functools
 import hashlib
 import json
+import logging
 import os
+import pickle
 import random
-from re import sub
 import tempfile
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 import numpy as np
 import pandas as pd
+import rich.logging
 import simple_parsing
 import yaml
-from typing_extensions import Self
-import time
-
+from pyparsing import col
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import Progress
-from rich.table import Table
-
 from rich.progress import (
     BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
-    MofNCompleteColumn,
 )
+from rich.table import Table
+from typing_extensions import Self
 
 os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
 
+from examples.compute_forecast import _setup_logging
 from sarc.client.job import JobStatistics
 from sarc.client.series import compute_cost_and_waste, load_job_series
-from sarc.client.users.api import get_users
+from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClusterConfig
-from sarc.jobs.series import update_cluster_job_series_rgu
+from sarc.jobs.series import update_cluster_job_series_rgu, update_job_series_rgu
 
 if (_sarc_config := os.environ.get("SARC_CONFIG")) and Path(_sarc_config).exists():
     CONFIG_FOLDER = Path(_sarc_config).parent
 else:
     CONFIG_FOLDER = Path(__file__).parent / "config"
 
+CACHE_DIR: Path | None = (
+    Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
+)
+P = ParamSpec("P")
+OutT = TypeVar("OutT")
+
+
+logger = logging.getLogger(__name__)
+
 
 def main():
+    _setup_logging(verbose=2)
     with Live(make_layout(), refresh_per_second=4) as live:
         for _ in range(40):
             live.update(make_layout())
@@ -57,18 +69,31 @@ def main():
 
 def make_layout() -> Layout:
     """Define the layout."""
+    midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
+    data = get_clean_sarc_data(
+        options=FilteringOptions(
+            start=(midnight_tonight - timedelta(days=7)),
+            end=midnight_tonight,
+            user=(),
+            clusters=(),
+        )
+    )
+
     layout = Layout(name="root")
 
     layout.split(
         Layout(Header(), name="header", size=3),
-        Layout(name="main"),
+        Layout(name="main_top"),
+        Layout(name="main_bottom"),
         Layout(name="footer", size=7),
     )
-    layout["main"].split_column(
-        Layout(make_waste_overview_table(), name="waste_overview_table"),
-        Layout(make_cluster_overview_table(), name="cluster_overvier"),
-        Layout(make_biggest_waster_job_info_table(), name="biggest_waster_jobs"),
+    layout["main_top"].split_row(
+        Layout(name="body_left"),
+        Layout(name="body_right"),
     )
+    layout["body_left"].update(make_cluster_overview_table(data))
+    layout["body_right"].update(make_waste_overview_table(data))
+    layout["main_bottom"].update(make_biggest_waster_job_info_table(data))
     # layout["side"].split(
     #     Layout(make_avail_gpus_panel(), name="box1"),
     #     Layout(make_avg_gpu_util_panel(), name="box2"),
@@ -76,51 +101,67 @@ def make_layout() -> Layout:
     return layout
 
 
-def make_waste_overview_table() -> Table:
+def make_waste_overview_table(data: pd.DataFrame) -> Table:
     """Make a new table."""
     table = Table(expand=True)
     table.add_column("User")
     table.add_column("Cluster")
     table.add_column("Total GPUs")
     table.add_column("Average GPU Utilization")
-    table.add_column("Wasted GPU*hours in last 7 days")
-    n_users = 5
-    used_gpuss = np.random.uniform(0, 100, size=n_users)
-    avg_gpu_util = np.random.uniform(0, 1, size=n_users)
-    wastes = used_gpuss * (1 - avg_gpu_util)
-    for index in reversed(np.argsort(wastes)):
-        username = random.choice(["Bob", "Alice", "Charlie", "Dave", "Eve"])
-        cluster = random.choice(["mila", "narval", "drac", "beluga", "tamia"])
-        used_gpus = used_gpuss[index]
-        gpu_util = avg_gpu_util[index]
-        waste = wastes[index]
-
+    table.add_column("Used RGU*hours in last 7 days")
+    table.add_column("Wasted RGU*hours in last 7 days")
+    data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
+        {
+            "allocated.gres_gpu": "sum",
+            "gpu_utilization": "mean",
+            "rgu_equivalent_cost": "sum",
+            "cpu_equivalent_waste": "sum",
+            "gpu_equivalent_waste": "sum",
+        }
+    )
+    ordered_by_waste = data_by_user.nlargest(
+        columns="gpu_equivalent_waste", n=100, keep="all"
+    )
+    for index, row in ordered_by_waste.iterrows():
+        assert isinstance(index, tuple) and len(index) == 2
+        (cluster, user_email) = index
+        used_gpus = row["allocated.gres_gpu"]
+        gpu_util = row["gpu_utilization"]
+        gpu_equiv_waste = row["gpu_equivalent_waste"] / 3600  # Convert to GPU*hours
         table.add_row(
-            username,
+            user_email,
             cluster,
             str(used_gpus),
-            (f"[red]{gpu_util:.2%}" if gpu_util < 0.2 else f"[yellow]{gpu_util:.2%}"),
-            f"[blue]{waste:.2f}",
+            _colorize_utilization(gpu_util),
+            f"[blue]{gpu_equiv_waste:.2f}",
         )
     return table
 
 
-def make_cluster_overview_table() -> Table:
+def make_cluster_overview_table(data: pd.DataFrame) -> Table:
     table = Table(expand=True)
     table.add_column("Cluster", justify="left")
     table.add_column("Available / Total GPUs", justify="right")
     table.add_column("Average GPU Utilization")
     table.add_column("Mila students using this cluster", justify="right")
-    total_mila_users = 1052
-    for cluster in ["mila", "narval", "drac", "beluga", "tamia"]:
-        total_gpus = random.randint(500, 1000)
-        avail_gpus = random.randint(0, total_gpus)
-        mila_users = random.randint(0, total_mila_users)
-        if cluster == "mila":
-            mila_users = 0.8 * total_mila_users
-        used_gpus_pct = avail_gpus / total_gpus
+    total_mila_users = data["user.mila.email"].nunique()
+    clusters = data["cluster_name"].unique()
+    mila_users_per_cluster = data.groupby("cluster_name")["user.mila.email"].nunique()
+    average_gpu_util_per_cluster = data.groupby("cluster_name")[
+        "gpu_utilization"
+    ].mean()
+
+    # todo: Somehow get the total number of GPUs on each cluster.
+    total_gpus = np.random.randint(500, 1000, size=len(clusters))
+    avail_gpus = np.random.randint(0, total_gpus, size=len(clusters))
+
+    for i, cluster in enumerate(clusters):
+        avail_gpu = avail_gpus[i]
+        total_gpu = total_gpus[i]
+        used_gpus_pct = avail_gpu / total_gpu
+        gpu_util = average_gpu_util_per_cluster[cluster]
+        mila_users = mila_users_per_cluster[cluster]
         pct_of_mila_users = mila_users / total_mila_users
-        gpu_util = random.random()
         table.add_row(
             cluster,
             f"{avail_gpus} / {total_gpus} ({used_gpus_pct:.2%})",
@@ -130,7 +171,7 @@ def make_cluster_overview_table() -> Table:
     return table
 
 
-def make_biggest_waster_job_info_table() -> Table:
+def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
     table = Table(title="Biggest wasting individual jobs", expand=True)
     table.add_column("Job ID", justify="right")
     table.add_column("User", justify="left")
@@ -139,30 +180,58 @@ def make_biggest_waster_job_info_table() -> Table:
     table.add_column("submit command", justify="left")
     table.add_column("Average GPU Utilization", justify="right")
     table.add_column("Wasted GPU*hours", justify="right")
-    njobs = 10
-    avg_gpu_utilizations = sorted(np.random.uniform(0, 1, size=njobs), reverse=True)
 
-    for avg_gpu_utilization in avg_gpu_utilizations:
-        job_id = random.randint(1000000, 9999999)
-        username = random.choice(["Bob", "Alice", "Charlie", "Dave", "Eve"])
-        cluster = random.choice(["mila", "narval", "drac", "beluga", "tamia"])
-        workdir = f"/path/to/workdir/{job_id}"
-        submit_command = (
-            f"sbatch --gres=gpu:{random.randint(1, 4)} --time=01:00:00 {workdir}/run.sh"
-        )
-        wasted_gpu_hours = random.uniform(0, 100)
+    # Mock data (TODO: replace)
+    n_jobs = 1000
+    job_ids = np.random.randint(1000000, 9999999, size=n_jobs)
+    usernames = np.random.choice(
+        ["Bob", "Alice", "Charlie", "Dave", "Eve"], size=n_jobs
+    )
+    clusters = np.random.choice(
+        ["mila", "narval", "drac", "beluga", "tamia"], size=n_jobs
+    )
+    used_gpus = np.random.uniform(1, 5, size=n_jobs)
+    avg_gpu_utils = np.random.uniform(0, 1, size=n_jobs)
+    job_elapsed_time_hours = np.random.uniform(0.5, 7 * 24, size=n_jobs)
+    workdirs = [f"/path/to/workdir/{job_id}" for job_id in job_ids]
+    submit_commands = [
+        (f"sbatch --gres=gpu:{random.randint(1, 4)} --time=01:00:00 {workdir}/run.sh")
+        for workdir in workdirs
+    ]
+
+    wasted_gpu_hours = used_gpus * (1 - avg_gpu_utils) * job_elapsed_time_hours
+
+    for index in reversed(np.argsort(wasted_gpu_hours)):
+        job_id = job_ids[index]
+        username = usernames[index]
+        cluster = clusters[index]
+        workdir = workdirs[index]
+        submit_command = submit_commands[index]
+        _avg_gpu_util = avg_gpu_utils[index]
+        _wasted_gpu_hours = wasted_gpu_hours[index]
+
         table.add_row(
             str(job_id),
             username,
             cluster,
             workdir,
             submit_command,
-            f"[red]{avg_gpu_utilization:.2%}"
-            if avg_gpu_utilization < 0.2
-            else f"[green]{avg_gpu_utilization:.2%}",
-            f"[blue]{wasted_gpu_hours:.2f}",
+            _colorize_utilization(_avg_gpu_util),
+            f"[blue]{_wasted_gpu_hours:.2f}",
         )
     return table
+
+
+def _colorize_utilization(util: float, red: float = 0.2, orange=0.5) -> str:
+    """Colorize the (GPU/CPU/whatever) utilization value based on thresholds."""
+    assert 0 <= util <= 1, "utilization must be between 0 and 1"
+    util_pct = f"{util:.2%}"
+    if util < red:
+        return f"[red]{util_pct}"
+    elif util < orange:
+        return f"[yellow]{util_pct}"
+    else:
+        return f"[green]{util_pct}"
 
 
 def make_avail_gpus_panel() -> Panel:
@@ -240,12 +309,12 @@ class FilteringOptions:
     )
     """ End date. """
 
-    user: list[str] = dataclasses.field(default_factory=list)
+    user: Sequence[str] = dataclasses.field(default_factory=tuple)
     """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
     users_file: Path | None = dataclasses.field(default=None, repr=False)
 
-    clusters: list[str] = dataclasses.field(default_factory=list)
+    clusters: Sequence[str] = dataclasses.field(default_factory=tuple)
     """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
     cache_dir: Path = dataclasses.field(
@@ -346,6 +415,83 @@ class FilteringOptions:
         )
 
 
+def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
+    """Caches a function in a given cache dir."""
+    if CACHE_DIR is not None:
+        cache_dir = CACHE_DIR
+    else:
+        parser = argparse.ArgumentParser(add_help=False)
+        default_cache_dir = Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
+        parser.add_argument("--cache_dir", type=Path, default=default_cache_dir)
+        cache_dir: Path = parser.parse_known_args()[0].cache_dir
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
+        """Decorator to cache the results of a function."""
+        # TODO: in _get_cache_file_name, use a .txt extension if the return annotation is `str`
+        cache_file = cache_dir / _get_cache_file_name(fn, *args, **kwargs)
+        if cache_file.exists():
+            logger.info(f"Loading result of {fn.__name__} from {cache_file}")
+            return pickle.loads(cache_file.read_bytes())
+        else:
+            logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
+            result = fn(*args, **kwargs)
+            # TODO: Save to a text file if the result is a string.
+            cache_file.write_bytes(pickle.dumps(result))
+            logger.info(f"Saved result of computing {fn.__name__} to {cache_file}")
+            return result
+
+    return wrapper
+
+
+def _get_cache_file_name(
+    fn: Callable[P, Any], *args: P.args, **kwargs: P.kwargs
+) -> str:
+    # More interpretable than using this:
+    # return hashlib.md5(
+    #     json.dumps((fn.__name__, args, kwargs), sort_keys=True, default=str).encode()
+    # ).hexdigest()
+
+    def _hash(v) -> str:
+        if isinstance(v, pd.DataFrame):
+            # Important: Assuming that the other function arguments will be used
+            # to recover the same dataframe, so not including it in the hash.
+            return ""
+        if v is None:
+            return str(v)
+        if isinstance(v, str):
+            return v.removesuffix("@mila.quebec")  # no quotes around strings.
+        if isinstance(v, (int, float)):
+            return repr(v)
+        if isinstance(v, datetime):
+            if v.hour == 0 and v.minute == 0 and v.second == 0:
+                return v.strftime("%Y-%m-%d-%z")
+            return v.strftime("%Y-%m-%dT%H:%M:%S%z")
+        if isinstance(v, list):
+            # Some profs have so many students that we can't concat them.
+            if v and isinstance(v[0], User):
+                return hashlib.md5(
+                    "+".join(sorted(student.mila.username for student in v)).encode()
+                ).hexdigest()[:12]
+            return "+".join(sorted(map(_hash, v)))
+        if isinstance(v, User):
+            return v.mila.username
+        if isinstance(v, FilteringOptions):
+            return (
+                v.unique_path()
+                .relative_to(v.cache_dir)
+                .stem.removeprefix("compute_profile-")
+            )
+        raise NotImplementedError(f"Unsupported arg type: {v} of type {type(v)}")
+
+    hashed_args = "-".join(map(_hash, args)) + "-".join(
+        f"{k}-{_hash(v)}" for k, v in kwargs.items()
+    )
+    return f"{fn.__name__}-{hashed_args}.pkl"
+
+
+@functools.lru_cache(maxsize=1)
+# @cached  # for now while debugging.
 def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
     options = dataclasses.replace(
@@ -353,99 +499,23 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         start=options.start.astimezone(MTL),
         end=options.end.astimezone(MTL),
     )
-    cache_file = options.unique_path()
-    _user_emails = options.get_users(assume_mila_email=True)
-    assert all(map(_check_is_email_and_lower, _user_emails))
-
-    _all_users = get_users(
-        query={
-            "$and": [
-                {"mila.email": {"$in": _user_emails}},
-                {
-                    # We have a record with either no start (before 2023), or a start before the end of the period.
-                    "$or": [
-                        {"record_start": {"$exists": False}},
-                        {"record_start": {"$lt": options.end}},
-                    ]
-                },
-                {
-                    # We noticed a change in the users data at some point after the start of the period,
-                    # or we didnt notice a change (and the user is still active).
-                    "$or": [
-                        {"record_end": {"$exists": False}},
-                        {"record_end": None},
-                        {"record_end": {"$gt": options.start}},
-                    ]
-                },
-            ]
-        },
-        latest=False,
-    )
-    email_to_usernames: dict[str, list[str]] = defaultdict(list)
-    for user in _all_users:
-        email_to_usernames[user.mila.email].append(user.mila.username)
-        if user.drac:
-            email_to_usernames[user.mila.email].append(user.drac.username)
-
     logger.debug(
-        f"Looking up for data between {options.start} and {options.end} for users: {_user_emails or 'all'} and clusters {options.clusters or 'all'}"
+        f"Looking up for data between {options.start} and {options.end} for all users on all clusters."
     )
 
-    # TODO: Somethign weird
-    if cache_file.exists():
-        logger.info(f"Reading previous data from {cache_file}.")
-        df = pd.read_pickle(cache_file)
-        assert isinstance(df, pd.DataFrame)
-    elif (
-        options.user
-        and (
-            all_users_cache_file := dataclasses.replace(
-                options, user=[], users_file=None
-            ).unique_path()
-        ).exists()
-    ):
-        logger.info(
-            f"Reusing and filtering previous data for all users at {all_users_cache_file}."
-        )
-        df = pd.read_pickle(all_users_cache_file)
-        assert isinstance(df, pd.DataFrame)
-        if _user_emails:
-            df = df[df["user.primary_email"].isin(_user_emails)]
-    else:
-        logger.info(
-            f"Did not find previous results at {cache_file}. Fetching job data."
-        )
-        all_usernames_of_students = sum(
-            [email_to_usernames[email] for email in _user_emails], []
-        )
-        logger.debug(f"Usernames used when querying SARC: {all_usernames_of_students}")
-        # In SARC we currently can't query by user.mila.email, so we query with all
-        # usernames and filter by user.mila.email after.
-        df = load_job_series(
-            start=options.start,
-            end=options.end,
-            user=(
-                {"$in": all_usernames_of_students}
-                if all_usernames_of_students
-                else None
-            ),  # support querying for multiple users.
-            clip_time=False,  # True,
-        )
-        if _user_emails and "user.primary_email" in df.columns:
-            df = df[df["user.primary_email"].isin(_user_emails)]
-        logger.info(f"Saving data to {cache_file}")
-        df.to_pickle(cache_file)
-
+    # In SARC we currently can't query by user.mila.email, so we query with all
+    # usernames and filter by user.mila.email after.
+    df = load_job_series(
+        start=options.start,
+        end=options.end,
+        clip_time=False,
+    )
     if df.empty:
-        return df
+        raise RuntimeError(f"NO SARC data for that period: {options}")
 
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
-
-    if df.shape[0] == 0:
-        # NO data in SARC!
-        logger.warning(f"No data found in SARC for {options}.")
 
     _validate_gpu_ram()
 
@@ -454,7 +524,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         # Filter clusters
         df = df[df["cluster_name"].isin(options.clusters)]
 
-    df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0}, inplace=True)
+    df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
     df = _fix_lost_jobs(df)
     df = _fix_unaligned_cache(df, options.start, options.end)
     df = _remove_old_nodes(df)
@@ -464,9 +534,9 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     _fix_rgu_discrepencies_inplace(df)
 
     # todo: double-check if this is still needed here.
-    df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0}, inplace=True)
+    df = df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0})
 
-    _fix_allocated_cpus_drac_inplace(df)
+    df = _fix_allocated_cpus_drac(df)
     # todo: Do we want to get the averages from the other jobs of the same user on other clusers?
     # Or from the average utilization on that same cluster by different users?
     # IF so, we might need to reload the data for all users here
@@ -502,8 +572,48 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df, missing_users = _find_missing_user_to_mila_emails(df)
     if missing_users:
         logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
+    stats = _get_stats(df, options, frame_size="D")  # Daily
+    return stats
 
-    return df
+
+def _get_stats(
+    sarc_data: pd.DataFrame,
+    options: FilteringOptions,
+    frame_size: timedelta | str | None = None,
+) -> pd.DataFrame:
+    stats = compute_time_frames(
+        sarc_data,
+        [
+            "gpu_cost",
+            "cpu_cost",
+            "cpu_equivalent_cost",
+            "gpu_equivalent_cost",
+            "cpu_equivalent_waste",
+            "gpu_equivalent_waste",
+        ],
+        start=options.start,
+        end=options.end,
+        frame_size=(
+            frame_size
+            if frame_size is not None
+            else (
+                "MS"
+                if (_period := (options.end - options.start)) > timedelta(days=90)
+                else (
+                    timedelta(days=7)
+                    if _period > timedelta(days=30)
+                    else timedelta(days=1)
+                )
+            )
+        ),
+    )
+    stats = stats.assign(
+        rgu_equivalent_cost=(
+            stats["gpu_equivalent_cost"] * stats["allocated.gpu_type_rgu"]
+        )
+    )
+
+    return stats
 
 
 def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
@@ -741,6 +851,15 @@ def _remove_old_nodes(df: pd.DataFrame):
     return df
 
 
+def _check_is_email_and_lower(v: str):
+    if not v:
+        return v
+    if "@" not in v or v.count("@") != 1:
+        raise ValueError(f"'{v}' is not a valid email address.")
+
+    return v.lower()
+
+
 def _validate_gpu_ram():
     missing_ram = set(_gpu_name_mapping.values()) - set(_gpu_ram.keys())
     if missing_ram:
@@ -851,35 +970,63 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     return df
 
 
-def _fix_allocated_cpus_drac_inplace(df: pd.DataFrame):
-    # TODO we should fix this in SARC.
+def _fix_allocated_cpus_drac(df: pd.DataFrame):
+    """Fix for some issue where some jobs on Drac have allocated.cpu > 1000 because of something related to RGUs.
+
+    Example job id: 48738025 (on Narval I think).
+    """
     is_drac = df["cluster_name"] != "mila"
     slice_during_rgu_time = (
         is_drac
         & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
         & (df["elapsed_time"] > 0)
     )
-    df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
+    allocated_cpu = df["allocated.cpu"]
+    df = df.assign(
+        **{
+            "allocated.cpu": allocated_cpu.mask(
+                # TODO: Should we also check if it's a multiple of 1000 before dividing?
+                slice_during_rgu_time & (allocated_cpu >= 1000),
+                allocated_cpu / 1000,
+            )
+        }
+    )
+
+    # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
+    # is_narval = df["cluster_name"] == "narval"
+
+    # Here we do it again but for all timeframes.
+    # TODO: Why not just do it once?
+    allocated_cpu = df["allocated.cpu"]
+    outrageous_num_of_cpus = allocated_cpu >= 1000
+    df = df.assign(
+        **{
+            "allocated.cpu": allocated_cpu.mask(
+                is_drac & outrageous_num_of_cpus, allocated_cpu / 1000
+            )
+        }
+    )
+    return df
+    # df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
 
     # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
     # is_narval = df["cluster_name"] == "narval"
 
     # Here we do it for all timeframes.
-    outrageous_num_of_cpus = df["allocated.cpu"] >= 1000
-    df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
+    # df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
 
 
 def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     # NOTE: Fixing switch to RGU billing for a second time on Narval
-    # narval_config = config().clusters["narval"]
     cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
 
     assert df["allocated.gres_gpu"].notnull().all()
     assert df["requested.gres_gpu"].notnull().all()
 
+    is_narval = df["cluster_name"] == "narval"
     slice_during_rgu_time = (
-        (df["cluster_name"] == "narval")
+        is_narval
         & (df["start_time"] >= datetime(2023, 11, 28, tzinfo=MTL))
         & (
             df["start_time"]
@@ -889,15 +1036,14 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     )
     non_updated_df = df[slice_during_rgu_time]
 
-    # NOTE: Hacky fix, because we don't use the sarc-dev config.
+    # TODO: Seems like part of this patching is supposed to be done in SARC with the `update_job_series_rgu` function.
+    # However, we can't call that function here atm because it requires using the sarc-dev config.
+    # update_job_series_rgu
     # df = update_job_series_rgu(df)
-    # for cluster_config in config().clusters.values():
-    #     update_cluster_job_series_rgu(df, cluster_config)
     # return df
     for cluster_config in cluster_configs.values():
         # Make sure that we are indeed doing this processing for each cluster.
         assert cluster_config.name
-        # name = cluster_config.host
         if cluster_config.name == "mila":
             assert (
                 cluster_config.rgu_start_date is None
@@ -912,7 +1058,7 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
         # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
         update_cluster_job_series_rgu(df, cluster_config)
 
-    # TODO: isn't this supposed to be fixed in SARC? Why do we need this mapping here?
+    # TODO: Why do we need this mapping here?
     gpu_to_rgu_billing = {
         "a100-40gb": 700,
         "a100-40gb-3g.20gb": 1714.29 / 4000 * 700,
@@ -924,30 +1070,17 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
     # todo: warning about type non-compatible with int64.
     df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
-        non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
+        df[slice_during_rgu_time]["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
     )
-
-    # TODO: Apply only during this period
-
-    # narval_rgu['mappings'] = {"a100-40gb": 700, "a100-40gb-3g.20gb": 1714.29/4000*700, "a100-40gb-4g.20gb": 2285.71/4000*700}
-    # narval_config.rgu_start_date = "2024-04-01"
-    # with open(narval_config.gpu_to_rgu_billing, 'w', encoding='utf-8') as file:
-    #     json.dump(narval_rgu, file)
-    # df = update_cluster_job_series_rgu(df, narval_config)
-
-    # narval_rgu['mappings'] = previous_mappings
-    # with open(narval_config.gpu_to_rgu_billing, 'w', encoding='utf-8') as file:
-    #     json.dump(narval_rgu, file)
-    # End of hacky fix
-
-    # Overwrite all RGU values.
+    # Overwrite all RGU values
+    # TODO: Why?!
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
 
 
 def _set_cpu_gpu_billed(stats: pd.DataFrame):
     assert (
         stats["allocated.cpu"].notna().all()
-        and (stats["allocated.cpu"] > 0).all()
+        and (stats["allocated.cpu"] >= 1).all()
         # todo: some jobs have 0.001 cpus (because of the /1000).
         and (stats["allocated.cpu"] < 1000).all()
     )
@@ -1063,13 +1196,120 @@ def compute_time_frames(
         data_frames.append(frame)
 
     return pd.concat(data_frames, axis=0)
-    return pd.concat(data_frames, axis=0)
-    return pd.concat(data_frames, axis=0)
+
+
+def _setup_logging(verbose: int):
+    logging.basicConfig(
+        handlers=[rich.logging.RichHandler(show_time=False)],
+        format="%(message)s",
+        level=logging.ERROR,
+    )
+    logging.getLogger("sarc").setLevel(logging.WARNING)
+
+    if verbose == 0:
+        logger.setLevel("WARNING")
+    elif verbose == 1:
+        logger.setLevel("INFO")
+    else:
+        logger.setLevel("DEBUG")
+
+
+_gpu_name_mapping = {
+    "gpu:tesla_v100-sxm2-16gb:4": "v100-16gb",
+    "p100": "p100-12gb",
+    "gpu:p100:4": "p100-12gb",
+    "gpu:p100:2": "p100-12gb",
+    "gpu:p100l:4": "p100-16gb",
+    "v100": "v100-16gb",
+    "gpu:v100:6": "v100-16gb",
+    "gpu:v100:8": "v100-16gb",
+    "gpu:v100l:4": "v100-32gb",
+    "gpu:t4:4": "t4-16gb",
+    "4g.20gb": "a100-40gb-4g.20gb",
+    "3g.20gb": "a100-40gb-3g.20gb",
+    "a100_4g.20gb": "a100-40gb-4g.20gb",
+    "gpu:a100_4g.20gb:4": "a100-40gb-4g.20gb",
+    "a100_3g.20gb": "a100-40gb-3g.20gb",
+    "gpu:a100_3g.20gb:4": "a100-40gb-3g.20gb",
+    "a100": "a100-40gb",
+    "gpu:a100:4": "a100-40gb",
+    "gpu:a100:8": "a100-40gb",
+    "gpu:a100_4g.20gb:4,gpu:a100_3g.20gb:4": "a100-mixup",
+    "gpu:a100l:4": "a100-80gb",
+    "gpu:a100l:8": "a100-80gb",
+    "gpu:a6000:8": "a6000",
+    "gpu:rtx8000:8": "rtx8000-48gb",
+    "gpu:h100:8": "h100-80gb",
+    "NVIDIA A100-SXM4-40GB": "a100-40gb",
+    "NVIDIA A100-80GB PCIe": "a100-80gb",
+    "NVIDIA A100 80GB PCIe": "a100-80gb",
+    "NVIDIA A100-SXM4-80GB": "a100-80gb",
+    "NVIDIA H100 80GB HBM3": "h100-80gb",
+    "NVIDIA L40S": "l40s",
+    "NVIDIA RTX A6000": "a6000",
+    "gpu:l40s:4": "l40s",
+    "a100_2g.10gb": "a100-40gb-2g.10gb",
+    "2g.10gb": "a100-40gb-2g.10gb",
+    "2g.20gb": "a100-80gb-2g.20gb",
+    "3g.40gb": "a100-80gb-3g.40gb",
+    "4g.40gb": "a100-80gb-4g.40gb",
+    "Tesla V100-SXM2-16GB": "v100-16gb",
+    "Tesla V100-SXM2-32GB": "v100-32gb",
+    "Tesla V100-SXM2-32GB-LS": "v100-32gb",
+    "NVIDIA V100-SXM2-32GB-LS": "v100-32gb",
+    "Quadro RTX 8000": "rtx8000-48gb",  # Dummy
+    "gpu:a5000:4": "a5000-24gb",
+    # NOTE: Added for narval. Might be fixed with `get_node_to_gpu`, unclear.
+    "a100_1g.5gb": "a100-weird",
+    "1g.5gb": "a100-weird",
+}
+
+_gpu_ram = {
+    "p100-12gb": 12,
+    "p100-16gb": 16,
+    "t4-16gb": 16,
+    "v100-16gb": 16,
+    "v100-32gb": 32,
+    "a100-40gb": 40,
+    "a100-mixup": 40,
+    "a100-40gb-2g.10gb": 10,
+    "a100-40gb-4g.20gb": 20,
+    "a100-40gb-3g.20gb": 20,
+    "rtx8000-48gb": 48,
+    "a5000-24gb": 24,
+    "a6000": 48,  # Dummy
+    "a100-80gb-4g.40gb": 40,
+    "a100-80gb-3g.40gb": 40,
+    "a100-80gb-2g.20gb": 20,
+    "a100-80gb": 80,
+    "h100-80gb": 80,
+    "l40s": 48,
+    # NOTE: Added for narval. Might be fixed with `get_node_to_gpu`, unclear.
+    "a100-weird": 5,
+}
+
+_RGUS = {
+    "p100-12gb": 1,
+    "p100-16gb": 1.1,
+    "t4-16gb": 1.3,
+    "v100-16gb": 2.2,
+    "v100-32gb": 2.6,
+    "a100-40gb": 4,
+    "a100-mixup": 4,
+    "a100-40gb-4g.20gb": 2.3,
+    "a100-40gb-3g.20gb": 2,
+    "a100-40gb-2g.10gb": 1,
+    "rtx8000-48gb": 2.81,  # dummy
+    "a5000-24gb": 2.6,  # dummy
+    "a100-80gb": 4.8,
+    "a100-80gb-2g.20gb": 4.8 * 2 / 7,
+    "a100-80gb-3g.40gb": 4.8 * 3 / 7,
+    "a100-80gb-4g.40gb": 4.8 * 4 / 7,
+    "a6000": 4.93,
+    "h100-80gb": 12.2,
+    "l40s": 10.4,
+}
 
 
 if __name__ == "__main__":
-    main()
-    main()
-    main()
-    main()
     main()
