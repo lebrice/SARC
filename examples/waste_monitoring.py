@@ -55,7 +55,6 @@ OutT = TypeVar("OutT")
 
 
 logger = logging.getLogger(__name__)
-seconds_in_a_day = timedelta(days=1).total_seconds()
 
 
 def main():
@@ -88,7 +87,7 @@ def make_layout() -> Layout:
     )
     layout["main_top"].split_row(
         Layout(name="body_left"),
-        Layout(name="body_right"),
+        Layout(name="body_right", ratio=2),
     )
     layout["body_left"].update(make_cluster_overview_table(data))
     layout["body_right"].update(make_waste_overview_table(data))
@@ -108,15 +107,19 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
             "job_id": "nunique",
             "job_state": lambda v: (v == SlurmState.COMPLETED).mean(),
             "allocated.gres_gpu": "sum",
+            "allocated.gres_rgu": "sum",
             "gpu_equivalent_cost": "sum",
+            "rgu_equivalent_cost": "sum",
             "cpu_equivalent_waste": "sum",
             "gpu_equivalent_waste": "sum",
             "rgu_equivalent_waste": "sum",
+            "gpu_overbilling_cost": "sum",
+            "rgu_overbilling_cost": "sum",
         },
     )
     data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
     ordered_by_waste = data_by_user.nlargest(
-        columns="gpu_equivalent_waste",
+        columns="rgu_equivalent_waste",
         n=100,
         keep="all",
     )
@@ -124,39 +127,38 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
         {"gpu_utilization": "describe"}
     )
 
-    table = Table(expand=True)
+    table = Table(title="Most wasteful users (last 7 days)", expand=True)
     table.add_column("User")
     table.add_column("Cluster")
     table.add_column("Job success rate", justify="right")
-    table.add_column("Total GPUs", justify="right")
+    table.add_column("Total GPUs/RGUs", justify="right")
     table.add_column("GPU Utilization", justify="right")
-    table.add_column("Used GPU*days in last 7 days", justify="right")
-    table.add_column("Wasted GPU*days in last 7 days", justify="right")
+    table.add_column("Used GPU/RGU days", justify="right")
+    table.add_column("Wasted GPU/RGU days", justify="right")
+    table.add_column("Obstructed GPU*days", justify="right")
 
-    seconds_in_a_day = timedelta(days=1).total_seconds()
     for index, row in itertools.islice(ordered_by_waste.iterrows(), 20):
         assert isinstance(index, tuple) and len(index) == 2
         (cluster, user_email) = index
         used_gpus = row["allocated.gres_gpu"]
         gpu_util = gpu_util_stats.loc[index, "gpu_utilization"]
 
-        gpu_equiv_cost = row["gpu_equivalent_cost"] / seconds_in_a_day
-        gpu_equiv_waste = row["gpu_equivalent_waste"] / seconds_in_a_day
         table.add_row(
             user_email,
             cluster,
             _colorize_utilization(row["job_success_rate"], red=0.1, orange=0.2),
-            str(used_gpus),
-            _colorize_utilization(gpu_util["mean"]) + " ± " + f"{gpu_util['std']:.2%}",
-            f"[blue]{gpu_equiv_cost:.2f}",
-            f"[red]{gpu_equiv_waste:.2f}",
+            f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
+            f"{gpu_util['mean']:.1%} ± {gpu_util['std']:.1%}",
+            f"{row['gpu_equivalent_cost'].days:.1f} / {row['rgu_equivalent_cost'].days:.1f}",
+            f"{row['gpu_equivalent_waste'].days:.1f} / {row['rgu_equivalent_waste'].days:.1f}",
+            f"{row['gpu_overbilling_cost'].days:.1f}",
+            # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
         )
     return table
 
 
 def make_cluster_overview_table(data: pd.DataFrame) -> Table:
-
-    total_mila_users = data["user.mila.email"].nunique()
+    total_mila_users = int(data["user.mila.email"].nunique())
     grouped_data = data.groupby("cluster_name").aggregate(
         {
             "job_id": "nunique",
@@ -170,28 +172,41 @@ def make_cluster_overview_table(data: pd.DataFrame) -> Table:
     # total_gpus = np.random.randint(500, 1000, size=len(_n_clusters))
     # avail_gpus = np.random.randint(0, total_gpus, size=len(_n_clusters))
 
-    table = Table(expand=True)
+    table = Table(title="Overview by cluster (last 7 days)", expand=True)
     # TODO: Show Min / Mean / Median / Max GPUs per user?
     table.add_column("Cluster", justify="left")
     table.add_column("# of jobs", justify="right")
-    # table.add_column("STD of GPUs per user", justify="right")
     table.add_column("Average GPU Utilization")
     table.add_column("Mila students using this cluster", justify="right")
+    table.add_column("GPUs per user", justify="right")
+    gpus_per_cluster_per_user = data.groupby(["cluster_name", "user.mila.email"])[
+        ["allocated.gres_gpu"]
+    ].sum()
+    gpus_per_user = gpus_per_cluster_per_user.groupby("cluster_name").describe()
 
     for index, row in grouped_data.iterrows():
         assert isinstance(index, str)
         cluster = index
+
+        mila_users = int(row["user.mila.email"])
+
         # used_gpus_pct = avail_gpu / total_gpu
         num_jobs = row["job_id"]
         gpu_util = row["gpu_utilization"]
-        mila_users = row["user.mila.email"]
         pct_of_mila_users = mila_users / total_mila_users
+
+        gpus_per_user_here = gpus_per_user.loc[cluster, "allocated.gres_gpu"]
+        gpus_per_user_str = (
+            f"min={gpus_per_user_here['min']} mean={gpus_per_user_here['mean']:.1f} "
+            f"std={gpus_per_user_here['std']:.1f} max={gpus_per_user_here['max']}"
+        )
         table.add_row(
             cluster,
             str(num_jobs),
             # f"{avail_gpu} / {total_gpu} ({used_gpus_pct:.2%})",
             _colorize_utilization(gpu_util),
             f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
+            gpus_per_user_str,
         )
     return table
 
@@ -200,16 +215,20 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
 
     # Mock data (TODO: replace)
     most_wasteful_jobs = data.nlargest(n=20, columns="rgu_equivalent_waste", keep="all")
-
-    table = Table(title="Biggest wasting individual jobs", expand=True)
+    table = Table(
+        title="Most wasteful jobs (last 7 days, all clusters combined)", expand=True
+    )
     table.add_column("Job ID", justify="right")
     table.add_column("Cluster", justify="left")
     table.add_column("User", justify="left")
-    table.add_column("Elapsed time (hours)", justify="left")
-    table.add_column("Wasted GPU*hours", justify="right")
+    table.add_column("Elapsed time", justify="left")
     table.add_column("Average GPU Utilization", justify="right")
-    table.add_column("Workdir", justify="left")
     table.add_column("Requested Ressources", justify="right")
+    # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
+    table.add_column("Used GPU/RGU days", justify="right")
+    table.add_column("Wasted GPU/RGU days", justify="right")
+    table.add_column("Obstructed GPU days", justify="right")
+    # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
     for index, row in most_wasteful_jobs.iterrows():
@@ -218,20 +237,45 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
         ]
         requested_resources = {
             k.removeprefix("requested."): (
-                row[k] if k != "mem" else f"{row[k]//1024}GB"
+                f"{row[k]//1024}GB"
+                if k.endswith("mem")
+                else (
+                    f"{row['allocated.gpu_type']}:{int(row[k])}"
+                    if k.endswith("gres_gpu")
+                    else str(row[k])
+                )
             )
             for k in requested_cols
         }
-
+        # IDEA: Use another (nested) table: https://stackoverflow.com/questions/74144874/constructing-a-table-with-multilevel-headers-using-rich-table
+        # _requested_table = Table(
+        #     padding=(0, 0),
+        #     show_edge=False,
+        #     show_lines=True,
+        #     show_header=False,
+        # )
+        # _requested_table.add_column("cpus")
+        # _requested_table.add_column("mem")
+        # _requested_table.add_column("nodes")
+        # _requested_table.add_column("nodes")
+        # _requested_table.add_column("gres_gpu")
+        # _requested_table.add_row(
+        #     requested_resources["cpu"],
+        #     requested_resources["mem"],
+        #     requested_resources["node"],
+        #     requested_resources["gres_gpu"],
+        # )
         table.add_row(
             str(row["job_id"]),
             row["cluster_name"],
             row["user.mila.email"],
-            f"{row['elapsed_time'] / timedelta(hours=1).total_seconds():.1f}",
-            f"[red]{row['rgu_equivalent_waste']/seconds_in_a_day:.2f}",
+            f"{row['elapsed_time']}",
             _colorize_utilization(row["gpu_utilization"]),
-            row["work_dir"],
+            # _requested_table,
             " ".join(f"{k}={v}" for k, v in requested_resources.items() if v),
+            f"{row['gpu_equivalent_cost'].days:.1f} / {row['rgu_equivalent_cost'].days:.1f}",
+            f"[red]{row['gpu_equivalent_waste'].days:.1f} / {row['rgu_equivalent_waste'].days:.1f}",
+            f"[red]{row['gpu_overbilling_cost'].days:.1f}",
         )
     return table
 
@@ -567,6 +611,16 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     # df = _fill_missing_metrics_using_means(df)
 
     df = compute_cost_and_waste(df)
+
+    # TODO: Use timedelta as the dtype for the cost / waste / overbilled columns.
+    df = df.assign(
+        **{
+            col: pd.to_timedelta(df[col], unit="s")
+            for col in df.columns
+            if col.endswith(("_cost", "_waste")) or col == "elapsed_time"
+        }
+    )
+
     logger.info(
         "Means of GPU cost: %s, waste: %s, equivalent cost: %s",
         df["gpu_cost"].mean(),
@@ -589,10 +643,21 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df, missing_users = _find_missing_user_to_mila_emails(df)
     if missing_users:
         logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
+
+    df = df.assign(
+        **{
+            "allocated.gres_rgu": df["allocated.gres_gpu"]
+            * df["allocated.gpu_type_rgu"]
+        }
+    )
+
     df = df.assign(
         rgu_equivalent_cost=(df["gpu_equivalent_cost"] * df["allocated.gpu_type_rgu"]),
         rgu_equivalent_waste=(
             df["gpu_equivalent_waste"] * df["allocated.gpu_type_rgu"]
+        ),
+        rgu_overbilling_cost=(
+            df["gpu_overbilling_cost"] * df["allocated.gpu_type_rgu"]
         ),
     )
     return df
