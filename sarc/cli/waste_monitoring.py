@@ -15,13 +15,11 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from textwrap import wrap
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 import numpy as np
 import pandas as pd
 import rich.logging
-import rich.syntax
 import simple_parsing
 import yaml
 from rich.layout import Layout
@@ -38,7 +36,6 @@ from typing_extensions import Self
 
 os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
 
-from examples.compute_forecast import _setup_logging
 from sarc.client.job import JobStatistics, SlurmState
 from sarc.client.series import compute_cost_and_waste, load_job_series
 from sarc.client.users.api import User
