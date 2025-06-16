@@ -10,15 +10,18 @@ import logging
 import os
 import pickle
 import random
+import subprocess
 import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from textwrap import wrap
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 import numpy as np
 import pandas as pd
 import rich.logging
+import rich.syntax
 import simple_parsing
 import yaml
 from rich.layout import Layout
@@ -83,7 +86,7 @@ def make_layout() -> Layout:
         Layout(Header(), name="header", size=3),
         Layout(name="main_top"),
         Layout(name="main_bottom"),
-        Layout(name="footer", size=7),
+        Layout(name="footer", size=2),
     )
     layout["main_top"].split_row(
         Layout(name="body_left"),
@@ -130,9 +133,9 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
     table = Table(title="Most wasteful users (last 7 days)", expand=True)
     table.add_column("User")
     table.add_column("Cluster")
+    table.add_column("GPU Utilization", justify="right")
     table.add_column("Job success rate", justify="right")
     table.add_column("Total GPUs/RGUs", justify="right")
-    table.add_column("GPU Utilization", justify="right")
     table.add_column("Used GPU/RGU days", justify="right")
     table.add_column("Wasted GPU/RGU days", justify="right")
     table.add_column("Obstructed GPU*days", justify="right")
@@ -146,12 +149,12 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
         table.add_row(
             user_email,
             cluster,
+            f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
             _colorize_utilization(row["job_success_rate"], red=0.1, orange=0.2),
             f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
-            f"{gpu_util['mean']:.1%} ± {gpu_util['std']:.1%}",
-            f"{row['gpu_equivalent_cost'].days:.1f} / {row['rgu_equivalent_cost'].days:.1f}",
-            f"{row['gpu_equivalent_waste'].days:.1f} / {row['rgu_equivalent_waste'].days:.1f}",
-            f"{row['gpu_overbilling_cost'].days:.1f}",
+            f"{row['gpu_equivalent_cost'].days} / {row['rgu_equivalent_cost'].days}",
+            f"{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
+            f"{row['gpu_overbilling_cost'].days}",
             # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
         )
     return table
@@ -222,12 +225,13 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
     table.add_column("Cluster", justify="left")
     table.add_column("User", justify="left")
     table.add_column("Elapsed time", justify="left")
-    table.add_column("Average GPU Utilization", justify="right")
-    table.add_column("Requested Ressources", justify="right")
+    table.add_column("Avg GPU Util", justify="right")
+    table.add_column("Requested Ressources", overflow="fold", max_width=30)
     # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
-    table.add_column("Used GPU/RGU days", justify="right")
-    table.add_column("Wasted GPU/RGU days", justify="right")
-    table.add_column("Obstructed GPU days", justify="right")
+    table.add_column("Used/Wasted/Obstructed GPU days", justify="right")
+    # table.add_column("Wasted GPU/RGU days", justify="right")
+    # table.add_column("Obstructed GPU days", justify="right")
+    table.add_column("SubmitLine", overflow="crop", ratio=5)
     # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
@@ -235,12 +239,20 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
         requested_cols = [
             col for col in most_wasteful_jobs.columns if col.startswith("requested.")
         ]
+        submit_line = get_submit_line(
+            job_id=row["job_id"], cluster_name=row["cluster_name"]
+        )
+        submit_line = "\n".join(
+            line.strip() for line in submit_line.splitlines() if line.strip()
+        )
+
         requested_resources = {
             k.removeprefix("requested."): (
+                # TODO: Colorize the mem based on mem per GPU ratio?
                 f"{row[k]//1024}GB"
                 if k.endswith("mem")
                 else (
-                    f"{row['allocated.gpu_type']}:{int(row[k])}"
+                    f"[bold]{row['allocated.gpu_type']}:{int(row[k])}[/bold]"
                     if k.endswith("gres_gpu")
                     else str(row[k])
                 )
@@ -268,14 +280,17 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
         table.add_row(
             str(row["job_id"]),
             row["cluster_name"],
-            row["user.mila.email"],
+            row["user.mila.email"].removesuffix("@mila.quebec"),
             f"{row['elapsed_time']}",
             _colorize_utilization(row["gpu_utilization"]),
             # _requested_table,
             " ".join(f"{k}={v}" for k, v in requested_resources.items() if v),
-            f"{row['gpu_equivalent_cost'].days:.1f} / {row['rgu_equivalent_cost'].days:.1f}",
-            f"[red]{row['gpu_equivalent_waste'].days:.1f} / {row['rgu_equivalent_waste'].days:.1f}",
-            f"[red]{row['gpu_overbilling_cost'].days:.1f}",
+            f"{row['gpu_equivalent_cost'].days} / [red]{row['gpu_equivalent_waste'].days}[/] / [red]{row['gpu_overbilling_cost'].days}",
+            # f"[red]{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
+            # f"[red]{row['gpu_overbilling_cost'].days}",
+            submit_line,
+            # IDEA: Show it as a Syntax block:
+            # rich.syntax.Syntax(submit_line, lexer="bash"),
         )
     return table
 
@@ -285,7 +300,7 @@ def _colorize_utilization(util: float, red: float = 0.2, orange=0.5) -> str:
     if np.isnan(util):
         return f"[bold red]{util}"
     assert 0 <= util <= 1, "utilization must be between 0 and 1"
-    util_pct = f"{util:.2%}"
+    util_pct = f"{util:.1%}"
     if util < red:
         return f"[red]{util_pct}"
     elif util < orange:
@@ -548,6 +563,14 @@ def _get_cache_file_name(
         f"{k}-{_hash(v)}" for k, v in kwargs.items()
     )
     return f"{fn.__name__}-{hashed_args}.pkl"
+
+
+@functools.lru_cache(maxsize=None)
+@cached
+def get_submit_line(job_id: int, cluster_name: str) -> str:
+    return subprocess.getoutput(
+        f"ssh {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+    ).strip()
 
 
 @functools.lru_cache(maxsize=1)  # cache results in memory
