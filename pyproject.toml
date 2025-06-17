@@ -34,7 +34,7 @@ dependencies = [
 
 [project.scripts]
 sarc = "sarc.cli:main"
-waste_monitor = "sarc.cli.waste_monitor:main"
+waste_monitor = "examples.waste_monitor:main"
 
 [dependency-groups]
 dev = [
@@ -74,7 +74,10 @@ default-groups = [
 include = ["sarc"]
 
 [tool.hatch.build.targets.wheel]
-include = ["sarc"]
+include = ["sarc", "examples"]
+
+[tool.hatch.build.targets.wheel.force-include]
+config = "sarc/config"
 
 [build-system]
 requires = ["hatchling"]

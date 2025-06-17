@@ -4,11 +4,13 @@ import argparse
 import dataclasses
 import functools
 import hashlib
+import importlib
 import itertools
 import logging
 import os
 import pickle
 import random
+import shlex
 import subprocess
 import tempfile
 import time
@@ -16,10 +18,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
+import gifnoc
 import numpy as np
 import pandas as pd
-import pymongo.errors
-import rich.logging
+import paramiko
+import pydantic
 import simple_parsing
 import yaml
 from rich.layout import Layout
@@ -32,21 +35,75 @@ from rich.progress import (
     TextColumn,
 )
 from rich.table import Table
+from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self
 
-os.environ.setdefault("SARC_CONFIG", "config/sarc-client.yaml")
+sarc_client_config_file = Path(__file__).parent.parent / "config/sarc-client.yaml"
+sarc_dev_config_file = Path(__file__).parent.parent / "config/sarc-dev.yaml"
+if sarc_client_config_file.exists():
+    # This script is being executed either from the SARC root, or maybe from an editable install
+    # of the SARC package.
+    assert sarc_dev_config_file.exists()
+elif (
+    other_possible_config_path := sarc_client_config_file.parent.parent
+    / "sarc"
+    / "config"
+    / sarc_client_config_file.name
+).exists():
+    # SARC was installed as a package, and the package-data was included a the path `sarc/config`
+    # (via `tool.hatch.build.targets.wheel.force-include`), so the sarc configs are actually now
+    # inside SARC (instead of being a separate package in the site-packages directory).
+    sarc_client_config_file = other_possible_config_path
+    sarc_dev_config_file = sarc_client_config_file.parent / sarc_dev_config_file.name
 
+assert sarc_client_config_file.exists()
+assert sarc_dev_config_file.exists()
+
+# TODO: Important to do this BEFORE importing anything from SARC.
+# Otherwise it doesn't work.
+# This also prevents this from being a "script" in `pyproject.toml` placed under `sarc/cli`
+# because the executable that gets placed in `.venv/bin/waste_monitor` would do
+# `from sarc.cli.waste_monitor import main`, and the `sarc.cli.__init__.py` causes the
+# config to be instantiated, so the script can't work.
+os.environ.setdefault("SARC_CONFIG", str(sarc_client_config_file))
+
+import sarc.config
+from sarc.alerts.common import HealthMonitorConfig
 from sarc.client.job import JobStatistics, SlurmState
 from sarc.client.series import compute_cost_and_waste, load_job_series
 from sarc.client.users.api import User
-from sarc.config import MTL, ClusterConfig
+from sarc.config import (
+    MTL,
+    ClientConfig,
+    ClusterConfig,
+    Config,
+    LokiConfig,
+    MongoConfig,
+    TempoConfig,
+)
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 from sarc.jobs.series import update_cluster_job_series_rgu
 
-if (_sarc_config := os.environ.get("SARC_CONFIG")) and Path(_sarc_config).exists():
-    CONFIG_FOLDER = Path(_sarc_config).parent
-else:
-    CONFIG_FOLDER = Path(__file__).parent / "config"
+# TODO: Idea: reload the config module?
+importlib.reload(sarc.config)  # Reload the config module to use the new config file.
+
+
+@dataclasses.dataclass
+class ActualClientConfig:
+    mongo: MongoConfig
+    cache: Path | None = None
+    loki: LokiConfig | None = None
+    tempo: TempoConfig | None = None
+    health_monitor: HealthMonitorConfig | None = None
+
+
+# sarc_client_config = from_dict(
+#     ClientConfig, yaml.safe_load(sarc_client_config_file.read_text())["sarc"]
+# )
+# sarc_dev_config = from_dict(
+#     Config, yaml.safe_load(sarc_dev_config_file.read_text())["sarc"]
+# )
+# assert False, sarc_client_config
 
 CACHE_DIR: Path | None = (
     Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
@@ -59,11 +116,72 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+
+    setup_sarc_connection()
+
     _setup_logging(verbose=2)
     with Live(make_layout(), refresh_per_second=4) as live:
         for _ in range(40):
             live.update(make_layout())
             time.sleep(5)
+
+
+def setup_sarc_connection():
+    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
+    mila_config = ssh_config.lookup("mila")
+    if "user" not in mila_config:
+        raise ValueError(
+            "You need to have a `mila` entry in your SSH configuration file."
+        )
+    mila_user: str = mila_config["user"]
+    control_socket_path = Path(
+        ssh_config.lookup("sarc").get(
+            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
+        )
+    ).resolve()
+    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
+    multiplexing_args = (
+        f"-o ControlMaster=auto "
+        f"-o 'ControlPath={control_socket_path}' "
+        f"-o ControlPersist=yes"
+    )
+
+    sarc_client_connection_string = yaml.safe_load(sarc_client_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_client_connection_string, str)
+    # "mongodb://readuser:readpwd@localhost:8123/sarc" --> "8123"
+    sarc_client_local_port = (
+        sarc_client_connection_string.rpartition("@")[2]
+        .partition(":")[2]
+        .partition("/")[0]
+    )
+
+    sarc_dev_connection_string = yaml.safe_load(sarc_dev_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_dev_connection_string, str)
+    # "mongodb://localhost:27017/sarc-dev" --> "27017"
+    sarc_dev_remote_port = (
+        sarc_dev_connection_string.rpartition("@")[
+            2
+        ]  # might return the whole string if there is no user:pwd@...
+        .partition("://")[2]  # "localhost:27017/sarc-dev"
+        .partition("/")[0]  # "localhost:27017"
+        .partition(":")[2]  # "27017"
+    )
+    assert sarc_client_local_port
+    assert sarc_dev_remote_port
+
+    port_forwarding_args = (
+        f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
+    )
+
+    subprocess.check_call(
+        shlex.split(
+            f"ssh -o ProxyJump=mila {port_forwarding_args} -o User={mila_user} {multiplexing_args} sarc01-dev echo OK"
+        )
+    )
 
 
 def make_layout() -> Layout:
@@ -563,8 +681,24 @@ def _get_cache_file_name(
 @functools.lru_cache(maxsize=None)
 @cached
 def get_submit_line(job_id: int, cluster_name: str) -> str:
+    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
+    control_path = Path(
+        ssh_config.lookup(cluster_name).get(
+            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
+        )
+    ).resolve()
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    multiplexing_args = (
+        f"-o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes"
+    )
+    # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
+    # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
+    # also included in the output of the command.
+    subprocess.check_call(
+        shlex.split(f"ssh {multiplexing_args} {cluster_name} echo 'OK'")
+    )
     return subprocess.getoutput(
-        f"ssh {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+        f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
     ).strip()
 
 
@@ -975,6 +1109,7 @@ def _get_node_to_gpu(cluster_name: str):
     try:
         return get_node_to_gpu(cluster_name=cluster_name)
     except (
+        gifnoc.proxy.MissingConfigurationError,
         pymongo.errors.OperationFailure,
         pymongo.errors.ServerSelectionTimeoutError,
     ):
@@ -982,11 +1117,12 @@ def _get_node_to_gpu(cluster_name: str):
 
 
 def _get_cluster_configs() -> dict[str, ClusterConfig]:
-    with open(f"{CONFIG_FOLDER}/sarc-dev.yaml") as f:
-        cluster_configs = {
-            k: ClusterConfig(**v)
-            for k, v in yaml.safe_load(f)["sarc"]["clusters"].items()
-        }
+    cluster_configs = {
+        k: ClusterConfig(**v)
+        for k, v in yaml.safe_load(sarc_dev_config_file.read_text())["sarc"][
+            "clusters"
+        ].items()
+    }
     return cluster_configs
 
     with open(Path(__file__).parent.parent / "config/sarc-dev.yaml") as f:
@@ -1158,7 +1294,8 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
             )
         else:
             assert (
-                cluster_config.rgu_start_date and cluster_config.gpu_to_rgu_billing
+                cluster_config.rgu_start_date
+                and cluster_config.gpu_to_rgu_billing
                 # and Path(cluster_config.gpu_to_rgu_billing).is_file()
             ), (name, cluster_config)
         # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
