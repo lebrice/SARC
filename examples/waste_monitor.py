@@ -40,11 +40,12 @@ from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self
 
-from sarc.client.job import JobStatistics, SlurmState
+from sarc.client.job import JobStatistics, SlurmState, get_available_clusters
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
     update_cluster_job_series_rgu,
+    update_job_series_rgu,
 )
 from sarc.client.users.api import User
 from sarc.config import MTL, ClientConfig, ClusterConfig
@@ -487,8 +488,6 @@ class FilteringOptions:
     user: Sequence[str] = dataclasses.field(default_factory=tuple)
     """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
-    users_file: Path | None = dataclasses.field(default=None, repr=False)
-
     clusters: Sequence[str] = dataclasses.field(default_factory=tuple)
     """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
@@ -507,11 +506,7 @@ class FilteringOptions:
     )
 
     def get_users(self, assume_mila_email: bool = False) -> list[str]:
-        if self.users_file:
-            assert not self.user, "can't use both user_file and users!"
-            users = sorted(set(self.users_file.read_text().splitlines(keepends=False)))
-        else:
-            users = self.user
+        users = self.user
         user_emails = []
         for user in users:
             if "@" in user:
@@ -524,29 +519,6 @@ class FilteringOptions:
                     "Please provide a valid email address or set `assume_mila_email=True`."
                 )
         return sorted(user_emails)
-
-    def unique_path(self, label: str = "", extension: str = ".pkl") -> Path:
-        user_emails = self.get_users()
-        user_portion = (
-            hashlib.md5("+".join(sorted(user_emails)).encode()).hexdigest()
-            if user_emails is not None and len(user_emails)
-            else "all"
-        )
-        # cluster_portion = "-".join(self.clusters) if self.clusters else "all"
-        start_portion = (
-            self.start.strftime("%Y-%m-%d")
-            if self.start == _midnight(self.start)
-            else str(self.start).replace(" ", "_")
-        )
-        end_portion = (
-            self.end.strftime("%Y-%m-%d")
-            if self.end == _midnight(self.end)
-            else str(self.end).replace(" ", "_")
-        )
-        return (
-            self.cache_dir
-            / f"compute_profile-{user_portion}-{start_portion}-{end_portion}-{label}"
-        ).with_suffix(extension)
 
     def __eq__(self, other: object) -> bool:
         """Returns whether this filter is equal to the other."""
@@ -773,12 +745,17 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _replace_outlier_stats_with_na(df)
     df = _fix_missing_gpu_type(df)
 
-    # TODO: I guess we won't be able to apply this, unless we inline the cluster configs.
-    # df = _fix_rgu_discrepencies_inplace(df)
-    df = df.assign(**{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)})
+    try:
+        df = _fix_rgu_discrepencies_inplace(df)
+    except pymongo.errors.OperationFailure as err:
+        logger.error(err)
+        logger.warning("Might not have correct RGU information for jobs.")
+        df = df.assign(**{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)})
 
-    # todo: double-check if this is still needed here.
-    df = df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0})
+    assert df["requested.gres_gpu"].notna().all()
+    assert df["allocated.gres_gpu"].notna().all()
+    assert df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0").empty
+    assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
 
     df = _fix_allocated_cpus_drac(df)
     # todo: Do we want to get the averages from the other jobs of the same user on other clusers?
@@ -1244,6 +1221,13 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
 
     Example job id: 48738025 (on Narval I think).
     """
+    
+    filter_period = FilteringOptions(
+        clusters=[cluster.cluster_name for cluster in get_available_clusters() if cluster.cluster_name != "mila"],
+        start=datetime(2024, 4, 1, tzinfo=MTL),
+        end=None,
+    )
+    
     is_drac = df["cluster_name"] != "mila"
     slice_during_rgu_time = (
         is_drac
