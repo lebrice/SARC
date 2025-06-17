@@ -69,6 +69,7 @@ sarc:
           h100: H100-SXM5-80GB
     narval:
       host: narval.computecanada.ca
+      rgu_start_date: "2023-11-28"
       timezone: America/Montreal
       accounts:
       - rrg-bengioy-ad_gpu
@@ -99,6 +100,7 @@ sarc:
           NVIDIA A100-SXM4-40GB: A100-SXM4-40GB
     beluga:
       host: beluga.computecanada.ca
+      rgu_start_date: "2024-04-03"
       timezone: America/Montreal
       accounts:
       - rrg-bengioy-ad_gpu
@@ -122,6 +124,7 @@ sarc:
           Tesla V100-SXM2-16GB: V100-SXM2-16GB
     graham:
       host: graham.computecanada.ca
+      rgu_start_date: "2024-04-03"
       timezone: America/Toronto
       accounts:
       - rrg-bengioy-ad_gpu
@@ -154,6 +157,7 @@ sarc:
           a5000: A5000
     cedar:
       host: cedar.computecanada.ca
+      rgu_start_date: "2024-04-03"
       timezone: America/Vancouver
       accounts:
       - rrg-bengioy-ad_gpu
