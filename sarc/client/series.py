@@ -544,7 +544,16 @@ def _compute_rgu_stats_from_scaled_rgu(
     # Get previous job billing, interpreted as GPU count * GPU billing
     col_job_billing = df["allocated.gres_gpu"][slice_rows].copy()
     # Then update columns
-    df.loc[slice_rows, "allocated.gres_gpu"] = col_job_billing / col_gpu_to_billing
+
+    df = df.assign(
+        **{
+            "allocated.gres_gpu": df["allocated.gres_gpu"]
+            .astype(float)
+            .mask(slice_rows, col_job_billing / col_gpu_to_billing)
+        }
+    )
+    # df.loc[slice_rows, "allocated.gres_gpu"] = col_job_billing / col_gpu_to_billing
+
     df.loc[slice_rows, "allocated.gres_rgu"] = (
         col_job_billing / col_gpu_to_billing
     ) * col_gpu_to_rgu
@@ -619,7 +628,7 @@ def compute_time_frames(
     columns: list[str] | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
-    frame_size: timedelta = timedelta(days=7),
+    frame_size: str | timedelta = timedelta(days=7),
 ) -> DataFrame:
     """Slice jobs into time frames and adjust columns to fit the time frames.
 
@@ -643,7 +652,7 @@ def compute_time_frames(
         Start of the time frame. If None, use the first job start time.
     end: datetime, optional
         End of the time frame. If None, use the last job end time.
-    frame_size: timedelta, optional
+    frame_size: str | timedelta, optional
         Size of the time frames used to compute histograms. Default to 7 days.
 
     Examples
