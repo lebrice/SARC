@@ -74,6 +74,7 @@ from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
     update_cluster_job_series_rgu,
+    update_job_series_rgu,
 )
 from sarc.client.users.api import User
 from sarc.config import MTL, ClientConfig, ClusterConfig, Config
@@ -757,7 +758,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _fix_missing_gpu_type(df)
 
     # TODO: I guess we won't be able to apply this, unless we inline the cluster configs.
-    _fix_rgu_discrepencies_inplace(df)
+    df = _fix_rgu_discrepencies_inplace(df)
 
     # todo: double-check if this is still needed here.
     df = df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0})
@@ -1267,11 +1268,22 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
     # df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
 
 
-def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
+def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
+    _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    _graham_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    _cedar_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # TODO: Clearly define the context for each patch.
+    _patch_context = FilteringOptions(
+        start=datetime(2023, 11, 28, tzinfo=MTL),
+        end=narval_rgu_start_date,
+    )
+
     # NOTE: Fixing switch to RGU billing for a second time on Narval
     # TODO: Unclear if this is fixed by the `update_job_series_rgu` function in SARC.
     # with sarc.config.using_sarc_mode("scraping"):
-    #     return update_job_series_rgu(df)
+    return update_job_series_rgu(df)
+
     cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
 
@@ -1328,6 +1340,7 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> None:
     # Overwrite all RGU values
     # TODO: Why?!
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
+    return df
 
 
 def compute_time_frames(
