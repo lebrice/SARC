@@ -13,16 +13,18 @@ import shlex
 import subprocess
 import tempfile
 import time
+import typing
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar, get_type_hints
-import typing
+from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 import gifnoc
 import numpy as np
 import pandas as pd
 import paramiko
 import paramiko.config
+import pymongo.errors
+import rich.logging
 import simple_parsing
 import yaml
 from rich.layout import Layout
@@ -37,6 +39,16 @@ from rich.progress import (
 from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self
+
+from sarc.client.job import JobStatistics, SlurmState
+from sarc.client.series import (
+    compute_cost_and_waste,
+    load_job_series,
+    update_cluster_job_series_rgu,
+)
+from sarc.client.users.api import User
+from sarc.config import MTL, ClientConfig, ClusterConfig
+from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
 sarc_client_config_file = Path(__file__).parent.parent / "config/sarc-client.yaml"
 sarc_dev_config_file = Path(__file__).parent.parent / "config/sarc-dev.yaml"
@@ -65,20 +77,10 @@ assert sarc_dev_config_file.exists(), sarc_dev_config_file
 # because the executable that gets placed in `.venv/bin/waste_monitor` would do
 # `from sarc.cli.waste_monitor import main`, and the `sarc.cli.__init__.py` causes the
 # config to be instantiated, so the script can't work.
-os.environ.setdefault("SARC_CONFIG", str(sarc_client_config_file))
+# os.environ.setdefault("SARC_CONFIG", str(sarc_client_config_file))
 
-import sarc.config
-from sarc.alerts.common import HealthMonitorConfig
-from sarc.client.job import JobStatistics, SlurmState
-from sarc.client.series import (
-    compute_cost_and_waste,
-    load_job_series,
-    update_cluster_job_series_rgu,
-    update_job_series_rgu,
-)
-from sarc.client.users.api import User
-from sarc.config import MTL, ClientConfig, ClusterConfig, Config
-from sarc.jobs.node_gpu_mapping import get_node_to_gpu
+
+gifnoc.set_sources(sarc_client_config_file)
 
 # TODO: Idea: reload the config module?
 # importlib.reload(sarc.config)  # Reload the config module to use the new config file.
@@ -102,9 +104,9 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    cached(setup_sarc_connection)()
-
     _setup_logging(verbose=2)
+    setup_sarc_connection()
+
     with Live(make_layout(), refresh_per_second=4) as live:
         for _ in range(40):
             live.update(make_layout())
@@ -119,15 +121,11 @@ def setup_sarc_connection():
             "You need to have a `mila` entry in your SSH configuration file."
         )
     mila_user: str = mila_config["user"]
-    control_socket_path = (
-        Path(
-            ssh_config.lookup("sarc").get(
-                "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
-            )
+    control_socket_path = Path(
+        ssh_config.lookup("sarc").get(
+            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
         )
-        .expanduser()
-        .resolve()
-    )
+    ).expanduser()
     control_socket_path.parent.mkdir(parents=True, exist_ok=True)
     multiplexing_args = (
         f"-o ControlMaster=auto "
@@ -618,7 +616,13 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
             logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
             result = fn(*args, **kwargs)
             # TODO: Save to a text file if the result is a string.
-            cache_file.write_bytes(pickle.dumps(result))
+            if cache_file.suffix == ".txt":
+                assert isinstance(
+                    result, str
+                ), "Result should be str (annotation says so!)"
+                cache_file.write_text(result)
+            else:
+                cache_file.write_bytes(pickle.dumps(result))
             logger.info(f"Saved result of computing {fn.__name__} to {cache_file}")
             return result
 
@@ -689,16 +693,9 @@ def _get_cache_file_name(
 @functools.lru_cache(maxsize=None)
 @cached
 def get_submit_line(job_id: int, cluster_name: str) -> str:
-    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-    control_path = (
-        Path(
-            ssh_config.lookup(cluster_name).get(
-                "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
-            )
-        )
-        .expanduser()
-        .resolve()
-    )
+    # Do this only once (and then reuse the connection)
+    _setup_multiplexed_ssh_conection(cluster_name)
+    control_path = _get_controlpath(cluster_name)
     control_path.parent.mkdir(parents=True, exist_ok=True)
     multiplexing_args = (
         f"-o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes"
@@ -706,12 +703,31 @@ def get_submit_line(job_id: int, cluster_name: str) -> str:
     # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
-    subprocess.check_call(
-        shlex.split(f"ssh {multiplexing_args} {cluster_name} echo 'OK'")
-    )
     return subprocess.getoutput(
-        f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+        f"ssh -o ControlPath={multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
     ).strip()
+
+
+@functools.lru_cache(maxsize=None)
+def _setup_multiplexed_ssh_conection(hostname: str):
+    control_path = _get_controlpath(hostname)
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    multiplexing_args = (
+        f"-o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes"
+    )
+    # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
+    # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
+    # also included in the output of the command.
+    subprocess.check_call(shlex.split(f"ssh {multiplexing_args} {hostname} echo 'OK'"))
+    return control_path
+
+
+def _get_controlpath(hostname: str) -> Path:
+    return Path(
+        paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
+        .lookup(hostname)
+        .get("controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p")
+    ).expanduser()
 
 
 @functools.lru_cache(maxsize=1)  # cache results in memory
@@ -758,7 +774,8 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _fix_missing_gpu_type(df)
 
     # TODO: I guess we won't be able to apply this, unless we inline the cluster configs.
-    df = _fix_rgu_discrepencies_inplace(df)
+    # df = _fix_rgu_discrepencies_inplace(df)
+    df = df.assign(**{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)})
 
     # todo: double-check if this is still needed here.
     df = df.fillna({"requested.gres_gpu": 0, "allocated.gres_gpu": 0})
@@ -1270,19 +1287,27 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
 
 def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
     narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
-    _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
-    _graham_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
-    _cedar_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    rgu_start_dates: dict[str, datetime | None] = {
+        "narval": narval_rgu_start_date,
+        "beluga": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "graham": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "cedar": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "mila": None,  #
+    }
+    # narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
+    # _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # _graham_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # _cedar_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
     # TODO: Clearly define the context for each patch.
     _patch_context = FilteringOptions(
-        start=datetime(2023, 11, 28, tzinfo=MTL),
+        start=datetime(2023, 11, 28, tzinfo=MTL),  # doesn't make sense!
         end=narval_rgu_start_date,
     )
 
     # NOTE: Fixing switch to RGU billing for a second time on Narval
     # TODO: Unclear if this is fixed by the `update_job_series_rgu` function in SARC.
     # with sarc.config.using_sarc_mode("scraping"):
-    return update_job_series_rgu(df)
+    # return update_job_series_rgu(df)
 
     cluster_configs = _get_cluster_configs()
     narval_config = cluster_configs["narval"]
@@ -1293,11 +1318,9 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
     is_narval = df["cluster_name"] == "narval"
     slice_during_rgu_time = (
         is_narval
+        # Doesn't make sense! The `narval_rgu_start_date` is the same!
         & (df["start_time"] >= datetime(2023, 11, 28, tzinfo=MTL))
-        & (
-            df["start_time"]
-            < datetime.fromisoformat(narval_config.rgu_start_date).astimezone(MTL)
-        )
+        & (df["start_time"] < narval_rgu_start_date)
         & (df["elapsed_time"] > 0)
     )
     non_updated_df = df[slice_during_rgu_time]
@@ -1310,18 +1333,14 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
     for name, cluster_config in cluster_configs.items():
         # Make sure that we are indeed doing this processing for each cluster.
         assert name
+        rgu_start_date = rgu_start_dates[name]
+        # TODO: how to get this now?
         if name == "mila":
-            assert (
-                cluster_config.rgu_start_date is None
-                and cluster_config.gpu_to_rgu_billing is None
-            )
+            assert rgu_start_date is None
         else:
-            assert (
-                cluster_config.rgu_start_date and cluster_config.gpu_to_rgu_billing
-                # and Path(cluster_config.gpu_to_rgu_billing).is_file()
-            ), (name, cluster_config)
+            assert rgu_start_date is not None, (name, cluster_config)
         # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
-        update_cluster_job_series_rgu(df, cluster_config)
+        update_cluster_job_series_rgu(df, name)
 
     # TODO: Why do we need this mapping here?
     gpu_to_rgu_billing = {
@@ -1450,8 +1469,10 @@ def _setup_logging(verbose: int):
         handlers=[rich.logging.RichHandler(show_time=False)],
         format="%(message)s",
         level=logging.ERROR,
+        force=True,
     )
     logging.getLogger("sarc").setLevel(logging.WARNING)
+    logging.getLogger("examples").setLevel(logging.WARNING)
 
     if verbose == 0:
         logger.setLevel("WARNING")
@@ -2660,4 +2681,6 @@ _NODE_TO_GPU = {
     },
 }
 if __name__ == "__main__":
+    main()
+    main()
     main()
