@@ -704,7 +704,7 @@ def get_submit_line(job_id: int, cluster_name: str) -> str:
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
     return subprocess.getoutput(
-        f"ssh -o ControlPath={multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+        f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
     ).strip()
 
 
