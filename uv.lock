@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.13.*"
 
 [[package]]
@@ -2603,6 +2603,7 @@ dev = [
     { name = "types-tqdm" },
 ]
 examples = [
+    { name = "rich" },
     { name = "seaborn" },
 ]
 
@@ -2663,7 +2664,10 @@ dev = [
     { name = "types-requests", specifier = ">=2.32.0.20250328" },
     { name = "types-tqdm", specifier = ">=4.67.0.20250417" },
 ]
-examples = [{ name = "seaborn", specifier = ">=0.13.2,<0.14" }]
+examples = [
+    { name = "rich", specifier = ">=14.0.0" },
+    { name = "seaborn", specifier = ">=0.13.2,<0.14" },
+]
 
 [[package]]
 name = "seaborn"

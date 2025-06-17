@@ -39,6 +39,7 @@ dependencies = [
 
 [project.scripts]
 sarc = "sarc.cli:main"
+waste_monitor = "examples.waste_monitor:main"
 
 [dependency-groups]
 dev = [
@@ -64,7 +65,10 @@ dev = [
     "pytest-env>=1.1.5,<2",
     "ruff>=0.12,<0.13",
 ]
-examples = ["seaborn>=0.13.2,<0.14"]
+examples = [
+    "rich>=14.0.0",
+    "seaborn>=0.13.2,<0.14",
+]
 
 # to consider
 #  - DTZ: datetimes without timezones (not right now)
@@ -82,6 +86,7 @@ ignore = [
   "PLR2004",  # replace magic value by variable
   "PLC0415",  # imports should be a the top level
 ]
+examples = ["rich>=14.0.0", "seaborn>=0.13.2,<0.14"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "E", "PERF", "T20"]
@@ -106,7 +111,10 @@ TQDM_DISABLE = "1"
 include = ["sarc"]
 
 [tool.hatch.build.targets.wheel]
-include = ["sarc"]
+include = ["sarc", "examples"]
+
+[tool.hatch.build.targets.wheel.force-include]
+config = "sarc/config"
 
 [build-system]
 requires = ["hatchling"]
