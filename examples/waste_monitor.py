@@ -201,7 +201,7 @@ def make_layout(layout_iteration: int, n_layout_iterations: int) -> Layout:
     layout.split(
         Layout(Header(), name="header", size=3),
         Layout(name="main_top"),
-        Layout(name="main_bottom"),
+        Layout(name="main_bottom", ratio=2),
         # Layout(name="footer", size=2),
     )
     layout["main_top"].split_row(
@@ -272,7 +272,7 @@ def make_waste_overview_table(
     )
 
     table = Table(
-        title=f"Most wasteful users (last 7 days) [{layout_iteration} / {n_layout_iterations}]",
+        title=f"Most wasteful users (last 7 days) [{layout_iteration+1} / {n_layout_iterations}]",
         expand=True,
     )
     table.add_column("#")
@@ -317,48 +317,44 @@ def make_cluster_overview_table(
         {
             "job_id": "nunique",
             "user.mila.email": "nunique",
-            "gpu_utilization": "mean",
+            "gpu_utilization": ["mean", "std"],
         }
     )
-
-    # todo: Somehow get the total number of GPUs on each cluster.
-    # _n_clusters = data["cluster_name"].unique()
-    # total_gpus = np.random.randint(500, 1000, size=len(_n_clusters))
-    # avail_gpus = np.random.randint(0, total_gpus, size=len(_n_clusters))
+    # TODO: Do a weighted average based on runtime.
+    gpu_cost_per_user_per_cluster = data.groupby(["cluster_name", "user.mila.email"])[
+        ["gpu_equivalent_cost", "allocated.gres_gpu"]
+    ].sum()
+    # TODO: look into naganuma.hiroki@mila.quebec on Mila (800 gpus*days)
+    gpus_per_user = gpu_cost_per_user_per_cluster.groupby("cluster_name").describe()
 
     table = Table(title="Overview by cluster (last 7 days)", expand=True)
     # TODO: Show Min / Mean / Median / Max GPUs per user?
     table.add_column("Cluster", justify="left")
     table.add_column("# of jobs", justify="right")
-    table.add_column("Average GPU Utilization")
+    table.add_column("GPU Util")
     table.add_column("Mila students using this cluster", justify="right")
-    table.add_column("GPUs per user", justify="right")
-    gpus_per_cluster_per_user = data.groupby(["cluster_name", "user.mila.email"])[
-        ["allocated.gres_gpu"]
-    ].sum()
-    gpus_per_user = gpus_per_cluster_per_user.groupby("cluster_name").describe()
+    table.add_column("GPUs days per user", justify="right")
 
     for index, row in grouped_data.iterrows():
         assert isinstance(index, str)
         cluster = index
-
-        mila_users = int(row["user.mila.email"])
-
+        mila_users = int(row["user.mila.email"]["nunique"])
         # used_gpus_pct = avail_gpu / total_gpu
-        num_jobs = row["job_id"]
-        gpu_util = row["gpu_utilization"]
+        num_jobs = row["job_id"]["nunique"]
+        gpu_util_mean = row["gpu_utilization"]["mean"]
+        gpu_util_std = row["gpu_utilization"]["std"]
         pct_of_mila_users = mila_users / total_mila_users
 
-        gpus_per_user_here = gpus_per_user.loc[cluster, "allocated.gres_gpu"]
+        gpus_per_user_here = gpus_per_user.xs(cluster)["gpu_equivalent_cost"]
         gpus_per_user_str = (
-            f"min={gpus_per_user_here['min']} mean={gpus_per_user_here['mean']:.1f} "
-            f"std={gpus_per_user_here['std']:.1f} max={gpus_per_user_here['max']}"
+            # f"[{gpus_per_user_here['min'].days} {gpus_per_user_here['max'].days}] "
+            f"({gpus_per_user_here['mean'].days:.1f}±{gpus_per_user_here['std'].days:.1f})"
         )
         table.add_row(
             cluster,
             str(num_jobs),
             # f"{avail_gpu} / {total_gpu} ({used_gpus_pct:.2%})",
-            _colorize_utilization(gpu_util),
+            f"{_colorize_utilization(gpu_util_mean)} ± {gpu_util_std:.1%}",
             f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
             gpus_per_user_str,
         )
@@ -378,7 +374,7 @@ def make_biggest_waster_job_info_table(
         keep="all",
     )
     table = Table(
-        title=f"Most wasteful jobs (last 7 days, all clusters combined) [{layout_iteration} / {n_layout_iterations}]",
+        title=f"Most wasteful jobs (last 7 days, all clusters combined) [{layout_iteration+1} / {n_layout_iterations}]",
         expand=True,
     )
     table.add_column("#")
@@ -894,7 +890,7 @@ def _fix_allocated_gres_gpu_very_large_drac(df: pd.DataFrame) -> pd.DataFrame:
     target_jobs = df.query(
         "(cluster_name != 'mila') & "
         "(`allocated.gres_gpu` == `allocated.billing`) & "
-        "(`allocated.billing` > 1000)"
+        "(`allocated.billing` > 100)"
     )
     target_jobs = target_jobs.assign(
         **{"allocated.gres_gpu": target_jobs["requested.gres_gpu"]}
