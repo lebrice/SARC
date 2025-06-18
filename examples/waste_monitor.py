@@ -181,16 +181,19 @@ def main():
     _setup_logging(verbose=2)
     setup_sarc_connection()
 
-    n_iterations = 1  # show 4 panels (scrolling down) every 5/10 seconds.
-    with Live(make_layout(0, n_iterations), refresh_per_second=4) as live:
-        for layout_iteration in itertools.count():
-            live.update(
-                make_layout(
-                    layout_iteration=layout_iteration % n_iterations,
-                    n_layout_iterations=n_iterations,
-                )
-            )
-            time.sleep(5)
+    app = RichLogApp()
+    app.run()
+
+    # n_iterations = 1  # show 4 panels (scrolling down) every 5/10 seconds.
+    # with Live(make_layout(0, n_iterations), refresh_per_second=4) as live:
+    #     for layout_iteration in itertools.count():
+    #         live.update(
+    #             make_layout(
+    #                 layout_iteration=layout_iteration % n_iterations,
+    #                 n_layout_iterations=n_iterations,
+    #             )
+    #         )
+    #         time.sleep(5)
 
 
 def setup_sarc_connection():
@@ -2920,5 +2923,4 @@ gpu_to_rgu_billing = {
 
 
 if __name__ == "__main__":
-    app = RichLogApp()
-    app.run()
+    main()
