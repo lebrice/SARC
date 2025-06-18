@@ -713,11 +713,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     # In SARC we currently can't query by user.mila.email, so we query with all
     # usernames and filter by user.mila.email after.
     # Cache results of SARC query to a file.
-    df = cached(load_job_series)(
-        start=options.start,
-        end=options.end,
-        clip_time=False,
-    )
+    df = cached(load_job_series)(start=options.start, end=options.end, clip_time=False)
 
     if df.empty:
         raise RuntimeError(f"NO SARC data for that period: {options}")
@@ -741,7 +737,8 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_very_large_drac(df)
     try:
-        df = _fix_rgu_discrepencies_inplace(df)
+        df = update_job_series_rgu(df)
+        # df = _fix_rgu_discrepencies_inplace(df)
     except pymongo.errors.OperationFailure as err:
         logger.error(err)
         logger.warning("Might not have correct RGU information for jobs.")
