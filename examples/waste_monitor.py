@@ -1,3 +1,14 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "rich",
+#     "sarc",
+#     "textual",
+# ]
+#
+# [tool.uv.sources]
+# sarc = { path = "../" }
+# ///
 from __future__ import annotations
 
 import argparse
@@ -104,9 +115,15 @@ def main():
     _setup_logging(verbose=2)
     setup_sarc_connection()
 
-    with Live(make_layout(), refresh_per_second=4) as live:
-        for _ in range(40):
-            live.update(make_layout())
+    n_iterations = 4  # show 4 panels (scrolling down) every 5/10 seconds.
+    with Live(make_layout(0, n_iterations), refresh_per_second=4) as live:
+        for layout_iteration in itertools.count():
+            live.update(
+                make_layout(
+                    layout_iteration=layout_iteration % n_iterations,
+                    n_layout_iterations=n_iterations,
+                )
+            )
             time.sleep(5)
 
 
@@ -168,7 +185,7 @@ def setup_sarc_connection():
     )
 
 
-def make_layout() -> Layout:
+def make_layout(layout_iteration: int, n_layout_iterations: int) -> Layout:
     """Define the layout."""
     midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
     options = FilteringOptions(
@@ -178,7 +195,6 @@ def make_layout() -> Layout:
         clusters=(),
     )
     data = get_clean_sarc_data(options)
-    # stats = _get_stats(data, options, frame_size="D")  # Daily
 
     layout = Layout(name="root")
 
@@ -186,15 +202,33 @@ def make_layout() -> Layout:
         Layout(Header(), name="header", size=3),
         Layout(name="main_top"),
         Layout(name="main_bottom"),
-        Layout(name="footer", size=2),
+        # Layout(name="footer", size=2),
     )
     layout["main_top"].split_row(
         Layout(name="body_left"),
         Layout(name="body_right", ratio=2),
     )
-    layout["body_left"].update(make_cluster_overview_table(data))
-    layout["body_right"].update(make_waste_overview_table(data))
-    layout["main_bottom"].update(make_biggest_waster_job_info_table(data))
+    layout["body_left"].update(
+        make_cluster_overview_table(
+            data,
+            layout_iteration=layout_iteration,
+            n_layout_iterations=n_layout_iterations,
+        )
+    )
+    layout["body_right"].update(
+        make_waste_overview_table(
+            data,
+            layout_iteration=layout_iteration,
+            n_layout_iterations=n_layout_iterations,
+        )
+    )
+    layout["main_bottom"].update(
+        make_biggest_waster_job_info_table(
+            data,
+            layout_iteration=layout_iteration,
+            n_layout_iterations=n_layout_iterations,
+        )
+    )
     # layout["side"].split(
     #     Layout(make_avail_gpus_panel(), name="box1"),
     #     Layout(make_avg_gpu_util_panel(), name="box2"),
@@ -202,7 +236,11 @@ def make_layout() -> Layout:
     return layout
 
 
-def make_waste_overview_table(data: pd.DataFrame) -> Table:
+def make_waste_overview_table(
+    data: pd.DataFrame,
+    layout_iteration: int,
+    n_layout_iterations: int,
+) -> Table:
     """Make a new table."""
 
     data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
@@ -221,16 +259,23 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
         },
     )
     data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
+
+    n_to_show_per_iter = 10
+
     ordered_by_waste = data_by_user.nlargest(
         columns="rgu_equivalent_waste",
-        n=100,
+        n=n_to_show_per_iter * n_layout_iterations,
         keep="all",
     )
     gpu_util_stats = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
         {"gpu_utilization": "describe"}
     )
 
-    table = Table(title="Most wasteful users (last 7 days)", expand=True)
+    table = Table(
+        title=f"Most wasteful users (last 7 days) [{layout_iteration} / {n_layout_iterations}]",
+        expand=True,
+    )
+    table.add_column("#")
     table.add_column("User")
     table.add_column("Cluster")
     table.add_column("GPU Utilization", justify="right")
@@ -239,13 +284,17 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
     table.add_column("Used/Wasted/Obstructed GPU days")
     table.add_column("U/W/Obs RGU*days")
 
-    for index, row in itertools.islice(ordered_by_waste.iterrows(), 20):
+    for i, (index, row) in list(enumerate(ordered_by_waste.iterrows(), start=1))[
+        layout_iteration
+        * n_to_show_per_iter : (layout_iteration + 1)
+        * n_to_show_per_iter
+    ]:
         assert isinstance(index, tuple) and len(index) == 2
         (cluster, user_email) = index
         used_gpus = row["allocated.gres_gpu"]
         gpu_util = gpu_util_stats.loc[index, "gpu_utilization"]
-
         table.add_row(
+            f"{i}",
             user_email,
             cluster,
             f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
@@ -258,7 +307,11 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
     return table
 
 
-def make_cluster_overview_table(data: pd.DataFrame) -> Table:
+def make_cluster_overview_table(
+    data: pd.DataFrame,
+    layout_iteration: int,
+    n_layout_iterations: int,
+) -> Table:
     total_mila_users = int(data["user.mila.email"].nunique())
     grouped_data = data.groupby("cluster_name").aggregate(
         {
@@ -312,12 +365,23 @@ def make_cluster_overview_table(data: pd.DataFrame) -> Table:
     return table
 
 
-def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
+def make_biggest_waster_job_info_table(
+    data: pd.DataFrame,
+    layout_iteration: int,
+    n_layout_iterations: int,
+) -> Table:
     # Mock data (TODO: replace)
-    most_wasteful_jobs = data.nlargest(n=20, columns="rgu_equivalent_waste", keep="all")
-    table = Table(
-        title="Most wasteful jobs (last 7 days, all clusters combined)", expand=True
+    n_to_show_per_iter = 10
+    most_wasteful_jobs = data.nlargest(
+        n=n_layout_iterations * n_to_show_per_iter,
+        columns="rgu_equivalent_waste",
+        keep="all",
     )
+    table = Table(
+        title=f"Most wasteful jobs (last 7 days, all clusters combined) [{layout_iteration} / {n_layout_iterations}]",
+        expand=True,
+    )
+    table.add_column("#")
     table.add_column("Job ID", justify="right")
     table.add_column("Cluster", justify="left")
     table.add_column("User", justify="left")
@@ -332,7 +396,11 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
     # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
-    for index, row in most_wasteful_jobs.iterrows():
+    for i, (index, row) in list(enumerate(most_wasteful_jobs.iterrows(), start=1))[
+        layout_iteration
+        * n_to_show_per_iter : (layout_iteration + 1)
+        * n_to_show_per_iter
+    ]:
         requested_cols = [
             col for col in most_wasteful_jobs.columns if col.startswith("requested.")
         ]
@@ -375,6 +443,7 @@ def make_biggest_waster_job_info_table(data: pd.DataFrame) -> Table:
         #     requested_resources["gres_gpu"],
         # )
         table.add_row(
+            f"{i}",
             str(row["job_id"]),
             row["cluster_name"],
             row["user.mila.email"].removesuffix("@mila.quebec"),
@@ -585,9 +654,9 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
             result = fn(*args, **kwargs)
             # TODO: Save to a text file if the result is a string.
             if cache_file.suffix == ".txt":
-                assert isinstance(result, str), (
-                    "Result should be str (annotation says so!)"
-                )
+                assert isinstance(
+                    result, str
+                ), "Result should be str (annotation says so!)"
                 cache_file.write_text(result)
             else:
                 cache_file.write_bytes(pickle.dumps(result))
@@ -1405,10 +1474,10 @@ def _update_cluster_job_series_rgu(df: pd.DataFrame, cluster_name: str) -> pd.Da
     # Get GPU->RGU mapping
     gpu_to_rgu = get_rgus()
     from sarc.client.series import (
+        _compute_rgu_stats_after_date,
+        _compute_rgu_stats_before_date,
         _compute_rgu_stats_from_gpu_count,
         get_cluster_gpu_billings,
-        _compute_rgu_stats_before_date,
-        _compute_rgu_stats_after_date,
     )
 
     if cluster.billing_is_gpu:
