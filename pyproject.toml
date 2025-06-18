@@ -68,6 +68,7 @@ dev = [
 examples = [
     "rich>=14.0.0",
     "seaborn>=0.13.2,<0.14",
+    "textual>=3.4.0",
 ]
 
 # to consider

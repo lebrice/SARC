@@ -36,6 +36,7 @@ import paramiko
 import paramiko.config
 import pymongo.errors
 import rich.logging
+import rich.text
 import simple_parsing
 import yaml
 from rich.layout import Layout
@@ -109,6 +110,71 @@ OutT = TypeVar("OutT")
 
 
 logger = logging.getLogger(__name__)
+from textual import events
+from textual.app import App, ComposeResult
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Input, RichLog, Static
+
+
+# IDEA: Make it possible to filter by user or cluster
+class DisplayWidget(Widget):
+    user: reactive[str | None] = reactive(None)
+
+    def render(self) -> str:
+        """Render the widget."""
+        if self.user is None:
+            return "No user specified."
+        return f"User: {self.user}"
+
+
+class RichLogApp(App):
+    panel: reactive[int] = reactive(0)
+    n_panels: reactive[int] = reactive(4)
+
+    def compose(self) -> ComposeResult:
+        # yield DisplayWidget()
+        # yield Input(placeholder="User to query for")
+        yield RichLog(highlight=True, markup=True)
+        # yield Name()
+
+    # def on_input_changed(self, event: Input.Changed) -> None:
+    #     self.query_one(DisplayWidget).user = event.value
+
+    def on_ready(self) -> None:
+        """Called  when the DOM is ready."""
+        text_log = self.query_one(RichLog)
+        text_log.clear()
+        text_log.write(make_layout(self.panel, self.n_panels))
+        # text_log.write(Syntax(CODE, "python", indent_guides=True))
+
+        # rows = iter(csv.reader(io.StringIO(CSV)))
+        # table = Table(*next(rows))
+        # for row in rows:
+        #     table.add_row(*row)
+
+        # text_log.write(table)
+        # text_log.write("[bold magenta]Write text or any Rich renderable!")
+
+    def on_key(self, event: events.Key) -> None:
+        """Write Key events to log."""
+        text_log = self.query_one(RichLog)
+        text_log.clear()
+        if event.key == "down":
+            self.panel += 1
+            self.n_panels = max(self.n_panels, self.panel)
+            # text_log.write(make_layout(self.panel, self.n_panels))
+        elif event.key == "up":
+            self.panel -= 1
+            self.panel = max(self.panel, 0)
+        text_log.write(make_layout(self.panel, self.n_panels))
+        text_log.write(event)
+        # if event.key == "enter":
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        # self.screen.query_one(RichLog).write(event)
+        # self.query_one(Ball).offset = event.screen_offset - (8, 2)
+        pass
 
 
 def main():
@@ -185,6 +251,7 @@ def setup_sarc_connection():
     )
 
 
+@functools.lru_cache(maxsize=None)
 def make_layout(layout_iteration: int, n_layout_iterations: int) -> Layout:
     """Define the layout."""
     midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
@@ -2853,4 +2920,5 @@ gpu_to_rgu_billing = {
 
 
 if __name__ == "__main__":
-    main()
+    app = RichLogApp()
+    app.run()
