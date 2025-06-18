@@ -35,6 +35,7 @@ from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self
 
+from sarc.client.gpumetrics import get_rgus
 from sarc.client.job import JobStatistics, SlurmState, get_available_clusters
 from sarc.client.series import (
     compute_cost_and_waste,
@@ -584,9 +585,9 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
             result = fn(*args, **kwargs)
             # TODO: Save to a text file if the result is a string.
             if cache_file.suffix == ".txt":
-                assert isinstance(
-                    result, str
-                ), "Result should be str (annotation says so!)"
+                assert isinstance(result, str), (
+                    "Result should be str (annotation says so!)"
+                )
                 cache_file.write_text(result)
             else:
                 cache_file.write_bytes(pickle.dumps(result))
@@ -825,14 +826,16 @@ def _fix_allocated_gres_gpu_very_large_drac(df: pd.DataFrame) -> pd.DataFrame:
     Example:  job id 44611270 on Narval.
     """
     target_jobs = df.query(
-        "cluster_name != 'mila' and "
-        "`allocated.gres_gpu` == `allocated.billing` * `requested.gres_gpu` and"
-        "`allocated.billing` > 1000"
+        "(cluster_name != 'mila') & "
+        "(`allocated.gres_gpu` == `allocated.billing`) & "
+        "(`allocated.billing` > 1000)"
+    )
+    target_jobs = target_jobs.assign(
+        **{"allocated.gres_gpu": target_jobs["requested.gres_gpu"]}
     )
     df = df.copy()
-    df.update(
-        target_jobs.assign(**{"allocated.gres_gpu": target_jobs["requested.gres_gpu"]})
-    )
+    df.update(target_jobs)
+    return df
 
 
 def _get_stats(
@@ -1328,19 +1331,26 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
     # TODO: Seems like part of this patching is supposed to be done in SARC with the `update_job_series_rgu` function.
     # However, we can't call that function here atm because it requires using the sarc-dev config.
     # update_job_series_rgu
-    # df = update_job_series_rgu(df)
-    # return df
-    for name, cluster_config in cluster_configs.items():
-        # Make sure that we are indeed doing this processing for each cluster.
-        assert name
-        rgu_start_date = rgu_start_dates[name]
-        # TODO: how to get this now?
-        if name == "mila":
-            assert rgu_start_date is None
-        else:
-            assert rgu_start_date is not None, (name, cluster_config)
-        # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
-        update_cluster_job_series_rgu(df, name)
+    try:
+        df = update_job_series_rgu(df)
+    except pymongo.errors.OperationFailure as err:
+        logger.error(err)
+        logger.warning(
+            "Might not have correct RGU information for jobs. "
+            "Falling back to this hacky ugly workaround."
+        )
+        # If we can't update the job series, we will do it ourselves.
+        for name, cluster_config in cluster_configs.items():
+            # Make sure that we are indeed doing this processing for each cluster.
+            assert name
+            rgu_start_date = rgu_start_dates[name]
+            # TODO: how to get this now?
+            if name == "mila":
+                assert rgu_start_date is None
+            else:
+                assert rgu_start_date is not None, (name, cluster_config)
+            # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
+            _update_cluster_job_series_rgu(df, name)
 
     # TODO: Why do we need this mapping here?
     gpu_to_rgu_billing = {
@@ -1359,6 +1369,88 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
     # Overwrite all RGU values
     # TODO: Why?!
     df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
+    return df
+
+
+def _update_cluster_job_series_rgu(df: pd.DataFrame, cluster_name: str) -> pd.DataFrame:
+    """
+    Compute RGU information for jobs related to given cluster in a data frame.
+
+    Parameters
+    ----------
+    df: DataFrame
+        Data frame to update, typically returned by `load_job_series`.
+        Should contain fields:
+        "cluster_name", "start_time", "allocated.gpu_type", "allocated.gres_gpu".
+    cluster_name: ClusterConfig
+        Name of cluster to which jobs to update belong.
+
+    Returns
+    -------
+    DataFrame
+        Input data frame with:
+        - column `allocated.gres_gpu` updated if necessary.
+        - column `allocated.gres_rgu` added or updated to contain RGU billing.
+          Set to NaN (or unchanged if already present) for jobs from other clusters.
+        - column `gpu_type_rgu` added or updated to contain RGU cost per GPU (RGU/GPU ratio).
+          Set to NaN (or unchanged if already present) for jobs from other clusters.
+    """
+    # Make sure frame will have new RGU columns anyway, with NaN as default value.
+    if "allocated.gres_rgu" not in df.columns:
+        df["allocated.gres_rgu"] = np.nan
+    if "allocated.gpu_type_rgu" not in df.columns:
+        df["allocated.gpu_type_rgu"] = np.nan
+
+    # Get cluster info
+    clusters = {cluster.cluster_name: cluster for cluster in get_available_clusters()}
+    cluster = clusters[cluster_name]
+
+    # Get GPU->RGU mapping
+    gpu_to_rgu = get_rgus()
+    from sarc.client.series import (
+        _compute_rgu_stats_from_gpu_count,
+        get_cluster_gpu_billings,
+        _compute_rgu_stats_before_date,
+        _compute_rgu_stats_after_date,
+    )
+
+    if cluster.billing_is_gpu:
+        # If billing is GPU count on this cluster, then we just need
+        # gpu_to_rgu to compute jobs RGU billing.
+        slice_rows = df["cluster_name"] == cluster_name
+        _compute_rgu_stats_from_gpu_count(df, slice_rows, gpu_to_rgu)
+        return df
+
+    # Otherwise, we need cluster's GPU->billing
+    # to infer GPU count then RGU billing for each job.
+
+    # Get GPU->billing mappings, sorted by billing start date in ascending order.
+    # TODO: Unsure, but maybe the hard-coded list below can help?
+    dated_gpu_billings = get_cluster_gpu_billings(cluster_name=cluster_name)
+    if not dated_gpu_billings:
+        logging.warning(
+            f"RGU update: no GPU billing available for cluster {cluster_name}"
+        )
+        return df
+
+    # Now we have RGU and billing values. We can compute RGU information.
+
+    # First, we update columns for jobs that started before the oldest available RGU mapping.
+    _compute_rgu_stats_before_date(df, cluster_name, gpu_to_rgu, dated_gpu_billings[0])
+
+    # Then, we update columns for each RGU mapping except the latest one.
+    for i in range(1, len(dated_gpu_billings)):
+        curr_mapping = dated_gpu_billings[i - 1]
+        next_mapping = dated_gpu_billings[i]
+        _compute_rgu_stats_after_date(
+            cluster, df, cluster_name, gpu_to_rgu, curr_mapping, next_mapping.since
+        )
+
+    # Finally, we update columns for latest RGU mapping.
+    _compute_rgu_stats_after_date(
+        cluster, df, cluster_name, gpu_to_rgu, dated_gpu_billings[-1]
+    )
+
     return df
 
 
@@ -2680,7 +2772,23 @@ _NODE_TO_GPU = {
         "gra1373": "gpu:a5000:4",
     },
 }
+
+gpu_to_rgu_billing = {
+    "beluga": {"start-on": "start_time", "mappings": {"v100-16gb": 2200}},
+    "cedar": {
+        "start-on": "submit_time",
+        "mappings": {"v100-32gb": 2600, "p100-12gb": 1000, "p100-16gb": 1100},
+    },
+    "narval": {
+        "start-on": "start_time",
+        "mappings": {
+            "a100-40gb": 4000,
+            "a100-40gb-3g.20gb": 1714.29,
+            "a100-40gb-4g.20gb": 2285.71,
+        },
+    },
+}
+
+
 if __name__ == "__main__":
-    main()
-    main()
     main()
