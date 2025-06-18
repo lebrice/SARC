@@ -30,12 +30,7 @@ import yaml
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    TextColumn,
-)
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self
@@ -253,7 +248,7 @@ def make_waste_overview_table(data: pd.DataFrame) -> Table:
             user_email,
             cluster,
             f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
-            _colorize_utilization(row["job_success_rate"], red=0.1, orange=0.2),
+            f"{_colorize_utilization(row['job_success_rate'], red=0.1, orange=0.2)} (n={row['job_id']})",
             f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
             f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
             f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
@@ -658,8 +653,7 @@ def _get_cache_file_name(
             extension = ".txt"
     except TypeError:
         pass
-    # extension = ".pkl" if typing.get_type_hints(fn)["return"]
-    return f"{fn.__name__}-{hashed_args}.{extension}"
+    return f"{fn.__name__}-{hashed_args}{extension}"
 
 
 @functools.lru_cache(maxsize=None)
@@ -744,13 +738,21 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _remove_old_nodes(df)
     df = _replace_outlier_stats_with_na(df)
     df = _fix_missing_gpu_type(df)
-
+    df = _fix_allocated_gres_gpu_very_large_drac(df)
     try:
         df = _fix_rgu_discrepencies_inplace(df)
     except pymongo.errors.OperationFailure as err:
         logger.error(err)
         logger.warning("Might not have correct RGU information for jobs.")
-        df = df.assign(**{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)})
+        df = df.assign(
+            **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
+        )
+    df = df.assign(
+        **{
+            "allocated.gres_rgu": df["allocated.gres_gpu"]
+            * df["allocated.gpu_type_rgu"]
+        }
+    )
 
     assert df["requested.gres_gpu"].notna().all()
     assert df["allocated.gres_gpu"].notna().all()
@@ -804,13 +806,6 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
 
     df = df.assign(
-        **{
-            "allocated.gres_rgu": df["allocated.gres_gpu"]
-            * df["allocated.gpu_type_rgu"]
-        }
-    )
-
-    df = df.assign(
         rgu_equivalent_cost=(df["gpu_equivalent_cost"] * df["allocated.gpu_type_rgu"]),
         rgu_equivalent_waste=(
             df["gpu_equivalent_waste"] * df["allocated.gpu_type_rgu"]
@@ -820,6 +815,24 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         ),
     )
     return df
+
+
+def _fix_allocated_gres_gpu_very_large_drac(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Some DRAC jobs have allocated.gres_gpu that has been multiplied with a very large
+    `allocated.billing` factor.
+
+    Example:  job id 44611270 on Narval.
+    """
+    target_jobs = df.query(
+        "cluster_name != 'mila' and "
+        "`allocated.gres_gpu` == `allocated.billing` * `requested.gres_gpu` and"
+        "`allocated.billing` > 1000"
+    )
+    df = df.copy()
+    df.update(
+        target_jobs.assign(**{"allocated.gres_gpu": target_jobs["requested.gres_gpu"]})
+    )
 
 
 def _get_stats(
@@ -1221,13 +1234,17 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
 
     Example job id: 48738025 (on Narval I think).
     """
-    
-    filter_period = FilteringOptions(
-        clusters=[cluster.cluster_name for cluster in get_available_clusters() if cluster.cluster_name != "mila"],
+    # TODO: define the domain for this patch
+    _filter_period = FilteringOptions(
+        clusters=[
+            cluster.cluster_name
+            for cluster in get_available_clusters()
+            if cluster.cluster_name != "mila"
+        ],
         start=datetime(2024, 4, 1, tzinfo=MTL),
-        end=None,
+        end=datetime.now(),
     )
-    
+
     is_drac = df["cluster_name"] != "mila"
     slice_during_rgu_time = (
         is_drac
@@ -1308,7 +1325,6 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
         & (df["elapsed_time"] > 0)
     )
     non_updated_df = df[slice_during_rgu_time]
-
     # TODO: Seems like part of this patching is supposed to be done in SARC with the `update_job_series_rgu` function.
     # However, we can't call that function here atm because it requires using the sarc-dev config.
     # update_job_series_rgu
