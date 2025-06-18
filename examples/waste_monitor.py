@@ -129,12 +129,12 @@ def main():
 
 def setup_sarc_connection():
     ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-    mila_config = ssh_config.lookup("mila")
-    if "user" not in mila_config:
-        raise ValueError(
-            "You need to have a `mila` entry in your SSH configuration file."
-        )
-    mila_user: str = mila_config["user"]
+    # mila_config = ssh_config.lookup("mila")
+    # if "user" not in mila_config:
+    #     raise ValueError(
+    #         "You need to have a `mila` entry in your SSH configuration file."
+    #     )
+    # mila_user: str = mila_config["user"]
     control_socket_path = Path(
         ssh_config.lookup("sarc").get(
             "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
@@ -180,7 +180,7 @@ def setup_sarc_connection():
 
     subprocess.check_call(
         shlex.split(
-            f"ssh -o ProxyJump=mila {port_forwarding_args} -o User={mila_user} {multiplexing_args} sarc01-dev echo OK"
+            f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK"
         )
     )
 
