@@ -591,7 +591,7 @@ class Header:
             "[b]SARC[/b] Waste Monitoring",
             datetime.now().ctime().replace(":", "[blink]:[/]"),
         )
-        return Panel(grid, style="white on green")
+        return Panel(grid)
 
 
 def _midnight(dt: datetime) -> datetime:
