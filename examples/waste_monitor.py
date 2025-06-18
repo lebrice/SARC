@@ -280,7 +280,7 @@ def make_waste_overview_table(
     table.add_column("Cluster")
     table.add_column("GPU Utilization", justify="right")
     table.add_column("Job success rate", justify="right")
-    table.add_column("Total allocated GPUs/RGUs", justify="right")
+    # table.add_column("Total allocated GPUs/RGUs", justify="right")
     table.add_column("Used/Wasted/Obstructed GPU days")
     table.add_column("U/W/Obs RGU*days")
 
@@ -299,7 +299,7 @@ def make_waste_overview_table(
             cluster,
             f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
             f"{_colorize_utilization(row['job_success_rate'], red=0.1, orange=0.2)} (n={row['job_id']})",
-            f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
+            # f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
             f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
             f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
             # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
