@@ -115,7 +115,7 @@ def main():
     _setup_logging(verbose=2)
     setup_sarc_connection()
 
-    n_iterations = 4  # show 4 panels (scrolling down) every 5/10 seconds.
+    n_iterations = 1  # show 4 panels (scrolling down) every 5/10 seconds.
     with Live(make_layout(0, n_iterations), refresh_per_second=4) as live:
         for layout_iteration in itertools.count():
             live.update(
