@@ -87,7 +87,6 @@ ignore = [
   "PLR2004",  # replace magic value by variable
   "PLC0415",  # imports should be a the top level
 ]
-examples = ["rich>=14.0.0", "seaborn>=0.13.2,<0.14"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "E", "PERF", "T20"]
