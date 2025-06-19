@@ -82,7 +82,7 @@ from sarc.client.series import (
     update_cluster_job_series_rgu,
     update_job_series_rgu,
 )
-from sarc.client.users.api import User
+from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClientConfig, ClusterConfig
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
@@ -446,7 +446,11 @@ def make_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
 
 
 def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
-    total_mila_users = int(data["user.mila.email"].nunique())
+    total_mila_users = get_mila_students_in_period(
+        start=_midnight(datetime.now()) - timedelta(days=7),
+        end=_midnight(datetime.now()),
+    )
+    # total_mila_users = int(data["user.mila.email"].nunique())
     grouped_data = data.groupby("cluster_name").aggregate(
         {
             "job_id": "nunique",
@@ -858,6 +862,14 @@ def get_submit_line(job_id: int | str, cluster_name: str) -> str:
     # return subprocess.getoutput(
     #     f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
     # ).strip()
+
+
+@cached
+def get_mila_students_in_period(start: datetime, end: datetime) -> int:
+    students = get_users(latest=True)
+    return len(
+        set(user.mila.email for user in students if user.mila and user.mila.email)
+    )
 
 
 @functools.lru_cache(maxsize=None)
