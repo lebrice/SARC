@@ -36,8 +36,10 @@ import paramiko
 import paramiko.config
 import pymongo.errors
 import rich.logging
+import rich.pretty
 import rich.text
 import simple_parsing
+import textual.logging
 import yaml
 from rich.layout import Layout
 from rich.live import Live
@@ -45,6 +47,25 @@ from rich.panel import Panel
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
+from textual import events, on
+from textual.app import App, ComposeResult
+from textual.containers import Horizontal, HorizontalScroll, VerticalScroll
+from textual.events import Mount
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import (
+    Button,
+    Checkbox,
+    ContentSwitcher,
+    DataTable,
+    Header,
+    Input,
+    Markdown,
+    RichLog,
+    Select,
+    SelectionList,
+    Static,
+)
 from typing_extensions import Self
 
 from sarc.client.gpumetrics import get_rgus
@@ -110,26 +131,8 @@ OutT = TypeVar("OutT")
 
 
 logger = logging.getLogger(__name__)
-from textual import events
-from textual.app import App, ComposeResult
-from textual.reactive import reactive
-from textual.widget import Widget
-from textual.widgets import Input, RichLog, Static
 
-
-# IDEA: Make it possible to filter by user or cluster
-class DisplayWidget(Widget):
-    user: reactive[str | None] = reactive(None)
-
-    def render(self) -> str:
-        """Render the widget."""
-        if self.user is None:
-            return "No user specified."
-        return f"User: {self.user}"
-
-
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Button, ContentSwitcher, DataTable, Markdown
+get_available_clusters = functools.cache(get_available_clusters)
 
 
 class RichLogApp(App):
@@ -153,46 +156,71 @@ class RichLogApp(App):
     # panel: reactive[int] = reactive(0)
     # n_panels: reactive[int] = reactive(4)
 
+    clusters: reactive[list[str]] = reactive([])
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.query_one(ContentSwitcher).current = event.button.id
 
     def compose(self) -> ComposeResult:
-
         with Horizontal(id="buttons"):
             yield Button("Overview", id="overview")
             yield Button("User View", id="per_user")
             yield Button("Jobs", id="jobs")
-        # yield DisplayWidget()
-        # yield Input(placeholder="User to query for")
-
+            with HorizontalScroll():
+                for cluster in get_available_clusters():
+                    yield Checkbox(
+                        label=cluster.cluster_name.capitalize(),
+                        value=True,
+                        id=cluster.cluster_name,
+                    )
+            # yield Input(placeholder="User to query for")
         with ContentSwitcher(initial="overview"):
             yield RichLog(highlight=True, markup=True, id="overview")
             with VerticalScroll(id="per_user"):
                 yield DataTable(id="user_table")
             with VerticalScroll(id="jobs"):
                 yield DataTable(id="job_table")
-                # yield Layout(make_waste_overview_table())
-        # yield Name()
 
-    # def on_input_changed(self, event: Input.Changed) -> None:
-    #     self.query_one(DisplayWidget).user = event.value
-
-    # def on_ready(self) -> None:
-    #     """Called  when the DOM is ready."""
+    @on(Mount)
     def on_mount(self) -> None:
+        self.data = get_data(clusters=self.clusters, users=())
+        clusters: list[str] = []
+        for cluster in get_available_clusters():
+            name = cluster.cluster_name
+            if self.query_one(f"#{name}", Checkbox).value:
+                clusters.append(name)
+        self.clusters = clusters
+        self.populate_stuff(self.data)
+
+    @on(Checkbox.Changed)
+    def on_change_cluster(self, event: Checkbox.Changed) -> None:
+        text_log = self.query_one(RichLog)
+        assert event.checkbox.id
+        if event.value:
+            self.clusters = self.clusters + [event.checkbox.id]
+        else:
+            self.clusters.remove(event.checkbox.id)
+        text_log.write(rich.pretty.Pretty(self.clusters))
+
+        # TODO: update the UI following changes to the data in an efficient way.
+        # midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
+        # options = FilteringOptions(
+        #     start=(midnight_tonight - timedelta(days=7)),
+        #     end=midnight_tonight,
+        #     user=(),
+        #     clusters=(),
+        # )
+        # data = get_clean_sarc_data(options)
+        # if self.clusters:
+        #     data = data[data["cluster_name"].isin(self.clusters)]
+        # self.populate_stuff(data)
+
+    def populate_stuff(self, data: pd.DataFrame):
+        # TODO: The multiplexed SSH connections to all clusters should already be setup before this is launched
+        # to avoid the SSH 2FA prompts messing up the UI.
         text_log = self.query_one(RichLog)
         text_log.clear()
-
-        midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
-        options = FilteringOptions(
-            start=(midnight_tonight - timedelta(days=7)),
-            end=midnight_tonight,
-            user=(),
-            clusters=(),
-        )
-        data = get_clean_sarc_data(options)
-
-        text_log.write(make_cluster_overview_table(data))
+        text_log.write(_make_cluster_overview_table(data))
 
         alerts_table = Table(title="Alerts")
         alerts_table.add_column("Time")
@@ -220,41 +248,25 @@ class RichLogApp(App):
             else:
                 table.cursor_type = "row"
                 make_biggest_waster_job_info_datatable(table, data, 0, 1)
-        # text_log.write(Syntax(CODE, "python", indent_guides=True))
-
-        # rows = iter(csv.reader(io.StringIO(CSV)))
-        # table = Table(*next(rows))
-        # for row in rows:
-        #     table.add_row(*row)
-
-        # text_log.write(table)
-        # text_log.write("[bold magenta]Write text or any Rich renderable!")
-
-    # def on_key(self, event: events.Key) -> None:
-    #     """Write Key events to log."""
-    #     text_log = self.query_one(RichLog)
-    #     text_log.clear()
-    #     if event.key == "down":
-    #         self.panel += 1
-    #         self.n_panels = max(self.n_panels, self.panel)
-    #         # text_log.write(make_layout(self.panel, self.n_panels))
-    #     elif event.key == "up":
-    #         self.panel -= 1
-    #         self.panel = max(self.panel, 0)
-    #     text_log.write(make_layout(self.panel, self.n_panels))
-    #     text_log.write(event)
-    # if event.key == "enter":
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
-        # self.query_one(Ball).offset = event.screen_offset - (8, 2)
         pass
 
 
 def main():
     _setup_logging(verbose=2)
     setup_sarc_connection()
+    for cluster in get_available_clusters():
+        try:
+            _setup_multiplexed_ssh_conection(cluster.cluster_name)
+        except subprocess.CalledProcessError as err:
+            logger.error(
+                f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
+            )
 
+    # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
+    _data = get_data()
     app = RichLogApp()
     app.run()
 
@@ -270,14 +282,37 @@ def main():
     #         time.sleep(5)
 
 
+def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
+    midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
+    return _cached_get_data(
+        midnight_tonight, tuple(sorted(clusters)), tuple(sorted(users))
+    )
+
+
+@functools.lru_cache(maxsize=10)
+def _cached_get_data(
+    midnight_tonight: datetime,
+    clusters: tuple[str, ...] = (),
+    users: tuple[str, ...] = (),
+) -> pd.DataFrame:
+    """Cached function to get the data."""
+    options = FilteringOptions(
+        start=(midnight_tonight - timedelta(days=7)),
+        end=midnight_tonight,
+        user=(),
+        clusters=(),
+    )
+    # This is cached as well:
+    data = get_clean_sarc_data(options)
+    if clusters:
+        data = data[data["cluster_name"].isin(clusters)]
+    if users:
+        data = data[data["user.mila.email"].isin(users)]
+    return data
+
+
 def setup_sarc_connection():
     ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-    # mila_config = ssh_config.lookup("mila")
-    # if "user" not in mila_config:
-    #     raise ValueError(
-    #         "You need to have a `mila` entry in your SSH configuration file."
-    #     )
-    # mila_user: str = mila_config["user"]
     control_socket_path = Path(
         ssh_config.lookup("sarc").get(
             "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
@@ -324,131 +359,9 @@ def setup_sarc_connection():
     subprocess.check_call(
         shlex.split(
             f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK"
-        )
+        ),
+        stdout=subprocess.DEVNULL,
     )
-
-
-@functools.lru_cache(maxsize=None)
-def make_layout(layout_iteration: int, n_layout_iterations: int) -> Layout:
-    """Define the layout."""
-    midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
-    options = FilteringOptions(
-        start=(midnight_tonight - timedelta(days=7)),
-        end=midnight_tonight,
-        user=(),
-        clusters=(),
-    )
-    data = get_clean_sarc_data(options)
-
-    layout = Layout(name="root")
-
-    layout.split(
-        Layout(Header(), name="header", size=3),
-        Layout(name="main_top"),
-        Layout(name="main_bottom", ratio=2),
-        # Layout(name="footer", size=2),
-    )
-    layout["main_top"].split_row(
-        Layout(name="body_left"),
-        Layout(name="body_right", ratio=2),
-    )
-    layout["body_left"].update(
-        make_cluster_overview_table(
-            data,
-            layout_iteration=layout_iteration,
-            n_layout_iterations=n_layout_iterations,
-        )
-    )
-    layout["body_right"].update(
-        make_waste_overview_table(
-            data,
-            layout_iteration=layout_iteration,
-            n_layout_iterations=n_layout_iterations,
-        )
-    )
-    layout["main_bottom"].update(
-        make_biggest_waster_job_info_table(
-            data,
-            layout_iteration=layout_iteration,
-            n_layout_iterations=n_layout_iterations,
-        )
-    )
-    # layout["side"].split(
-    #     Layout(make_avail_gpus_panel(), name="box1"),
-    #     Layout(make_avg_gpu_util_panel(), name="box2"),
-    # )
-    return layout
-
-
-def make_waste_overview_table(
-    data: pd.DataFrame,
-    layout_iteration: int = 0,
-    n_layout_iterations: int = 1,
-) -> Table:
-    """Make a new table."""
-
-    data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
-        {
-            "job_id": "nunique",
-            "job_state": lambda v: (v == SlurmState.COMPLETED).mean(),
-            "allocated.gres_gpu": "sum",
-            "allocated.gres_rgu": "sum",
-            "gpu_equivalent_cost": "sum",
-            "rgu_equivalent_cost": "sum",
-            "cpu_equivalent_waste": "sum",
-            "gpu_equivalent_waste": "sum",
-            "rgu_equivalent_waste": "sum",
-            "gpu_overbilling_cost": "sum",
-            "rgu_overbilling_cost": "sum",
-        },
-    )
-    data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
-
-    n_to_show_per_iter = 10 if n_layout_iterations > 1 else 50
-
-    ordered_by_waste = data_by_user.nlargest(
-        columns="rgu_equivalent_waste",
-        n=n_to_show_per_iter * n_layout_iterations,
-        keep="all",
-    )
-    gpu_util_stats = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
-        {"gpu_utilization": "describe"}
-    )
-
-    table = Table(
-        title=f"Most wasteful users (last 7 days) [{layout_iteration+1} / {n_layout_iterations}]",
-        expand=True,
-    )
-    table.add_column("#")
-    table.add_column("User")
-    table.add_column("Cluster")
-    table.add_column("GPU Utilization", justify="right")
-    table.add_column("Job success rate", justify="right")
-    # table.add_column("Total allocated GPUs/RGUs", justify="right")
-    table.add_column("Used/Wasted/Obstructed GPU days")
-    table.add_column("U/W/Obs RGU*days")
-
-    for i, (index, row) in list(enumerate(ordered_by_waste.iterrows(), start=1))[
-        layout_iteration
-        * n_to_show_per_iter : (layout_iteration + 1)
-        * n_to_show_per_iter
-    ]:
-        assert isinstance(index, tuple) and len(index) == 2
-        (cluster, user_email) = index
-        used_gpus = row["allocated.gres_gpu"]
-        gpu_util = gpu_util_stats.loc[index, "gpu_utilization"]
-        table.add_row(
-            f"{i}",
-            user_email,
-            cluster,
-            f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
-            f"{_colorize_utilization(row['job_success_rate'], red=0.1, orange=0.2)} (n={row['job_id']})",
-            # f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
-            f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
-            f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
-            # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
-        )
-    return table
 
 
 def make_waste_overview_datatable(
@@ -523,7 +436,7 @@ def make_waste_overview_datatable(
     # return table
 
 
-def make_cluster_overview_table(
+def _make_cluster_overview_table(
     data: pd.DataFrame,
     layout_iteration: int = 0,
     n_layout_iterations: int = 1,
@@ -573,102 +486,6 @@ def make_cluster_overview_table(
             f"{_colorize_utilization(gpu_util_mean)} ± {gpu_util_std:.1%}",
             f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
             gpus_per_user_str,
-        )
-    return table
-
-
-def make_biggest_waster_job_info_table(
-    data: pd.DataFrame,
-    layout_iteration: int,
-    n_layout_iterations: int,
-) -> Table:
-    # Mock data (TODO: replace)
-    n_to_show_per_iter = 10
-    most_wasteful_jobs = data.nlargest(
-        n=n_layout_iterations * n_to_show_per_iter,
-        columns="rgu_equivalent_waste",
-        keep="all",
-    )
-    table = Table(
-        title=f"Most wasteful jobs (last 7 days, all clusters combined) [{layout_iteration+1} / {n_layout_iterations}]",
-        expand=True,
-    )
-    table.add_column("#")
-    table.add_column("Job ID", justify="right")
-    table.add_column("Cluster", justify="left")
-    table.add_column("User", justify="left")
-    table.add_column("Elapsed time", justify="left")
-    table.add_column("Avg GPU Util", justify="right")
-    table.add_column("Requested Ressources", overflow="fold", max_width=30)
-    # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
-    table.add_column("Used/Wasted/Obstructed GPU days", justify="right")
-    # table.add_column("Wasted GPU/RGU days", justify="right")
-    # table.add_column("Obstructed GPU days", justify="right")
-    table.add_column("SubmitLine", overflow="crop", ratio=5)
-    # table.add_column("Workdir", justify="left")
-    # table.add_column("submit command", justify="left")
-
-    for i, (index, row) in list(enumerate(most_wasteful_jobs.iterrows(), start=1))[
-        layout_iteration
-        * n_to_show_per_iter : (layout_iteration + 1)
-        * n_to_show_per_iter
-    ]:
-        requested_cols = [
-            col for col in most_wasteful_jobs.columns if col.startswith("requested.")
-        ]
-        submit_line = get_submit_line(
-            job_id=row["job_id"], cluster_name=row["cluster_name"]
-        )
-        submit_line = "\n".join(
-            line.strip() for line in submit_line.splitlines() if line.strip()
-        )
-
-        requested_resources = {
-            k.removeprefix("requested."): (
-                # TODO: Colorize the mem based on mem per GPU ratio?
-                f"{row[k] // 1024}GB"
-                if k.endswith("mem")
-                else (
-                    f"[bold]{row['allocated.gpu_type']}:{int(row[k])}[/bold]"
-                    if k.endswith("gres_gpu")
-                    else str(row[k])
-                )
-            )
-            for k in requested_cols
-        }
-        # IDEA: Use another (nested) table: https://stackoverflow.com/questions/74144874/constructing-a-table-with-multilevel-headers-using-rich-table
-        # _requested_table = Table(
-        #     padding=(0, 0),
-        #     show_edge=False,
-        #     show_lines=True,
-        #     show_header=False,
-        # )
-        # _requested_table.add_column("cpus")
-        # _requested_table.add_column("mem")
-        # _requested_table.add_column("nodes")
-        # _requested_table.add_column("nodes")
-        # _requested_table.add_column("gres_gpu")
-        # _requested_table.add_row(
-        #     requested_resources["cpu"],
-        #     requested_resources["mem"],
-        #     requested_resources["node"],
-        #     requested_resources["gres_gpu"],
-        # )
-        table.add_row(
-            f"{i}",
-            str(row["job_id"]),
-            row["cluster_name"],
-            row["user.mila.email"].removesuffix("@mila.quebec"),
-            f"{row['elapsed_time']}",
-            _colorize_utilization(row["gpu_utilization"]),
-            # _requested_table,
-            " ".join(f"{k}={v}" for k, v in requested_resources.items() if v),
-            f"{row['gpu_equivalent_cost'].days} / [red]{row['gpu_equivalent_waste'].days}[/] / [red]{row['gpu_overbilling_cost'].days}",
-            # f"[red]{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
-            # f"[red]{row['gpu_overbilling_cost'].days}",
-            submit_line,
-            # IDEA: Show it as a Syntax block:
-            # rich.syntax.Syntax(submit_line, lexer="bash"),
         )
     return table
 
@@ -730,24 +547,6 @@ def make_biggest_waster_job_info_datatable(
             )
             for k in requested_cols
         }
-        # IDEA: Use another (nested) table: https://stackoverflow.com/questions/74144874/constructing-a-table-with-multilevel-headers-using-rich-table
-        # _requested_table = Table(
-        #     padding=(0, 0),
-        #     show_edge=False,
-        #     show_lines=True,
-        #     show_header=False,
-        # )
-        # _requested_table.add_column("cpus")
-        # _requested_table.add_column("mem")
-        # _requested_table.add_column("nodes")
-        # _requested_table.add_column("nodes")
-        # _requested_table.add_column("gres_gpu")
-        # _requested_table.add_row(
-        #     requested_resources["cpu"],
-        #     requested_resources["mem"],
-        #     requested_resources["node"],
-        #     requested_resources["gres_gpu"],
-        # )
         table.add_row(
             f"{i}",
             str(row["job_id"]),
@@ -780,57 +579,21 @@ def _colorize_utilization(util: float, red: float = 0.2, orange=0.5) -> str:
         return f"[green]{util_pct}"
 
 
-def make_avail_gpus_panel() -> Panel:
-    avail_gpus = Progress(
-        "{task.description}",
-        # SpinnerColumn(),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-    )
-    mila_total_gpus = 853
-    mila_available_gpus = random.randint(0, mila_total_gpus)
-    avail_gpus.add_task("Mila", completed=mila_available_gpus, total=mila_total_gpus)
-    tamia_total_gpus = 164
-    tamia_avail_gpus = random.randint(0, tamia_total_gpus)
-    avail_gpus.add_task("Tamia", completed=tamia_avail_gpus, total=tamia_total_gpus)
-    return Panel(
-        avail_gpus,
-        title="Available GPUs",
-        border_style="green",
-        padding=(2, 2),
-    )
-
-
-def make_avg_gpu_util_panel() -> Table:
-    avg_gpu_util = Progress(
-        "{task.description}",
-        # SpinnerColumn(),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-    )
-    avg_gpu_util.add_task("Mila", completed=100 * random.random(), total=100)
-    avg_gpu_util.add_task("Tamia", completed=100 * random.random(), total=100)
-    avg_gpu_util.add_task("Narval", completed=100 * random.random(), total=100)
-    avg_gpu_util.add_task("Beluga", completed=100 * random.random(), total=100)
-    return Panel(
-        avg_gpu_util,
-        title="Available GPUs",  # border_style="green", padding=(2, 2)
-    )
-
-
-class Header:
+def _header_panel():
     """Display header with clock."""
 
-    def __rich__(self) -> Panel:
-        grid = Table.grid(expand=True)
-        grid.add_column(justify="center", ratio=1)
-        grid.add_column(justify="right")
-        grid.add_row(
-            "[b]SARC[/b] Waste Monitoring",
-            datetime.now().ctime().replace(":", "[blink]:[/]"),
-        )
-        return Panel(grid)
+    class _Header:
+        def __rich__(self) -> Panel:
+            grid = Table.grid(expand=True)
+            grid.add_column(justify="center", ratio=1)
+            grid.add_column(justify="right")
+            grid.add_row(
+                "[b]SARC[/b] Waste Monitoring",
+                datetime.now().ctime().replace(":", "[blink]:[/]"),
+            )
+            return Panel(grid)
+
+    return _Header()
 
 
 def _midnight(dt: datetime) -> datetime:
@@ -945,7 +708,6 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
         """Decorator to cache the results of a function."""
-        # TODO: in _get_cache_file_name, use a .txt extension if the return annotation is `str`
         cache_file = cache_dir / _get_cache_file_name(fn, *args, **kwargs)
         if cache_file.exists():
             if cache_file.suffix == ".txt":
@@ -957,7 +719,6 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
         else:
             logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
             result = fn(*args, **kwargs)
-            # TODO: Save to a text file if the result is a string.
             if cache_file.suffix == ".txt":
                 assert isinstance(
                     result, str
@@ -990,13 +751,7 @@ def _get_cache_file_name(
                         _hash(v.clusters),
                     ]
                 )
-                #     .relative_to(v.cache_dir)
-                #     .stem.removeprefix("compute_profile-")
-                # )
-            # case pd.DataFrame():
-            #     # Important: Assuming that the other function arguments will be used
-            #     # to recover the same dataframe, so not including it in the hash.
-            #     return ""
+
             case None | str():
                 return str(v).removesuffix("@mila.quebec")  # no quotes around strings.
             case int() | float():
@@ -1006,14 +761,12 @@ def _get_cache_file_name(
             case datetime() as v:
                 return v.strftime("%Y-%m-%dT%H:%M:%S%z")
             case [User(), *_]:
-                return _hash([student.mila.username for student in v])
+                return _hash(sorted([student.mila.username for student in v]))
             case [str(), *_] if len(v) > 2:
                 # If there are more than 3 strings, hash them together.
                 return hashlib.md5("+".join(sorted(v)).encode()).hexdigest()[:12]
             case list():
                 return "+".join(sorted(map(_hash, v)))
-            # case User():
-            #     return v.mila.username
             case _:
                 raise NotImplementedError(
                     f"Unsupported arg type: {v} of type {type(v)}"
@@ -1059,7 +812,10 @@ def _setup_multiplexed_ssh_conection(hostname: str):
     # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
-    subprocess.check_call(shlex.split(f"ssh {multiplexing_args} {hostname} echo 'OK'"))
+    subprocess.check_call(
+        shlex.split(f"ssh {multiplexing_args} {hostname} echo OK"),
+        stdout=subprocess.DEVNULL,
+    )
     return control_path
 
 
@@ -1929,7 +1685,10 @@ def compute_time_frames(
 
 def _setup_logging(verbose: int):
     logging.basicConfig(
-        handlers=[rich.logging.RichHandler(show_time=False)],
+        handlers=[
+            rich.logging.RichHandler(show_time=False),
+            textual.logging.TextualHandler(),
+        ],
         format="%(message)s",
         level=logging.ERROR,
         force=True,
