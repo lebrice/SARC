@@ -215,8 +215,10 @@ class RichLogApp(App):
         # text_log.write()
         for table in self.query(DataTable):
             if table.id == "user_table":
+                table.cursor_type = "row"
                 make_waste_overview_datatable(table, data, 0, 1)
             else:
+                table.cursor_type = "row"
                 make_biggest_waster_job_info_datatable(table, data, 0, 1)
         # text_log.write(Syntax(CODE, "python", indent_guides=True))
 
