@@ -12,9 +12,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import dataclasses
 import functools
 import hashlib
+import inspect
 import itertools
 import logging
 import os
@@ -25,6 +27,10 @@ import subprocess
 import tempfile
 import time
 import typing
+import unittest
+import unittest.mock
+from asyncio import iscoroutine
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
@@ -47,7 +53,7 @@ from rich.panel import Panel
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
-from textual import events, on
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, HorizontalScroll, VerticalScroll
 from textual.events import Mount
@@ -69,7 +75,7 @@ from textual.widgets import (
 from typing_extensions import Self
 
 from sarc.client.gpumetrics import get_rgus
-from sarc.client.job import JobStatistics, SlurmState, get_available_clusters
+from sarc.client.job import JobStatistics, SlurmState
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
@@ -124,7 +130,9 @@ sarc_client_config = from_dict(
 # assert False, sarc_client_config
 
 CACHE_DIR: Path | None = (
-    Path(os.environ["CF_DATA"]) if "CF_DATA" in os.environ else None
+    Path(os.environ["CF_DATA"])
+    if "CF_DATA" in os.environ
+    else Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
 )
 P = ParamSpec("P")
 OutT = TypeVar("OutT")
@@ -132,10 +140,18 @@ OutT = TypeVar("OutT")
 
 logger = logging.getLogger(__name__)
 
-get_available_clusters = functools.cache(get_available_clusters)
+
+@functools.cache
+def get_available_clusters():
+    from sarc.client.job import get_available_clusters
+
+    return tuple(get_available_clusters())
 
 
 class RichLogApp(App):
+    TITLE = f"[b]SARC[/b] Waste Monitoring - {datetime.now().ctime().replace(':', '[blink]:[/]')}"
+    SUB_TITLE = "Data from the last 7 days. Last update: TODO"
+
     CSS = """\
     Screen {
         align: center middle;
@@ -153,27 +169,24 @@ class RichLogApp(App):
         height: 1fr;
     }
     """
-    # panel: reactive[int] = reactive(0)
-    # n_panels: reactive[int] = reactive(4)
-
-    clusters: reactive[list[str]] = reactive([])
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.query_one(ContentSwitcher).current = event.button.id
+    clusters: reactive[set[str]] = reactive(set())
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="buttons"):
             yield Button("Overview", id="overview")
             yield Button("User View", id="per_user")
-            yield Button("Jobs", id="jobs")
+            yield Button("Jobs View", id="jobs")
             with HorizontalScroll():
                 for cluster in get_available_clusters():
                     yield Checkbox(
                         label=cluster.cluster_name.capitalize(),
                         value=True,
                         id=cluster.cluster_name,
+                        name=f"{cluster.cluster_name}_checkbox",
                     )
+                    self.clusters = self.clusters | {cluster.cluster_name}
             # yield Input(placeholder="User to query for")
+
         with ContentSwitcher(initial="overview"):
             yield RichLog(highlight=True, markup=True, id="overview")
             with VerticalScroll(id="per_user"):
@@ -181,77 +194,57 @@ class RichLogApp(App):
             with VerticalScroll(id="jobs"):
                 yield DataTable(id="job_table")
 
-    @on(Mount)
-    def on_mount(self) -> None:
-        self.data = get_data(clusters=self.clusters, users=())
-        clusters: list[str] = []
-        for cluster in get_available_clusters():
-            name = cluster.cluster_name
-            if self.query_one(f"#{name}", Checkbox).value:
-                clusters.append(name)
-        self.clusters = clusters
-        self.populate_stuff(self.data)
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.query_one(ContentSwitcher).current = event.button.id
 
-    @on(Checkbox.Changed)
-    def on_change_cluster(self, event: Checkbox.Changed) -> None:
+    def on_mount(self) -> None:
+        self.update_data_and_ui()
+
+    # @on(Checkbox.Changed)
+    async def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         text_log = self.query_one(RichLog)
         assert event.checkbox.id
         if event.value:
-            self.clusters = self.clusters + [event.checkbox.id]
+            self.clusters = self.clusters | {event.checkbox.id}
         else:
-            self.clusters.remove(event.checkbox.id)
-        text_log.write(rich.pretty.Pretty(self.clusters))
-
+            self.clusters = self.clusters.difference({event.checkbox.id})
         # TODO: update the UI following changes to the data in an efficient way.
-        # midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
-        # options = FilteringOptions(
-        #     start=(midnight_tonight - timedelta(days=7)),
-        #     end=midnight_tonight,
-        #     user=(),
-        #     clusters=(),
-        # )
-        # data = get_clean_sarc_data(options)
-        # if self.clusters:
-        #     data = data[data["cluster_name"].isin(self.clusters)]
-        # self.populate_stuff(data)
+        text_log.write(rich.pretty.Pretty(sorted(self.clusters)))
+        self.sub_title = f"Data for clusters {list(self.clusters)}"
+        self.update_data_and_ui()
 
-    def populate_stuff(self, data: pd.DataFrame):
+    @work(exclusive=True)
+    async def update_data_and_ui(self) -> None:
+        """Update the data and the UI."""
+        data = get_data(list(self.clusters), ())
+        await self.populate_ui(data)
+
+    async def populate_ui(self, data: pd.DataFrame):
         # TODO: The multiplexed SSH connections to all clusters should already be setup before this is launched
         # to avoid the SSH 2FA prompts messing up the UI.
         text_log = self.query_one(RichLog)
         text_log.clear()
-        text_log.write(_make_cluster_overview_table(data))
+        cluster_overview_table = _make_cluster_overview_table(data)
+        text_log.write(cluster_overview_table)
 
-        alerts_table = Table(title="Alerts")
-        alerts_table.add_column("Time")
-        alerts_table.add_column("cluster")
-        alerts_table.add_column("Job ID")
-        alerts_table.add_column("User")
-        alerts_table.add_column("severity")
-        alerts_table.add_column("Description")
-        # todo: add fake alerts here.
-        alerts_table.add_row(
-            str(datetime.now() - timedelta(hours=12)),
-            "mila",
-            "123123",
-            "Bob@mila.quebec",
-            "[blink red]CRITICAL",
-            r"GPU utilization has been <5% for more than 4 hours!",
-        )
+        alerts_table = make_alerts_table(data)
         text_log.write(alerts_table)
 
         # text_log.write()
         for table in self.query(DataTable):
             if table.id == "user_table":
                 table.cursor_type = "row"
-                make_waste_overview_datatable(table, data, 0, 1)
+                make_waste_overview_datatable(table, data)
             else:
                 table.cursor_type = "row"
-                make_biggest_waster_job_info_datatable(table, data, 0, 1)
+                await fill_jobs_view_datatable(table, data)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
         pass
+
+
+CLUSTER_DOWN: dict[str, bool] = defaultdict(bool)
 
 
 def main():
@@ -264,9 +257,15 @@ def main():
             logger.error(
                 f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
             )
+            CLUSTER_DOWN[cluster.cluster_name] = True
 
     # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
     _data = get_data()
+    # for cluster in get_available_clusters():
+    #     _cluster_data = get_data(clusters=[cluster.cluster_name])
+    #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
+    #         asyncio.run(fill_jobs_view_datatable(unittest.mock.Mock(), _cluster_data))
+
     app = RichLogApp()
     app.run()
 
@@ -289,7 +288,7 @@ def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
     )
 
 
-@functools.lru_cache(maxsize=10)
+@functools.lru_cache(maxsize=20)
 def _cached_get_data(
     midnight_tonight: datetime,
     clusters: tuple[str, ...] = (),
@@ -364,13 +363,30 @@ def setup_sarc_connection():
     )
 
 
-def make_waste_overview_datatable(
-    table: DataTable,
-    data: pd.DataFrame,
-    layout_iteration: int = 0,
-    n_layout_iterations: int = 1,
-) -> None:
+def make_alerts_table(data: pd.DataFrame) -> Table:
+    alerts_table = Table(title="Alerts")
+    alerts_table.add_column("Time")
+    alerts_table.add_column("cluster")
+    alerts_table.add_column("Job ID")
+    alerts_table.add_column("User")
+    alerts_table.add_column("severity")
+    alerts_table.add_column("Description")
+    # todo: add fake alerts here.
+    alerts_table.add_row(
+        str(datetime.now() - timedelta(hours=12)),
+        "mila",
+        "123123",
+        "Bob@mila.quebec",
+        "[blink red]CRITICAL",
+        r"GPU utilization has been <5% for more than 4 hours!",
+    )
+
+    return alerts_table
+
+
+def make_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
     """Make a new table."""
+    n_to_show = 50
 
     data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
         {
@@ -389,12 +405,8 @@ def make_waste_overview_datatable(
     )
     data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
 
-    n_to_show_per_iter = 10 if n_layout_iterations > 1 else 50
-
     ordered_by_waste = data_by_user.nlargest(
-        columns="rgu_equivalent_waste",
-        n=n_to_show_per_iter * n_layout_iterations,
-        keep="all",
+        columns="rgu_equivalent_waste", n=n_to_show, keep="all"
     )
     gpu_util_stats = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
         {"gpu_utilization": "describe"}
@@ -404,6 +416,7 @@ def make_waste_overview_datatable(
     #     title=f"Most wasteful users (last 7 days) [{layout_iteration+1} / {n_layout_iterations}]",
     #     expand=True,
     # )
+    table.clear(columns=True)
     table.add_column("#")
     table.add_column("User")
     table.add_column("Cluster")
@@ -413,11 +426,7 @@ def make_waste_overview_datatable(
     table.add_column("Used/Wasted/Obstructed GPU days")
     table.add_column("U/W/Obs RGU*days")
 
-    for i, (index, row) in list(enumerate(ordered_by_waste.iterrows(), start=1))[
-        layout_iteration
-        * n_to_show_per_iter : (layout_iteration + 1)
-        * n_to_show_per_iter
-    ]:
+    for i, (index, row) in enumerate(ordered_by_waste.iterrows(), start=1):
         assert isinstance(index, tuple) and len(index) == 2
         (cluster, user_email) = index
         used_gpus = row["allocated.gres_gpu"]
@@ -436,11 +445,7 @@ def make_waste_overview_datatable(
     # return table
 
 
-def _make_cluster_overview_table(
-    data: pd.DataFrame,
-    layout_iteration: int = 0,
-    n_layout_iterations: int = 1,
-) -> Table:
+def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
     total_mila_users = int(data["user.mila.email"].nunique())
     grouped_data = data.groupby("cluster_name").aggregate(
         {
@@ -490,20 +495,20 @@ def _make_cluster_overview_table(
     return table
 
 
-def make_biggest_waster_job_info_datatable(
-    datatable: DataTable,
-    data: pd.DataFrame,
-    layout_iteration: int,
-    n_layout_iterations: int,
+async def fill_jobs_view_datatable(
+    datatable: DataTable, data: pd.DataFrame, n_to_show: int = 50
 ) -> None:
     # Mock data (TODO: replace)
-    n_to_show_per_iter = 10 if n_layout_iterations > 1 else 100
     most_wasteful_jobs = data.nlargest(
-        n=n_layout_iterations * n_to_show_per_iter if n_layout_iterations > 1 else 100,
+        n=n_to_show,
         columns="rgu_equivalent_waste",
         keep="all",
     )
+    # Doesn't really work.
+    # submit_lines = await _preload_submit_lines(most_wasteful_jobs, n=n_to_show)
+
     table = datatable
+    table.clear(columns=True)
     table.add_column("#")
     table.add_column("Job ID")
     table.add_column("Cluster")
@@ -519,20 +524,16 @@ def make_biggest_waster_job_info_datatable(
     # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
-    for i, (index, row) in list(enumerate(most_wasteful_jobs.iterrows(), start=1))[
-        layout_iteration
-        * n_to_show_per_iter : (layout_iteration + 1)
-        * n_to_show_per_iter
-    ]:
+    for i, (_index, row) in list(enumerate(most_wasteful_jobs.iterrows(), start=1)):
         requested_cols = [
             col for col in most_wasteful_jobs.columns if col.startswith("requested.")
         ]
-        submit_line = get_submit_line(
-            job_id=row["job_id"], cluster_name=row["cluster_name"]
-        )
-        submit_line = "\n".join(
-            line.strip() for line in submit_line.splitlines() if line.strip()
-        )
+        job_id = str(row["job_id"])
+        cluster_name = row["cluster_name"]
+        user = row["user"]
+        job_id_link = None
+        if cluster_name != "mila":
+            job_id_link = f"https://portail.{cluster_name}.calculquebec.ca/secure/jobstats/{user}/{job_id}/"
 
         requested_resources = {
             k.removeprefix("requested."): (
@@ -547,11 +548,25 @@ def make_biggest_waster_job_info_datatable(
             )
             for k in requested_cols
         }
-        table.add_row(
+        mila_user = (
+            row["user.mila.email"].removesuffix("@mila.quebec")
+            if isinstance(row["user.mila.email"], str)
+            else f"[red]{row['user']} (missing mila email)[/red]"
+        )
+        # TODO: Only fetch the submit line on a keypress event instead!
+        # submit_line = await get_submit_line(job_id, cluster_name)
+        if cluster_name != "mila":
+            submit_line = "Press 'f' to fetch the submit line."
+        else:
+            submit_line = await asyncio.get_running_loop().run_in_executor(
+                None, get_submit_line, job_id, cluster_name
+            )
+        # todo: use the returned key to update the row on keypress.
+        _key = table.add_row(
             f"{i}",
-            str(row["job_id"]),
-            row["cluster_name"],
-            row["user.mila.email"].removesuffix("@mila.quebec"),
+            f"[link={job_id_link}]{job_id}[/link]" if job_id_link else job_id,
+            cluster_name,
+            mila_user,
             f"{row['elapsed_time']}",
             _colorize_utilization(row["gpu_utilization"]),
             # _requested_table,
@@ -559,9 +574,11 @@ def make_biggest_waster_job_info_datatable(
             f"{row['gpu_equivalent_cost'].days} / [red]{row['gpu_equivalent_waste'].days}[/] / [red]{row['gpu_overbilling_cost'].days}",
             # f"[red]{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
             # f"[red]{row['gpu_overbilling_cost'].days}",
+            # submit_lines[i - 1],
             submit_line,
             # IDEA: Show it as a Syntax block:
             # rich.syntax.Syntax(submit_line, lexer="bash"),
+            # key=f"{cluster_name}-{job_id}",
         )
 
 
@@ -697,32 +714,39 @@ class FilteringOptions:
 
 def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
     """Caches a function in a given cache dir."""
-    if CACHE_DIR is not None:
-        cache_dir = CACHE_DIR
-    else:
-        parser = argparse.ArgumentParser(add_help=False)
-        default_cache_dir = Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
-        parser.add_argument("--cache_dir", type=Path, default=default_cache_dir)
-        cache_dir: Path = parser.parse_known_args()[0].cache_dir
+    assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
+
+    if inspect.iscoroutinefunction(fn):
+        raise NotImplementedError(f"Can't cache result of coroutines just yet.")
 
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
         """Decorator to cache the results of a function."""
-        cache_file = cache_dir / _get_cache_file_name(fn, *args, **kwargs)
+        assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
+        cache_file = CACHE_DIR / _get_cache_file_name(fn, *args, **kwargs)
         if cache_file.exists():
+            logger.info(f"Loading result of {fn.__name__} from {cache_file}")
             if cache_file.suffix == ".txt":
                 result = cache_file.read_text()
                 # the function returns a string (`OutT` is `str`)
-                return typing.cast(OutT, result)
-            logger.info(f"Loading result of {fn.__name__} from {cache_file}")
-            return pickle.loads(cache_file.read_bytes())
+                # return typing.cast(OutT, result)
+            else:
+                result = pickle.loads(cache_file.read_bytes())
+            # if inspect.iscoroutinefunction(fn):
+            #     # If the function is a coroutine, we need to return an awaitable.
+            #     return AwaitableWrapper(result)
+            # return AwaitableWrapper(result)
+            return result
         else:
             logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
             result = fn(*args, **kwargs)
+            # if inspect.iscoroutinefunction(fn):
+            #     result = result.__await__()
             if cache_file.suffix == ".txt":
-                assert isinstance(
-                    result, str
-                ), "Result should be str (annotation says so!)"
+                if not isinstance(result, str):
+                    raise RuntimeError(
+                        f"Result should be str (annotation says so!), but got {result}"
+                    )
                 cache_file.write_text(result)
             else:
                 cache_file.write_bytes(pickle.dumps(result))
@@ -730,6 +754,22 @@ def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
             return result
 
     return wrapper
+
+
+class AwaitableWrapper:
+    def __init__(self, value):
+        self.value = value
+
+    def __await__(self):
+        # This method must return an iterator.
+        # A common pattern is to return an async generator's __await__ method,
+        # or to yield values directly.
+        async def internal_awaitable():
+            # Simulate some asynchronous operation
+            # await asyncio.sleep(0)
+            return self.value
+
+        return internal_awaitable().__await__()
 
 
 def _get_cache_file_name(
@@ -784,22 +824,40 @@ def _get_cache_file_name(
     return f"{fn.__name__}-{hashed_args}{extension}"
 
 
-@functools.lru_cache(maxsize=None)
-@cached
-def get_submit_line(job_id: int, cluster_name: str) -> str:
+@functools.cache
+def get_submit_line(job_id: int | str, cluster_name: str) -> str:
     # Do this only once (and then reuse the connection)
-    _setup_multiplexed_ssh_conection(cluster_name)
+    assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
+    cache_file = CACHE_DIR / _get_cache_file_name(get_submit_line, job_id, cluster_name)
+    if cache_file.exists():
+        logger.debug(f"Loading submit line from cache: {cache_file}")
+        return cache_file.read_text().strip()
+
+    if CLUSTER_DOWN.get(cluster_name):
+        return f"[red]Unable to SSH to {cluster_name} (is the cluster down?)[/red]"
+
     control_path = _get_controlpath(cluster_name)
     control_path.parent.mkdir(parents=True, exist_ok=True)
-    multiplexing_args = (
-        f"-o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes"
-    )
+    # if cluster_name in REMOTES:
+    #     login_node = REMOTES[cluster_name]
+    # else:
+    #     login_node = await RemoteV2.connect(cluster_name, control_path=control_path)
     # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
-    return subprocess.getoutput(
-        f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
-    ).strip()
+    submit_line = subprocess.getoutput(
+        f"ssh -o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+    )
+    # submit_line = await login_node.get_output_async(
+    #     f"sacct -j {job_id} --noheader -o submitline%300",
+    # )
+    submit_line = submit_line.strip()
+    cache_file.write_text(submit_line)
+    logger.debug(f"Saved submit line to cache: {cache_file}")
+    return submit_line
+    # return subprocess.getoutput(
+    #     f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
+    # ).strip()
 
 
 @functools.lru_cache(maxsize=None)
@@ -865,7 +923,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _remove_old_nodes(df)
     df = _replace_outlier_stats_with_na(df)
     df = _fix_missing_gpu_type(df)
-    df = _fix_allocated_gres_gpu_very_large_drac(df)
+    df = _fix_allocated_gres_gpu_billing_drac(df)
     try:
         df = update_job_series_rgu(df)
         # df = _fix_rgu_discrepencies_inplace(df)
@@ -945,7 +1003,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     return df
 
 
-def _fix_allocated_gres_gpu_very_large_drac(df: pd.DataFrame) -> pd.DataFrame:
+def _fix_allocated_gres_gpu_billing_drac(df: pd.DataFrame) -> pd.DataFrame:
     """
     Some DRAC jobs have allocated.gres_gpu that has been multiplied with a very large
     `allocated.billing` factor.
@@ -1423,7 +1481,7 @@ def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
         "beluga": datetime(year=2024, month=4, day=3, tzinfo=MTL),
         "graham": datetime(year=2024, month=4, day=3, tzinfo=MTL),
         "cedar": datetime(year=2024, month=4, day=3, tzinfo=MTL),
-        "mila": None,  #
+        "mila": None,
     }
     # narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
     # _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
