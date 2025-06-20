@@ -175,7 +175,8 @@ class RichLogApp(App):
         with Horizontal(id="buttons"):
             yield Button("Overview", id="overview")
             yield Button("User View", id="per_user")
-            yield Button("Jobs View", id="jobs")
+            yield Button("Worst Jobs", id="worst_jobs")
+            yield Button("Best Jobs", id="best_jobs")
             with HorizontalScroll():
                 for cluster in get_available_clusters():
                     yield Checkbox(
@@ -191,8 +192,10 @@ class RichLogApp(App):
             yield RichLog(highlight=True, markup=True, id="overview")
             with VerticalScroll(id="per_user"):
                 yield DataTable(id="user_table")
-            with VerticalScroll(id="jobs"):
-                yield DataTable(id="job_table")
+            with VerticalScroll(id="worst_jobs"):
+                yield DataTable(id="worst_jobs_table")
+            with VerticalScroll(id="best_jobs"):
+                yield DataTable(id="best_jobs_table")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.query_one(ContentSwitcher).current = event.button.id
@@ -235,9 +238,13 @@ class RichLogApp(App):
             if table.id == "user_table":
                 table.cursor_type = "row"
                 make_waste_overview_datatable(table, data)
-            else:
+            elif table.id == "worst_jobs_table":
                 table.cursor_type = "row"
                 await fill_jobs_view_datatable(table, data)
+            else:
+                assert table.id == "best_jobs_table"
+                table.cursor_type = "row"
+                await fill_jobs_view_datatable(table, data, reverse=True)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
@@ -500,14 +507,22 @@ def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
 
 
 async def fill_jobs_view_datatable(
-    datatable: DataTable, data: pd.DataFrame, n_to_show: int = 50
+    datatable: DataTable, data: pd.DataFrame, n_to_show: int = 50, reverse: bool = False
 ) -> None:
     # Mock data (TODO: replace)
-    most_wasteful_jobs = data.nlargest(
-        n=n_to_show,
-        columns="rgu_equivalent_waste",
-        keep="all",
-    )
+    if reverse:
+        jobs = data.nsmallest(
+            n=n_to_show,
+            columns="rgu_equivalent_waste",
+            keep="all",
+        )
+    else:
+        jobs = data.nlargest(
+            n=n_to_show,
+            columns="rgu_equivalent_waste",
+            keep="all",
+        )
+
     # Doesn't really work.
     # submit_lines = await _preload_submit_lines(most_wasteful_jobs, n=n_to_show)
 
@@ -528,15 +543,16 @@ async def fill_jobs_view_datatable(
     # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
-    for i, (_index, row) in list(enumerate(most_wasteful_jobs.iterrows(), start=1)):
-        requested_cols = [
-            col for col in most_wasteful_jobs.columns if col.startswith("requested.")
-        ]
+    for i, (_index, row) in list(enumerate(jobs.iterrows(), start=1)):
+        requested_cols = [col for col in jobs.columns if col.startswith("requested.")]
         job_id = str(row["job_id"])
         cluster_name = row["cluster_name"]
         user = row["user"]
         job_id_link = None
-        if cluster_name != "mila":
+
+        if cluster_name == "tamia":
+            job_id_link = f"https://portail.{cluster_name}.ecpia.ca/secure/jobstats/{user}/{job_id}/"
+        elif cluster_name != "mila":
             job_id_link = f"https://portail.{cluster_name}.calculquebec.ca/secure/jobstats/{user}/{job_id}/"
 
         requested_resources = {
