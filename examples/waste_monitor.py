@@ -11,31 +11,25 @@
 # ///
 from __future__ import annotations
 
-import argparse
 import asyncio
 import dataclasses
+import enum
 import functools
 import hashlib
 import inspect
-import itertools
 import logging
 import os
 import pickle
-import random
-import shlex
 import subprocess
 import tempfile
-import time
+import textwrap
 import typing
-import unittest
-import unittest.mock
-from asyncio import iscoroutine
-from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
+from typing import IO, Any, Callable, Mapping, ParamSpec, Protocol, Sequence, TypeVar
 
 import gifnoc
+import gifnoc.proxy
 import numpy as np
 import pandas as pd
 import paramiko
@@ -43,33 +37,22 @@ import paramiko.config
 import pymongo.errors
 import rich.logging
 import rich.pretty
-import rich.text
 import simple_parsing
 import textual.logging
 import yaml
-from rich.layout import Layout
-from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
-from textual import events, on, work
+from textual import events, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, HorizontalScroll, VerticalScroll
-from textual.events import Mount
+from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.reactive import reactive
-from textual.widget import Widget
 from textual.widgets import (
     Button,
     Checkbox,
     ContentSwitcher,
     DataTable,
-    Header,
-    Input,
-    Markdown,
     RichLog,
-    Select,
-    SelectionList,
     Static,
 )
 from typing_extensions import Self
@@ -79,13 +62,14 @@ from sarc.client.job import JobStatistics, SlurmState
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
-    update_cluster_job_series_rgu,
     update_job_series_rgu,
 )
 from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClientConfig, ClusterConfig
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
+# todo: add a proper date here.
+CLUSTER_DOWN: dict[str, bool] = {"cedar": datetime.now() < datetime(2025, 7, 1)}
 sarc_client_config_file = Path(__file__).parent.parent / "config/sarc-client.yaml"
 sarc_dev_config_file = Path(__file__).parent.parent / "config/sarc-dev.yaml"
 if sarc_client_config_file.exists():
@@ -107,19 +91,7 @@ elif (
 assert sarc_client_config_file.exists(), sarc_client_config_file
 assert sarc_dev_config_file.exists(), sarc_dev_config_file
 
-# TODO: Important to do this BEFORE importing anything from SARC.
-# Otherwise it doesn't work.
-# This also prevents this from being a "script" in `pyproject.toml` placed under `sarc/cli`
-# because the executable that gets placed in `.venv/bin/waste_monitor` would do
-# `from sarc.cli.waste_monitor import main`, and the `sarc.cli.__init__.py` causes the
-# config to be instantiated, so the script can't work.
-# os.environ.setdefault("SARC_CONFIG", str(sarc_client_config_file))
-
-
 gifnoc.set_sources(sarc_client_config_file)
-
-# TODO: Idea: reload the config module?
-# importlib.reload(sarc.config)  # Reload the config module to use the new config file.
 
 sarc_client_config = from_dict(
     ClientConfig, yaml.safe_load(sarc_client_config_file.read_text())["sarc"]
@@ -141,6 +113,32 @@ OutT = TypeVar("OutT")
 logger = logging.getLogger(__name__)
 
 
+async def main():
+    _setup_logging(verbose=2)
+    await setup_sarc_connection()
+    for cluster in get_available_clusters():
+        if CLUSTER_DOWN.get(cluster.cluster_name):
+            logger.info(f"Skipping {cluster} cluster which is supposedly down.")
+            continue
+        try:
+            await _setup_multiplexed_ssh_conection(cluster.cluster_name)
+        except subprocess.CalledProcessError as err:
+            logger.error(
+                f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
+            )
+            CLUSTER_DOWN[cluster.cluster_name] = True
+
+    # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
+    _data = get_data()
+    # for cluster in get_available_clusters():
+    #     _cluster_data = get_data(clusters=[cluster.cluster_name])
+    #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
+    #         asyncio.run(fill_jobs_view_datatable(unittest.mock.Mock(), _cluster_data))
+
+    app = RichLogApp()
+    await app.run_async()
+
+
 @functools.cache
 def get_available_clusters():
     from sarc.client.job import get_available_clusters
@@ -151,7 +149,8 @@ def get_available_clusters():
 class RichLogApp(App):
     TITLE = f"[b]SARC[/b] Waste Monitoring - {datetime.now().ctime().replace(':', '[blink]:[/]')}"
     SUB_TITLE = "Data from the last 7 days. Last update: TODO"
-
+    # For live editing the CSS:
+    # CSS_PATH = Path(__file__).parent / "waste_monitor.tcss"
     CSS = """\
     Screen {
         align: center middle;
@@ -168,15 +167,31 @@ class RichLogApp(App):
         width: 90%;
         height: 1fr;
     }
+
+    #cluster_overview {
+        padding: 2 4;
+    }
+
+    #cluster_overview_table {
+        align: center middle;
+        padding: 1 2;
+    }
+
+    #alerts_table {
+        padding: 1 2;
+    }
     """
     clusters: reactive[set[str]] = reactive(set())
 
     def compose(self) -> ComposeResult:
+        # Todo: time doesn't update properly.
+        # yield Static(_header_panel(), id="header_panel")
+
         with Horizontal(id="buttons"):
-            yield Button("Overview", id="overview")
-            yield Button("User View", id="per_user")
-            yield Button("Worst Jobs", id="worst_jobs")
-            yield Button("Best Jobs", id="best_jobs")
+            yield Button("Overview", id="cluster_overview_button")
+            yield Button("User View", id="user_view_button")
+            yield Button("Worst Jobs", id="worst_jobs_button")
+            yield Button("Best Jobs", id="best_jobs_button")
             with HorizontalScroll():
                 for cluster in get_available_clusters():
                     yield Checkbox(
@@ -188,17 +203,29 @@ class RichLogApp(App):
                     self.clusters = self.clusters | {cluster.cluster_name}
             # yield Input(placeholder="User to query for")
 
-        with ContentSwitcher(initial="overview"):
-            yield RichLog(highlight=True, markup=True, id="overview")
-            with VerticalScroll(id="per_user"):
-                yield DataTable(id="user_table")
+        with ContentSwitcher(initial="cluster_overview"):
+            # with VerticalScroll(id="cluster_overview"):
+            with Vertical(id="cluster_overview"):
+                # with Horizontal():
+                yield DataTable(id="cluster_overview_table")
+                yield DataTable(id="alerts_table")
+
+                yield RichLog(highlight=True, markup=True, id="overview_log")
+            with VerticalScroll(id="user_view"):
+                yield DataTable(id="user_view_table")
             with VerticalScroll(id="worst_jobs"):
                 yield DataTable(id="worst_jobs_table")
             with VerticalScroll(id="best_jobs"):
                 yield DataTable(id="best_jobs_table")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.query_one(ContentSwitcher).current = event.button.id
+        assert event.button.id is not None
+        self.query_one(ContentSwitcher).current = event.button.id.removesuffix(
+            "_button"
+        )
+
+    def on_ready(self) -> None:
+        self.set_interval(5 * 60, self.update_data_and_ui)
 
     def on_mount(self) -> None:
         self.update_data_and_ui()
@@ -225,67 +252,45 @@ class RichLogApp(App):
     async def populate_ui(self, data: pd.DataFrame):
         # TODO: The multiplexed SSH connections to all clusters should already be setup before this is launched
         # to avoid the SSH 2FA prompts messing up the UI.
-        text_log = self.query_one(RichLog)
-        text_log.clear()
-        cluster_overview_table = _make_cluster_overview_table(data)
-        text_log.write(cluster_overview_table)
+        cluster_overview_table = self.query_exactly_one(
+            "#cluster_overview_table", DataTable
+        )
+        fill_cluster_overview_table(cluster_overview_table, data)
+        await _setup_torch_import_test("mila")
+        alerts_table = self.query_exactly_one("#alerts_table", DataTable)
+        await fill_alerts_table(alerts_table, data)
 
-        alerts_table = make_alerts_table(data)
-        text_log.write(alerts_table)
+        user_table = self.query_exactly_one("#user_view_table", DataTable)
+        user_table.cursor_type = "row"
+        fill_waste_overview_datatable(user_table, data)
 
-        # text_log.write()
-        for table in self.query(DataTable):
-            if table.id == "user_table":
-                table.cursor_type = "row"
-                make_waste_overview_datatable(table, data)
-            elif table.id == "worst_jobs_table":
-                table.cursor_type = "row"
-                await fill_jobs_view_datatable(table, data)
-            else:
-                assert table.id == "best_jobs_table"
-                table.cursor_type = "row"
-                await fill_jobs_view_datatable(table, data, reverse=True)
+        worst_jobs_table = self.query_exactly_one("#worst_jobs_table", DataTable)
+        worst_jobs_table.cursor_type = "row"
+        await fill_jobs_view_datatable(worst_jobs_table, data)
+
+        best_jobs_table = self.query_exactly_one("#best_jobs_table", DataTable)
+        best_jobs_table.cursor_type = "row"
+        await fill_jobs_view_datatable(best_jobs_table, data, reverse=True)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
         pass
 
 
-CLUSTER_DOWN: dict[str, bool] = defaultdict(bool)
+from textual.widget import Widget
 
 
-def main():
-    _setup_logging(verbose=2)
-    setup_sarc_connection()
-    for cluster in get_available_clusters():
-        try:
-            _setup_multiplexed_ssh_conection(cluster.cluster_name)
-        except subprocess.CalledProcessError as err:
-            logger.error(
-                f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
-            )
-            CLUSTER_DOWN[cluster.cluster_name] = True
+class ScratchMonitor(Widget):
+    """TODO: a widget to show the import time for torch."""
 
-    # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
-    _data = get_data()
-    # for cluster in get_available_clusters():
-    #     _cluster_data = get_data(clusters=[cluster.cluster_name])
-    #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
-    #         asyncio.run(fill_jobs_view_datatable(unittest.mock.Mock(), _cluster_data))
+    ...
 
-    app = RichLogApp()
-    app.run()
 
-    # n_iterations = 1  # show 4 panels (scrolling down) every 5/10 seconds.
-    # with Live(make_layout(0, n_iterations), refresh_per_second=4) as live:
-    #     for layout_iteration in itertools.count():
-    #         live.update(
-    #             make_layout(
-    #                 layout_iteration=layout_iteration % n_iterations,
-    #                 n_layout_iterations=n_iterations,
-    #             )
-    #         )
-    #         time.sleep(5)
+async def _setup_torch_import_test(hostname: str):
+    await run_subprocess(f"ssh {hostname} 'mkdir -p $SCRATCH/torch_import_test'")
+    result = await run_subprocess(f"ssh {hostname} 'ls $SCRATCH/torch_import_test'")
+    print(result.stdout)
+    print(result.stderr)
 
 
 def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
@@ -317,7 +322,7 @@ def _cached_get_data(
     return data
 
 
-def setup_sarc_connection():
+async def setup_sarc_connection():
     ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
     control_socket_path = Path(
         ssh_config.lookup("sarc").get(
@@ -362,36 +367,116 @@ def setup_sarc_connection():
         f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
     )
 
-    subprocess.check_call(
-        shlex.split(
-            f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK"
-        ),
+    await run_subprocess(
+        f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK",
         stdout=subprocess.DEVNULL,
     )
 
 
-def make_alerts_table(data: pd.DataFrame) -> Table:
-    alerts_table = Table(title="Alerts")
-    alerts_table.add_column("Time")
-    alerts_table.add_column("cluster")
-    alerts_table.add_column("Job ID")
-    alerts_table.add_column("User")
-    alerts_table.add_column("severity")
-    alerts_table.add_column("Description")
-    # todo: add fake alerts here.
-    alerts_table.add_row(
-        str(datetime.now() - timedelta(hours=12)),
-        "mila",
-        "123123",
-        "Bob@mila.quebec",
-        "[blink red]CRITICAL",
-        r"GPU utilization has been <5% for more than 4 hours!",
+class Severity(enum.StrEnum):
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+    def colorize(self) -> str:
+        """Colorize the severity level for display."""
+        if self == Severity.CRITICAL:
+            return "[blink red]CRITICAL[/blink red]"
+        elif self == Severity.HIGH:
+            return "[red]HIGH[/red]"
+        elif self == Severity.MODERATE:
+            return "[yellow]MODERATE[/yellow]"
+        else:
+            return f"[green]{self}[/green]"
+
+
+class Alert(Protocol):
+    """Protocol for an alert function."""
+
+    async def __call__(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str, Severity]:
+        """Returns a DataFrame with jobs that should raise an alert, a description, and a severity level."""
+        raise NotImplementedError
+
+
+async def unused_gpus_alert(data: pd.DataFrame) -> tuple[pd.DataFrame, str, Severity]:
+    """Returns a DataFrame with jobs that should raise an alert because GPUs are unused."""
+    threshold = timedelta(hours=4)
+    return (
+        data.query(
+            "elapsed_time > @threshold and gpu_utilization < 0.05",
+            local_dict={"threshold": threshold},
+        ),
+        "GPU utilization has been <5% for more than 4 hours!",
+        Severity.HIGH,
     )
 
-    return alerts_table
+
+alerts: list[Alert] = [
+    unused_gpus_alert,
+]
 
 
-def make_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
+async def fill_alerts_table(table: DataTable, data: pd.DataFrame) -> None:
+    # alerts_table = Table(title="Alerts")
+    table.clear(columns=True)
+    table.add_column("Alert Time")
+    table.add_column("Job Period start")
+    table.add_column("cluster")
+    table.add_column("Job ID")
+    table.add_column("User")
+    table.add_column("severity")
+    table.add_column("Description")
+
+    stuff = await asyncio.gather(*(alert(data) for alert in alerts))
+    jobs, descriptions, severities = zip(*stuff)
+
+    for alert, jobs, description, severity in zip(
+        alerts, jobs, descriptions, severities
+    ):
+        # jobs, description, severity = await alert(data)
+        if jobs.empty:
+            continue
+
+        for user_email, group in jobs.groupby("user.mila.email"):
+            # TODO: Check Jira for existing tickets about this user / job.
+            # TODO: Group alerts by user, then sort by alert time (newest first?)
+            alert_first_posted_time = datetime.now() - timedelta(hours=12)
+            clusters = group["cluster_name"].unique()
+            job_ids = group["job_id"].unique()
+            start_time = group["start_time"].min()
+            end_time = group["end_time"].min()
+
+            table.add_row(
+                str(alert_first_posted_time),
+                f"{(datetime.now(tz=MTL).replace(microsecond=start_time.microsecond) - start_time)} ago",
+                # + " "
+                # + end_time.strftime("%Y-%m-%d %H:%M:%S"),
+                clusters[0] if len(clusters) == 1 else ",".join(clusters),
+                textwrap.shorten(
+                    (
+                        str(job_ids[0])
+                        if len(job_ids) == 1
+                        else ", ".join(map(str, job_ids))
+                    ),
+                    width=40,
+                ),
+                user_email,
+                severity.colorize(),
+                description + (f" (x {len(group)})" if len(group) > 1 else ""),
+            )
+
+    # table.add_row(
+    #     str(datetime.now() - timedelta(hours=12)),
+    #     "mila",
+    #     "123123",
+    #     "Bob@mila.quebec",
+    #     "[blink red]CRITICAL",
+    #     r"GPU utilization has been <5% for more than 4 hours!",
+    # )
+
+
+def fill_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
     """Make a new table."""
     n_to_show = 50
 
@@ -452,7 +537,9 @@ def make_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
     # return table
 
 
-def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
+def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
+    table.clear(columns=True)
+
     total_mila_users = get_mila_students_in_period(
         start=_midnight(datetime.now()) - timedelta(days=7),
         end=_midnight(datetime.now()),
@@ -465,20 +552,19 @@ def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
             "gpu_utilization": ["mean", "std"],
         }
     )
-    # TODO: Do a weighted average based on runtime.
     gpu_cost_per_user_per_cluster = data.groupby(["cluster_name", "user.mila.email"])[
         ["gpu_equivalent_cost", "allocated.gres_gpu"]
     ].sum()
     # TODO: look into naganuma.hiroki@mila.quebec on Mila (800 gpus*days)
     gpus_per_user = gpu_cost_per_user_per_cluster.groupby("cluster_name").describe()
 
-    table = Table(title="Overview by cluster (last 7 days)", expand=True)
+    # table = Table(title="Overview by cluster (last 7 days)", expand=True)
     # TODO: Show Min / Mean / Median / Max GPUs per user?
-    table.add_column("Cluster", justify="left")
-    table.add_column("# of jobs", justify="right")
+    table.add_column("Cluster")
+    table.add_column("# of jobs")
     table.add_column("GPU Util")
-    table.add_column("Mila students using this cluster", justify="right")
-    table.add_column("GPUs days per user", justify="right")
+    table.add_column("Mila students using this cluster")
+    table.add_column("GPUs days per user")
 
     for index, row in grouped_data.iterrows():
         assert isinstance(index, str)
@@ -490,10 +576,10 @@ def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
         gpu_util_std = row["gpu_utilization"]["std"]
         pct_of_mila_users = mila_users / total_mila_users
 
-        gpus_per_user_here = gpus_per_user.xs(cluster)["gpu_equivalent_cost"]
+        gpudays_per_user_here = gpus_per_user.xs(cluster)["gpu_equivalent_cost"]
         gpus_per_user_str = (
             # f"[{gpus_per_user_here['min'].days} {gpus_per_user_here['max'].days}] "
-            f"({gpus_per_user_here['mean'].days:.1f}±{gpus_per_user_here['std'].days:.1f})"
+            f"({gpudays_per_user_here['mean'].days:.1f}±{gpudays_per_user_here['std'].days:.1f})"
         )
         table.add_row(
             cluster,
@@ -503,7 +589,6 @@ def _make_cluster_overview_table(data: pd.DataFrame) -> Table:
             f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
             gpus_per_user_str,
         )
-    return table
 
 
 async def fill_jobs_view_datatable(
@@ -880,6 +965,7 @@ def get_submit_line(job_id: int | str, cluster_name: str) -> str:
     # ).strip()
 
 
+@functools.cache
 @cached
 def get_mila_students_in_period(start: datetime, end: datetime) -> int:
     students = get_users(latest=True)
@@ -888,8 +974,7 @@ def get_mila_students_in_period(start: datetime, end: datetime) -> int:
     )
 
 
-@functools.lru_cache(maxsize=None)
-def _setup_multiplexed_ssh_conection(hostname: str):
+async def _setup_multiplexed_ssh_conection(hostname: str):
     control_path = _get_controlpath(hostname)
     control_path.parent.mkdir(parents=True, exist_ok=True)
     multiplexing_args = (
@@ -898,8 +983,8 @@ def _setup_multiplexed_ssh_conection(hostname: str):
     # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
-    subprocess.check_call(
-        shlex.split(f"ssh {multiplexing_args} {hostname} echo OK"),
+    await run_subprocess(
+        f"ssh {multiplexing_args} {hostname} echo OK",
         stdout=subprocess.DEVNULL,
     )
     return control_path
@@ -961,12 +1046,12 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         df = df.assign(
             **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
         )
-    df = df.assign(
-        **{
-            "allocated.gres_rgu": df["allocated.gres_gpu"]
-            * df["allocated.gpu_type_rgu"]
-        }
-    )
+        df = df.assign(
+            **{
+                "allocated.gres_rgu": df["allocated.gres_gpu"]
+                * df["allocated.gpu_type_rgu"]
+            }
+        )
 
     assert df["requested.gres_gpu"].notna().all()
     assert df["allocated.gres_gpu"].notna().all()
@@ -974,20 +1059,13 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
 
     df = _fix_allocated_cpus_drac(df)
-    # todo: Do we want to get the averages from the other jobs of the same user on other clusers?
-    # Or from the average utilization on that same cluster by different users?
-    # IF so, we might need to reload the data for all users here
-    # if users := options.get_users():
-    #     all_users_data_for_same_period = _get_cleaned_df(
-    #         dataclasses.replace(options, user=[], user_file=None)
-    #     )
     df = _fix_requested_allocated_gres_gpu(df)
     # TODO: Turning this off for now. Causes bugs with gpu_utilization, apparently.
     # df = _fill_missing_metrics_using_means(df)
 
     df = compute_cost_and_waste(df)
 
-    # TODO: Use timedelta as the dtype for the cost / waste / overbilled columns.
+    # Note: the elapsed_time, and cost / waste / overbilled columns are converted to a timedelta dtype.
     df = df.assign(
         **{
             col: pd.to_timedelta(df[col], unit="s")
@@ -1788,6 +1866,36 @@ def _setup_logging(verbose: int):
         logger.setLevel("INFO")
     else:
         logger.setLevel("DEBUG")
+
+
+async def run_subprocess(
+    cmd: str,
+    input: str | None = None,
+    stdout: int | IO[bytes] | None = asyncio.subprocess.PIPE,
+    stderr: int | IO[bytes] | None = asyncio.subprocess.PIPE,
+) -> subprocess.CompletedProcess[str]:
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    out_stdout, out_stderr = await proc.communicate(
+        input.encode() if input is not None else None
+    )
+    assert proc.returncode is not None
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            returncode=proc.returncode,
+            cmd=cmd,
+            output=out_stdout.decode() if out_stdout is not None else None,
+            stderr=out_stderr.decode() if out_stderr is not None else None,
+        )
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=proc.returncode,
+        stdout=out_stdout.decode() if out_stdout is not None else None,
+        stderr=out_stderr.decode() if out_stderr is not None else None,
+    )
 
 
 _gpu_name_mapping = {
@@ -3007,4 +3115,4 @@ gpu_to_rgu_billing = {
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
