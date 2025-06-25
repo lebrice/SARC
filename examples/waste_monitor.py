@@ -17,10 +17,14 @@ import enum
 import functools
 import hashlib
 import inspect
+import io
 import logging
 import os
 import pickle
+import shlex
+import signal
 import subprocess
+import sys
 import tempfile
 import textwrap
 import typing
@@ -116,6 +120,8 @@ logger = logging.getLogger(__name__)
 async def main():
     _setup_logging(verbose=2)
     await setup_sarc_connection()
+    print(await _get_torch_import_time("mila"))
+
     for cluster in get_available_clusters():
         if CLUSTER_DOWN.get(cluster.cluster_name):
             logger.info(f"Skipping {cluster} cluster which is supposedly down.")
@@ -206,8 +212,9 @@ class RichLogApp(App):
         with ContentSwitcher(initial="cluster_overview"):
             # with VerticalScroll(id="cluster_overview"):
             with Vertical(id="cluster_overview"):
-                # with Horizontal():
-                yield DataTable(id="cluster_overview_table")
+                with Horizontal():
+                    yield DataTable(id="cluster_overview_table")
+                    yield ScratchMonitor(id="scratch_monitor")
                 yield DataTable(id="alerts_table")
 
                 yield RichLog(highlight=True, markup=True, id="overview_log")
@@ -283,14 +290,73 @@ from textual.widget import Widget
 class ScratchMonitor(Widget):
     """TODO: a widget to show the import time for torch."""
 
+    def compose(self) -> ComposeResult:
+        """Compose the widget."""
+        yield DataTable(id="scratch_monitor_table")
+
+    def on_ready(self) -> None:
+        """Called when the widget is ready."""
+        self.measure_scratch_torch_import_time()
+        self.set_interval(5 * 60, self.measure_scratch_torch_import_time)
+
+    @work(exclusive=True)
+    async def measure_scratch_torch_import_time(self) -> None:
+        """Measure the time it takes to import torch from the scratch directory."""
+        # This is a placeholder for the actual implementation.
+        # You would run a command like `time python -c "import torch"` in the scratch directory.
+        # For now, we will just log a message.
+        self.log.debug("Measuring scratch torch import time...")
+        time = await _get_torch_import_time(
+            "mila"
+        )  # Replace with actual hostname if needed
+        assert False, time
+
     ...
 
 
-async def _setup_torch_import_test(hostname: str):
-    await run_subprocess(f"ssh {hostname} 'mkdir -p $SCRATCH/torch_import_test'")
-    result = await run_subprocess(f"ssh {hostname} 'ls $SCRATCH/torch_import_test'")
+async def _setup_torch_import_test(
+    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
+):
+    result = await run_subprocess(
+        f"ssh {hostname} bash -l",
+        input="\n".join(
+            [
+                f"mkdir -p {remote_dir}",
+                f"uv --directory='{remote_dir}' init",
+                f"uv --directory='{remote_dir}' add torch numpy",
+            ]
+        ),
+    )
     print(result.stdout)
     print(result.stderr)
+    result = await run_subprocess(f"ssh {hostname} 'ls {remote_dir}'")
+
+
+async def _get_torch_import_time(
+    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
+) -> float | None:
+    # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
+    # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
+    with tempfile.TemporaryFile(mode="w+") as temp_file:
+        _proc = await asyncio.create_subprocess_shell(
+            f"ssh {hostname} bash -l which uv", stdout=temp_file
+        )
+        uv = await _proc.communicate()
+        temp_file.seek(0)
+        result = temp_file.read()
+    uv = result.strip()
+    if not uv:
+        logger.warning(
+            f"Could not find the `uv` executable on {hostname}. "
+            "Please ensure that UV is installed and available in the PATH."
+        )
+        return None
+    command = (
+        f"ssh {hostname} '{uv} run --directory={remote_dir} "
+        'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
+    )
+    result = await run_subprocess(command)
+    return float(result.stdout.strip())
 
 
 def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
@@ -1868,6 +1934,38 @@ def _setup_logging(verbose: int):
         logger.setLevel("DEBUG")
 
 
+async def get_output(cmd: str):
+    with (
+        tempfile.TemporaryFile(mode="w+") as out_file,
+        tempfile.TemporaryFile(mode="w+") as err_file,
+    ):
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=out_file,
+            stderr=err_file,
+        )
+        _out, _err = await proc.communicate()
+        out_file.seek(0)
+        stdout = out_file.read()
+        err_file.seek(0)
+        stderr = err_file.read()
+
+        assert proc.returncode is not None
+    if proc.returncode != 0:
+        raise _CalledProcessError(
+            returncode=proc.returncode,
+            cmd=cmd,
+            output=stdout if stdout else None,
+            stderr=stderr if stderr else None,
+        )
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=proc.returncode,
+        output=stdout if stdout else None,
+        stderr=stderr if stderr else None,
+    )
+
+
 async def run_subprocess(
     cmd: str,
     input: str | None = None,
@@ -1884,7 +1982,7 @@ async def run_subprocess(
     )
     assert proc.returncode is not None
     if proc.returncode != 0:
-        raise subprocess.CalledProcessError(
+        raise _CalledProcessError(
             returncode=proc.returncode,
             cmd=cmd,
             output=out_stdout.decode() if out_stdout is not None else None,
@@ -1896,6 +1994,35 @@ async def run_subprocess(
         stdout=out_stdout.decode() if out_stdout is not None else None,
         stderr=out_stderr.decode() if out_stderr is not None else None,
     )
+
+
+class _CalledProcessError(subprocess.CalledProcessError):
+    """Custom error class to handle subprocess errors with additional context."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cmd = kwargs.get("cmd", "")
+        self.output = kwargs.get("output", "")
+        self.stderr = kwargs.get("stderr", "")
+
+    def __str__(self):
+        if self.returncode and self.returncode < 0:
+            try:
+                return "Command '%s' died with %r." % (
+                    self.cmd,
+                    signal.Signals(-self.returncode),
+                )
+            except ValueError:
+                return "Command '%s' died with unknown signal %d." % (
+                    self.cmd,
+                    -self.returncode,
+                )
+        else:
+            print(self.stderr, file=sys.stderr)
+            return "Command '%s' returned non-zero exit status %d." % (
+                self.cmd,
+                self.returncode,
+            )
 
 
 _gpu_name_mapping = {
