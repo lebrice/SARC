@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 import paramiko
 import paramiko.config
+import pydantic_core._pydantic_core
 import pymongo.errors
 import rich.logging
 import rich.pretty
@@ -120,7 +121,7 @@ logger = logging.getLogger(__name__)
 async def main():
     _setup_logging(verbose=2)
     await setup_sarc_connection()
-    print(await _get_torch_import_time("mila"))
+    # print(await _get_torch_import_time("mila"))
 
     for cluster in get_available_clusters():
         if CLUSTER_DOWN.get(cluster.cluster_name):
@@ -1103,6 +1104,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _replace_outlier_stats_with_na(df)
     df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_billing_drac(df)
+
     try:
         df = update_job_series_rgu(df)
         # df = _fix_rgu_discrepencies_inplace(df)
@@ -1486,13 +1488,19 @@ def _validate_gpu_ram():
 def _get_node_to_gpu(cluster_name: str):
     # BUG: Times out atm, so skipping this to make it faster.
     try:
-        return get_node_to_gpu(cluster_name=cluster_name)
+        node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
+        if node_to_gpu:
+            return node_to_gpu
     except (
         gifnoc.proxy.MissingConfigurationError,
         pymongo.errors.OperationFailure,
         pymongo.errors.ServerSelectionTimeoutError,
-    ):
-        return _NODE_TO_GPU[cluster_name]
+        pydantic_core._pydantic_core.ValidationError,
+    ) as e:
+        logger.error(f"The `get_node_to_gpu` function didn't work: {e}")
+    else:
+        logger.error(f"The `get_node_to_gpu` function returned {node_to_gpu}!")
+    return _NODE_TO_GPU[cluster_name]
 
 
 def _get_cluster_configs() -> dict[str, ClusterConfig]:
@@ -1512,11 +1520,37 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
     return cluster_configs
 
 
-def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
+def _fix_missing_gpu_type(df: pd.DataFrame):
     # Fix missing gpu_type
-    if not clusters:
-        clusters = df["cluster_name"].unique().tolist()
+
+    missing_allocated_gpu_type = (df["requested.gres_gpu"] > 0) & df[
+        "allocated.gpu_type"
+    ].isnull()
+    target_jobs = df[missing_allocated_gpu_type]
+    if target_jobs.empty:
+        return df
+
+    logger.debug(
+        f"Missing allocated.gpu_type in {missing_allocated_gpu_type.mean():.2%} of jobs."
+    )
+    clusters = target_jobs["cluster_name"].unique().tolist()
     assert clusters is not None and len(clusters)
+    logger.debug(
+        f"Clusters with missing allocated.gpu_type: {target_jobs['cluster_name'].value_counts()}"
+    )
+    assert False, target_jobs["cluster_name"].value_counts()
+    df = df.copy()
+    for cluster_name in clusters:
+        _node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
+        target_jobs = target_jobs.assign(
+            **{
+                "allocated.gpu_type": (
+                    target_jobs["nodes"].str[0].map(_node_to_gpu).map(_gpu_name_mapping)
+                )
+            }
+        )
+    df.update(target_jobs)
+    return df
 
     for cluster_name in clusters:
         node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
@@ -1541,7 +1575,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
     )
     missing_gpu_types = df[missing_gpu_types_mask]
 
-    if missing_gpu_types.shape[0] > 0:
+    if not missing_gpu_types.empty:
         print(
             "GPU types not mapped",
             missing_gpu_types.groupby(["cluster_name"]).count()["id"],
@@ -1562,6 +1596,8 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
         breakpoint()
         # How can this produce NaNs if we made sure no GPU types were missing?!
 
+    return df
+
     def _fn(x):
         if x in _gpu_name_mapping:
             return _gpu_name_mapping[x]
@@ -1573,6 +1609,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame, clusters: list[str] | None = None):
 
     # df["allocated.gpu_type"] = df["allocated.gpu_type"].map(_gpu_name_mapping)
     df["allocated.gpu_type"] = df["allocated.gpu_type"].map(_fn)
+    assert not df["allocated.gpu_type"].isnull().any()
     df.fillna({"allocated.gpu_type": "unknown"}, inplace=True)
 
     # ugly patch:
