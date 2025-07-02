@@ -17,11 +17,9 @@ import enum
 import functools
 import hashlib
 import inspect
-import io
 import logging
 import os
 import pickle
-import shlex
 import signal
 import subprocess
 import sys
@@ -1107,6 +1105,7 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
 
     try:
         df = update_job_series_rgu(df)
+        # df = update_job_series_rgu(df)
         # df = _fix_rgu_discrepencies_inplace(df)
     except pymongo.errors.OperationFailure as err:
         logger.error(err)
@@ -1497,7 +1496,7 @@ def _get_node_to_gpu(cluster_name: str):
         pymongo.errors.ServerSelectionTimeoutError,
         pydantic_core._pydantic_core.ValidationError,
     ) as e:
-        logger.error(f"The `get_node_to_gpu` function didn't work: {e}")
+        logger.error(f"The `get_node_to_gpu` function didn't work: {str(e)[:100]}")
     else:
         logger.error(f"The `get_node_to_gpu` function returned {node_to_gpu}!")
     return _NODE_TO_GPU[cluster_name]
@@ -1523,33 +1522,36 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
 def _fix_missing_gpu_type(df: pd.DataFrame):
     # Fix missing gpu_type
 
-    missing_allocated_gpu_type = (df["requested.gres_gpu"] > 0) & df[
-        "allocated.gpu_type"
-    ].isnull()
-    target_jobs = df[missing_allocated_gpu_type]
+    target_jobs = df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()")
     if target_jobs.empty:
         return df
-
     logger.debug(
-        f"Missing allocated.gpu_type in {missing_allocated_gpu_type.mean():.2%} of jobs."
+        f"Missing allocated.gpu_type in {(target_jobs.size / df.size):.2%} of jobs."
     )
     clusters = target_jobs["cluster_name"].unique().tolist()
     assert clusters is not None and len(clusters)
     logger.debug(
         f"Clusters with missing allocated.gpu_type: {target_jobs['cluster_name'].value_counts()}"
     )
-    assert False, target_jobs["cluster_name"].value_counts()
     df = df.copy()
     for cluster_name in clusters:
         _node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
-        target_jobs = target_jobs.assign(
+        cluster_target_jobs = target_jobs.query(f"cluster_name == '{cluster_name}'")
+        fixed_jobs = cluster_target_jobs.assign(
             **{
-                "allocated.gpu_type": (
-                    target_jobs["nodes"].str[0].map(_node_to_gpu).map(_gpu_name_mapping)
-                )
+                "allocated.gpu_type": cluster_target_jobs["nodes"]
+                .str[0]
+                .map(_node_to_gpu)
+                .map(_gpu_name_mapping)
             }
         )
-    df.update(target_jobs)
+        still_missing = fixed_jobs.query("`allocated.gpu_type`.isna()")
+        if not still_missing.empty:
+            raise RuntimeError(
+                f"Still have some missing `allocated.gpu_type` for cluster {cluster_name}:\n"
+                f"{fixed_jobs[fixed_jobs['allocated.gpu_type'].isna()]}"
+            )
+        df.update(fixed_jobs)
     return df
 
     for cluster_name in clusters:
