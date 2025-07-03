@@ -16,6 +16,7 @@ import dataclasses
 import enum
 import functools
 import hashlib
+import importlib
 import inspect
 import logging
 import os
@@ -60,7 +61,8 @@ from textual.widgets import (
 )
 from typing_extensions import Self
 
-from sarc.client.gpumetrics import get_rgus
+from sarc import nodes
+from sarc.client.gpumetrics import get_cluster_gpu_billings, get_rgus
 from sarc.client.job import JobStatistics, SlurmState
 from sarc.client.series import (
     compute_cost_and_waste,
@@ -134,7 +136,8 @@ async def main():
             CLUSTER_DOWN[cluster.cluster_name] = True
 
     # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
-    _data = get_data()
+    _data = get_data(("mila", "narval", "beluga"), ())
+    return
     # for cluster in get_available_clusters():
     #     _cluster_data = get_data(clusters=[cluster.cluster_name])
     #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
@@ -149,6 +152,21 @@ def get_available_clusters():
     from sarc.client.job import get_available_clusters
 
     return tuple(get_available_clusters())
+
+
+def get_dev_cluster_configs():
+
+    import sarc.config
+
+    with gifnoc.use(sarc_dev_config_file):
+        dev_config = sarc.config.full_config
+        cluster_configs = dev_config.clusters.copy()
+        return cluster_configs
+    with sarc.config.using_sarc_mode("scraping"), gifnoc.use(sarc_dev_config_file):
+        dev_config = sarc.config.config()
+        # assert isinstance(dev_config, sarc.config.Config), type(dev_config)
+        cluster_configs = dev_config.clusters
+        return cluster_configs
 
 
 class RichLogApp(App):
@@ -1103,13 +1121,20 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_billing_drac(df)
 
-    try:
-        df = update_job_series_rgu(df)
-        # df = update_job_series_rgu(df)
-        # df = _fix_rgu_discrepencies_inplace(df)
-    except pymongo.errors.OperationFailure as err:
-        logger.error(err)
-        logger.warning("Might not have correct RGU information for jobs.")
+    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty
+    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
+    # df =  df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
+
+    df_before = df.copy()
+    df = update_job_series_rgu(df)
+    if not df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty:
+        logger.error(
+            f"Calling `update_job_series_rgu` caused some jobs to have an allocated.gres_gpu of NaN!\n"
+            f"Switching to a manual fix for this.\n"
+        )
+        df = df_before
+        # TODO: Can't use the `get_rgus` instead of `_RGUS` here because the gpu name mapping is not the same.
+
         df = df.assign(
             **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
         )
@@ -1489,7 +1514,7 @@ def _get_node_to_gpu(cluster_name: str):
     try:
         node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
         if node_to_gpu:
-            return node_to_gpu
+            return node_to_gpu.node_to_gpu
     except (
         gifnoc.proxy.MissingConfigurationError,
         pymongo.errors.OperationFailure,
@@ -1499,7 +1524,25 @@ def _get_node_to_gpu(cluster_name: str):
         logger.error(f"The `get_node_to_gpu` function didn't work: {str(e)[:100]}")
     else:
         logger.error(f"The `get_node_to_gpu` function returned {node_to_gpu}!")
-    return _NODE_TO_GPU[cluster_name]
+    cluster_configs = get_dev_cluster_configs()
+    cluster_config = cluster_configs[cluster_name]
+
+    _nodes_to_gpu_from_config = {
+        node: gpu_types_to_gpus.copy().popitem()[1]
+        for node, gpu_types_to_gpus in cluster_config.gpus_per_nodes.items()
+    }
+    hard_coded_node_to_gpu = _NODE_TO_GPU[cluster_name]
+    for node, gpu in hard_coded_node_to_gpu.items():
+        if node not in _nodes_to_gpu_from_config:
+            logger.debug(
+                f"Hard-coded node-to-gpu map is useful since it isn't in the config: {cluster_name=} {node=}"
+            )
+        else:
+            logger.warning(
+                f"Hard-coded node-to-gpu map is already in the config: {cluster_name=} {node=}"
+            )
+    return hard_coded_node_to_gpu | _nodes_to_gpu_from_config
+    # return _NODE_TO_GPU[cluster_name]
 
 
 def _get_cluster_configs() -> dict[str, ClusterConfig]:
@@ -1520,7 +1563,11 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
 
 
 def _fix_missing_gpu_type(df: pd.DataFrame):
-    # Fix missing gpu_type
+    """Fix missing `allocated.gpu_type` in some jobs.
+
+    Some jobs (example `16462412` on Narval) have `requested.gres_gpu`>0
+    but have `allocated.gpu_type` of None.
+    """
 
     target_jobs = df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()")
     if target_jobs.empty:
@@ -1533,14 +1580,36 @@ def _fix_missing_gpu_type(df: pd.DataFrame):
     logger.debug(
         f"Clusters with missing allocated.gpu_type: {target_jobs['cluster_name'].value_counts()}"
     )
+    cluster_configs = get_dev_cluster_configs()
+
     df = df.copy()
     for cluster_name in clusters:
-        _node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
+        cluster_config = cluster_configs[cluster_name]
         cluster_target_jobs = target_jobs.query(f"cluster_name == '{cluster_name}'")
+        unique_nodes = cluster_target_jobs["nodes"].str[0].unique()
+
+        _node_to_gpu = _NODE_TO_GPU[cluster_name]
+        # _node_to_gpu = _get_node_to_gpu(cluster_name=cluster_name)
+
+        # node_to_gpu_type = {
+        #     node: cluster_config.gpus_per_nodes.get(
+        #         node, _NODE_TO_GPU[cluster_name][node]
+        #     )
+        #     for node in unique_nodes
+        # }
+        # assert all(
+        #     _node_to_gpu.values()
+        # ), f"Some nodes in {cluster_name} have no harmonized GPU name: {nodes_to_harmonized_gpus}"
+        # harmonized_gpus_to_rgus = get_rgus()
+        # assert all(
+        #     gpu in harmonized_gpus_to_rgus for gpu in nodes_to_harmonized_gpus.values()
+        # ), f"Some harmonized GPUs in {cluster_name} have no RGU mapping: {nodes_to_harmonized_gpus.values()}"
+
         fixed_jobs = cluster_target_jobs.assign(
             **{
                 "allocated.gpu_type": cluster_target_jobs["nodes"]
                 .str[0]
+                # .map(nodes_to_harmonized_gpus)
                 .map(_node_to_gpu)
                 .map(_gpu_name_mapping)
             }
