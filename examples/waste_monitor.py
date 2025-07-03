@@ -315,6 +315,9 @@ class ScratchMonitor(Widget):
 
     def on_ready(self) -> None:
         """Called when the widget is ready."""
+        self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
+            "Timestamp", "Torch import time"
+        )
         self.measure_scratch_torch_import_time()
         self.set_interval(5 * 60, self.measure_scratch_torch_import_time)
 
@@ -324,13 +327,12 @@ class ScratchMonitor(Widget):
         # This is a placeholder for the actual implementation.
         # You would run a command like `time python -c "import torch"` in the scratch directory.
         # For now, we will just log a message.
-        self.log.debug("Measuring scratch torch import time...")
-        time = await _get_torch_import_time(
-            "mila"
-        )  # Replace with actual hostname if needed
-        assert False, time
-
-    ...
+        logger.debug("Measuring scratch torch import time...")
+        time = await _get_torch_import_time("mila")
+        logger.info(f"Torch import time: {time:T}")
+        self.query_exactly_one("#scratch_monitor_table", DataTable).add_row(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"{time:T}"
+        )
 
 
 async def _setup_torch_import_test(
@@ -353,7 +355,7 @@ async def _setup_torch_import_test(
 
 async def _get_torch_import_time(
     hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-) -> float | None:
+) -> timedelta | None:
     # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
     # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
     with tempfile.TemporaryFile(mode="w+") as temp_file:
@@ -375,7 +377,7 @@ async def _get_torch_import_time(
         'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
     )
     result = await run_subprocess(command)
-    return float(result.stdout.strip())
+    return timedelta(seconds=float(result.stdout.strip()))
 
 
 def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
