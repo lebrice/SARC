@@ -136,8 +136,7 @@ async def main():
             CLUSTER_DOWN[cluster.cluster_name] = True
 
     # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
-    _data = get_data(("mila", "narval", "beluga"), ())
-    return
+    _data = get_data()
     # for cluster in get_available_clusters():
     #     _cluster_data = get_data(clusters=[cluster.cluster_name])
     #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
@@ -249,6 +248,7 @@ class RichLogApp(App):
         )
 
     def on_ready(self) -> None:
+        self.update_data_and_ui()
         self.set_interval(5 * 60, self.update_data_and_ui)
 
     def on_mount(self) -> None:
@@ -280,7 +280,9 @@ class RichLogApp(App):
             "#cluster_overview_table", DataTable
         )
         fill_cluster_overview_table(cluster_overview_table, data)
-        await _setup_torch_import_test("mila")
+
+        # await _setup_torch_import_test("mila")
+
         alerts_table = self.query_exactly_one("#alerts_table", DataTable)
         await fill_alerts_table(alerts_table, data)
 
@@ -2024,8 +2026,8 @@ def compute_time_frames(
 def _setup_logging(verbose: int):
     logging.basicConfig(
         handlers=[
-            rich.logging.RichHandler(show_time=False),
             textual.logging.TextualHandler(),
+            # rich.logging.RichHandler(show_time=False),
         ],
         format="%(message)s",
         level=logging.ERROR,
