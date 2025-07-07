@@ -230,9 +230,8 @@ class RichLogApp(App):
             with Vertical(id="cluster_overview"):
                 with Horizontal():
                     yield DataTable(id="cluster_overview_table")
-                    yield ScratchMonitor(id="scratch_monitor")
+                    # yield ScratchMonitor(id="scratch_monitor")
                 yield DataTable(id="alerts_table")
-
                 yield RichLog(highlight=True, markup=True, id="overview_log")
             with VerticalScroll(id="user_view"):
                 yield DataTable(id="user_view_table")
