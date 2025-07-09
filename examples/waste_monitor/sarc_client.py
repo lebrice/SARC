@@ -1,82 +1,37 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "rich",
-#     "sarc",
-#     "textual",
-# ]
-#
-# [tool.uv.sources]
-# sarc = { path = "../" }
-# ///
 from __future__ import annotations
 
-import asyncio
 import dataclasses
-import enum
 import functools
-import hashlib
-import importlib
-import inspect
 import logging
-import os
-import pickle
-import signal
 import subprocess
-import sys
-import tempfile
-import textwrap
-import typing
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import IO, Any, Callable, Mapping, ParamSpec, Protocol, Sequence, TypeVar
+from typing import Callable, Mapping
 
 import gifnoc
-import gifnoc.proxy
 import numpy as np
 import pandas as pd
 import paramiko
 import paramiko.config
-import pydantic_core._pydantic_core
 import pymongo.errors
-import rich.logging
-import rich.pretty
-import simple_parsing
-import textual.logging
 import yaml
-from rich.panel import Panel
-from rich.table import Table
 from simple_parsing.helpers.serialization.serializable import from_dict
-from textual import events, work
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
-from textual.reactive import reactive
-from textual.widgets import (
-    Button,
-    Checkbox,
-    ContentSwitcher,
-    DataTable,
-    RichLog,
-    Static,
-)
-from typing_extensions import Self
 
-from sarc import nodes
-from sarc.client.gpumetrics import get_cluster_gpu_billings, get_rgus
-from sarc.client.job import JobStatistics, SlurmState
+from examples.waste_monitor.common_utils import FilteringOptions, run_subprocess
+from sarc.client.gpumetrics import get_rgus
+from sarc.client.job import JobStatistics
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
     update_job_series_rgu,
 )
-from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClientConfig, ClusterConfig
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
 # todo: add a proper date here.
 CLUSTER_DOWN: dict[str, bool] = {"cedar": datetime.now() < datetime(2025, 7, 1)}
-sarc_client_config_file = Path(__file__).parent.parent / "config/sarc-client.yaml"
-sarc_dev_config_file = Path(__file__).parent.parent / "config/sarc-dev.yaml"
+sarc_client_config_file = Path(__file__).parent.parent.parent / "config/sarc-client.yaml"
+sarc_dev_config_file = Path(__file__).parent.parent.parent / "config/sarc-dev.yaml"
 if sarc_client_config_file.exists():
     # This script is being executed either from the SARC root, or maybe from an editable install
     # of the SARC package.
@@ -101,1107 +56,8 @@ gifnoc.set_sources(sarc_client_config_file)
 sarc_client_config = from_dict(
     ClientConfig, yaml.safe_load(sarc_client_config_file.read_text())["sarc"]
 )
-# sarc_dev_config = from_dict(
-#     Config, yaml.safe_load(sarc_dev_config_file.read_text())["sarc"]
-# )
-# assert False, sarc_client_config
-
-CACHE_DIR: Path | None = (
-    Path(os.environ["CF_DATA"])
-    if "CF_DATA" in os.environ
-    else Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
-)
-P = ParamSpec("P")
-OutT = TypeVar("OutT")
-
 
 logger = logging.getLogger(__name__)
-
-
-async def main():
-    _setup_logging(verbose=2)
-    await setup_sarc_connection()
-    # print(await _get_torch_import_time("mila"))
-
-    for cluster in get_available_clusters():
-        if CLUSTER_DOWN.get(cluster.cluster_name):
-            logger.info(f"Skipping {cluster} cluster which is supposedly down.")
-            continue
-        try:
-            await _setup_multiplexed_ssh_conection(cluster.cluster_name)
-        except subprocess.CalledProcessError as err:
-            logger.error(
-                f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
-            )
-            CLUSTER_DOWN[cluster.cluster_name] = True
-
-    # Calling the function so the results are saved in memory (thanks to functools.lru_cache).
-    _data = get_data()
-    # for cluster in get_available_clusters():
-    #     _cluster_data = get_data(clusters=[cluster.cluster_name])
-    #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
-    #         asyncio.run(fill_jobs_view_datatable(unittest.mock.Mock(), _cluster_data))
-
-    app = RichLogApp()
-    await app.run_async()
-
-
-@functools.cache
-def get_available_clusters():
-    from sarc.client.job import get_available_clusters
-
-    return tuple(get_available_clusters())
-
-
-def get_dev_cluster_configs():
-
-    import sarc.config
-
-    with gifnoc.use(sarc_dev_config_file):
-        dev_config = sarc.config.full_config
-        cluster_configs = dev_config.clusters.copy()
-        return cluster_configs
-    with sarc.config.using_sarc_mode("scraping"), gifnoc.use(sarc_dev_config_file):
-        dev_config = sarc.config.config()
-        # assert isinstance(dev_config, sarc.config.Config), type(dev_config)
-        cluster_configs = dev_config.clusters
-        return cluster_configs
-
-
-class RichLogApp(App):
-    TITLE = f"[b]SARC[/b] Waste Monitoring - {datetime.now().ctime().replace(':', '[blink]:[/]')}"
-    SUB_TITLE = "Data from the last 7 days. Last update: TODO"
-    # For live editing the CSS:
-    # CSS_PATH = Path(__file__).parent / "waste_monitor.tcss"
-    CSS = """\
-    Screen {
-        align: center middle;
-        padding: 1;
-    }
-
-    #buttons {
-        height: 3;
-        width: auto;
-    }
-
-    ContentSwitcher {
-        border: round $primary;
-        width: 90%;
-        height: 1fr;
-    }
-
-    #cluster_overview {
-        padding: 2 4;
-    }
-
-    #cluster_overview_table {
-        align: center middle;
-        padding: 1 2;
-    }
-
-    #alerts_table {
-        padding: 1 2;
-    }
-    """
-    clusters: reactive[set[str]] = reactive(set())
-
-    def compose(self) -> ComposeResult:
-        # Todo: time doesn't update properly.
-        # yield Static(_header_panel(), id="header_panel")
-
-        with Horizontal(id="buttons"):
-            yield Button("Overview", id="cluster_overview_button")
-            yield Button("User View", id="user_view_button")
-            yield Button("Worst Jobs", id="worst_jobs_button")
-            yield Button("Best Jobs", id="best_jobs_button")
-            with HorizontalScroll():
-                for cluster in get_available_clusters():
-                    yield Checkbox(
-                        label=cluster.cluster_name.capitalize(),
-                        value=True,
-                        id=cluster.cluster_name,
-                        name=f"{cluster.cluster_name}_checkbox",
-                    )
-                    self.clusters = self.clusters | {cluster.cluster_name}
-            # yield Input(placeholder="User to query for")
-
-        with ContentSwitcher(initial="cluster_overview"):
-            # with VerticalScroll(id="cluster_overview"):
-            with Vertical(id="cluster_overview"):
-                with Horizontal():
-                    yield DataTable(id="cluster_overview_table")
-                    # yield ScratchMonitor(id="scratch_monitor")
-                yield DataTable(id="alerts_table")
-                yield RichLog(highlight=True, markup=True, id="overview_log")
-            with VerticalScroll(id="user_view"):
-                yield DataTable(id="user_view_table")
-            with VerticalScroll(id="worst_jobs"):
-                yield DataTable(id="worst_jobs_table")
-            with VerticalScroll(id="best_jobs"):
-                yield DataTable(id="best_jobs_table")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        assert event.button.id is not None
-        self.query_one(ContentSwitcher).current = event.button.id.removesuffix(
-            "_button"
-        )
-
-    def on_ready(self) -> None:
-        self.update_data_and_ui()
-        self.set_interval(5 * 60, self.update_data_and_ui)
-
-    def on_mount(self) -> None:
-        self.update_data_and_ui()
-
-    # @on(Checkbox.Changed)
-    async def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        text_log = self.query_one(RichLog)
-        assert event.checkbox.id
-        if event.value:
-            self.clusters = self.clusters | {event.checkbox.id}
-        else:
-            self.clusters = self.clusters.difference({event.checkbox.id})
-        # TODO: update the UI following changes to the data in an efficient way.
-        text_log.write(rich.pretty.Pretty(sorted(self.clusters)))
-        self.sub_title = f"Data for clusters {list(self.clusters)}"
-        self.update_data_and_ui()
-
-    @work(exclusive=True)
-    async def update_data_and_ui(self) -> None:
-        """Update the data and the UI."""
-        data = get_data(list(self.clusters), ())
-        await self.populate_ui(data)
-
-    async def populate_ui(self, data: pd.DataFrame):
-        # TODO: The multiplexed SSH connections to all clusters should already be setup before this is launched
-        # to avoid the SSH 2FA prompts messing up the UI.
-        cluster_overview_table = self.query_exactly_one(
-            "#cluster_overview_table", DataTable
-        )
-        fill_cluster_overview_table(cluster_overview_table, data)
-
-        # await _setup_torch_import_test("mila")
-
-        alerts_table = self.query_exactly_one("#alerts_table", DataTable)
-        await fill_alerts_table(alerts_table, data)
-
-        user_table = self.query_exactly_one("#user_view_table", DataTable)
-        user_table.cursor_type = "row"
-        fill_waste_overview_datatable(user_table, data)
-
-        worst_jobs_table = self.query_exactly_one("#worst_jobs_table", DataTable)
-        worst_jobs_table.cursor_type = "row"
-        await fill_jobs_view_datatable(worst_jobs_table, data)
-
-        best_jobs_table = self.query_exactly_one("#best_jobs_table", DataTable)
-        best_jobs_table.cursor_type = "row"
-        await fill_jobs_view_datatable(best_jobs_table, data, reverse=True)
-
-    def on_mouse_move(self, event: events.MouseMove) -> None:
-        # self.screen.query_one(RichLog).write(event)
-        pass
-
-
-from textual.widget import Widget
-
-
-class ScratchMonitor(Widget):
-    """TODO: a widget to show the import time for torch."""
-
-    def compose(self) -> ComposeResult:
-        """Compose the widget."""
-        yield DataTable(id="scratch_monitor_table")
-
-    def on_ready(self) -> None:
-        """Called when the widget is ready."""
-        self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
-            "Timestamp", "Torch import time"
-        )
-        self.measure_scratch_torch_import_time()
-        self.set_interval(5 * 60, self.measure_scratch_torch_import_time)
-
-    @work(exclusive=True)
-    async def measure_scratch_torch_import_time(self) -> None:
-        """Measure the time it takes to import torch from the scratch directory."""
-        # This is a placeholder for the actual implementation.
-        # You would run a command like `time python -c "import torch"` in the scratch directory.
-        # For now, we will just log a message.
-        logger.debug("Measuring scratch torch import time...")
-        time = await _get_torch_import_time("mila")
-        logger.info(f"Torch import time: {time:T}")
-        self.query_exactly_one("#scratch_monitor_table", DataTable).add_row(
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"{time:T}"
-        )
-
-
-async def _setup_torch_import_test(
-    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-):
-    result = await run_subprocess(
-        f"ssh {hostname} bash -l",
-        input="\n".join(
-            [
-                f"mkdir -p {remote_dir}",
-                f"uv --directory='{remote_dir}' init",
-                f"uv --directory='{remote_dir}' add torch numpy",
-            ]
-        ),
-    )
-    print(result.stdout)
-    print(result.stderr)
-    result = await run_subprocess(f"ssh {hostname} 'ls {remote_dir}'")
-
-
-async def _get_torch_import_time(
-    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-) -> timedelta | None:
-    # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
-    # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
-    with tempfile.TemporaryFile(mode="w+") as temp_file:
-        _proc = await asyncio.create_subprocess_shell(
-            f"ssh {hostname} bash -l which uv", stdout=temp_file
-        )
-        uv = await _proc.communicate()
-        temp_file.seek(0)
-        result = temp_file.read()
-    uv = result.strip()
-    if not uv:
-        logger.warning(
-            f"Could not find the `uv` executable on {hostname}. "
-            "Please ensure that UV is installed and available in the PATH."
-        )
-        return None
-    command = (
-        f"ssh {hostname} '{uv} run --directory={remote_dir} "
-        'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
-    )
-    result = await run_subprocess(command)
-    return timedelta(seconds=float(result.stdout.strip()))
-
-
-def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
-    midnight_tonight = _midnight(datetime.now() + timedelta(days=1))
-    return _cached_get_data(
-        midnight_tonight, tuple(sorted(clusters)), tuple(sorted(users))
-    )
-
-
-@functools.lru_cache(maxsize=20)
-def _cached_get_data(
-    midnight_tonight: datetime,
-    clusters: tuple[str, ...] = (),
-    users: tuple[str, ...] = (),
-) -> pd.DataFrame:
-    """Cached function to get the data."""
-    options = FilteringOptions(
-        start=(midnight_tonight - timedelta(days=7)),
-        end=midnight_tonight,
-        user=(),
-        clusters=(),
-    )
-    # This is cached as well:
-    data = get_clean_sarc_data(options)
-    if clusters:
-        data = data[data["cluster_name"].isin(clusters)]
-    if users:
-        data = data[data["user.mila.email"].isin(users)]
-    return data
-
-
-async def setup_sarc_connection():
-    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-    control_socket_path = Path(
-        ssh_config.lookup("sarc").get(
-            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
-        )
-    ).expanduser()
-    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
-    multiplexing_args = (
-        f"-o ControlMaster=auto "
-        f"-o 'ControlPath={control_socket_path}' "
-        f"-o ControlPersist=yes"
-    )
-
-    sarc_client_connection_string = yaml.safe_load(sarc_client_config_file.read_text())[
-        "sarc"
-    ]["mongo"]["connection_string"]
-    assert isinstance(sarc_client_connection_string, str)
-    # "mongodb://readuser:readpwd@localhost:8123/sarc" --> "8123"
-    sarc_client_local_port = (
-        sarc_client_connection_string.rpartition("@")[2]
-        .partition(":")[2]
-        .partition("/")[0]
-    )
-
-    sarc_dev_connection_string = yaml.safe_load(sarc_dev_config_file.read_text())[
-        "sarc"
-    ]["mongo"]["connection_string"]
-    assert isinstance(sarc_dev_connection_string, str)
-    # "mongodb://localhost:27017/sarc-dev" --> "27017"
-    sarc_dev_remote_port = (
-        sarc_dev_connection_string.rpartition("@")[
-            2
-        ]  # might return the whole string if there is no user:pwd@...
-        .partition("://")[2]  # "localhost:27017/sarc-dev"
-        .partition("/")[0]  # "localhost:27017"
-        .partition(":")[2]  # "27017"
-    )
-    assert sarc_client_local_port
-    assert sarc_dev_remote_port
-
-    port_forwarding_args = (
-        f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
-    )
-
-    await run_subprocess(
-        f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK",
-        stdout=subprocess.DEVNULL,
-    )
-
-
-class Severity(enum.StrEnum):
-    LOW = "LOW"
-    MODERATE = "MODERATE"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-    def colorize(self) -> str:
-        """Colorize the severity level for display."""
-        if self == Severity.CRITICAL:
-            return "[blink red]CRITICAL[/blink red]"
-        elif self == Severity.HIGH:
-            return "[red]HIGH[/red]"
-        elif self == Severity.MODERATE:
-            return "[yellow]MODERATE[/yellow]"
-        else:
-            return f"[green]{self}[/green]"
-
-
-class Alert(Protocol):
-    """Protocol for an alert function."""
-
-    async def __call__(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str, Severity]:
-        """Returns a DataFrame with jobs that should raise an alert, a description, and a severity level."""
-        raise NotImplementedError
-
-
-async def unused_gpus_alert(data: pd.DataFrame) -> tuple[pd.DataFrame, str, Severity]:
-    """Returns a DataFrame with jobs that should raise an alert because GPUs are unused."""
-    threshold = timedelta(hours=4)
-    return (
-        data.query(
-            "elapsed_time > @threshold and gpu_utilization < 0.05",
-            local_dict={"threshold": threshold},
-        ),
-        "GPU utilization has been <5% for more than 4 hours!",
-        Severity.HIGH,
-    )
-
-
-alerts: list[Alert] = [
-    unused_gpus_alert,
-]
-
-
-async def fill_alerts_table(table: DataTable, data: pd.DataFrame) -> None:
-    # alerts_table = Table(title="Alerts")
-    table.clear(columns=True)
-    table.add_column("Alert Time")
-    table.add_column("Job Period start")
-    table.add_column("cluster")
-    table.add_column("Job ID")
-    table.add_column("User")
-    table.add_column("severity")
-    table.add_column("Description")
-
-    stuff = await asyncio.gather(*(alert(data) for alert in alerts))
-    jobs, descriptions, severities = zip(*stuff)
-
-    for alert, jobs, description, severity in zip(
-        alerts, jobs, descriptions, severities
-    ):
-        # jobs, description, severity = await alert(data)
-        if jobs.empty:
-            continue
-
-        for user_email, group in jobs.groupby("user.mila.email"):
-            # TODO: Check Jira for existing tickets about this user / job.
-            # TODO: Group alerts by user, then sort by alert time (newest first?)
-            alert_first_posted_time = datetime.now() - timedelta(hours=12)
-            clusters = group["cluster_name"].unique()
-            job_ids = group["job_id"].unique()
-            start_time = group["start_time"].min()
-            end_time = group["end_time"].min()
-
-            table.add_row(
-                str(alert_first_posted_time),
-                f"{(datetime.now(tz=MTL).replace(microsecond=start_time.microsecond) - start_time)} ago",
-                # + " "
-                # + end_time.strftime("%Y-%m-%d %H:%M:%S"),
-                clusters[0] if len(clusters) == 1 else ",".join(clusters),
-                textwrap.shorten(
-                    (
-                        str(job_ids[0])
-                        if len(job_ids) == 1
-                        else ", ".join(map(str, job_ids))
-                    ),
-                    width=40,
-                ),
-                user_email,
-                severity.colorize(),
-                description + (f" (x {len(group)})" if len(group) > 1 else ""),
-            )
-
-    # table.add_row(
-    #     str(datetime.now() - timedelta(hours=12)),
-    #     "mila",
-    #     "123123",
-    #     "Bob@mila.quebec",
-    #     "[blink red]CRITICAL",
-    #     r"GPU utilization has been <5% for more than 4 hours!",
-    # )
-
-
-def fill_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
-    """Make a new table."""
-    n_to_show = 50
-
-    data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
-        {
-            "job_id": "nunique",
-            "job_state": lambda v: (v == SlurmState.COMPLETED).mean(),
-            "allocated.gres_gpu": "sum",
-            "allocated.gres_rgu": "sum",
-            "gpu_equivalent_cost": "sum",
-            "rgu_equivalent_cost": "sum",
-            "cpu_equivalent_waste": "sum",
-            "gpu_equivalent_waste": "sum",
-            "rgu_equivalent_waste": "sum",
-            "gpu_overbilling_cost": "sum",
-            "rgu_overbilling_cost": "sum",
-        },
-    )
-    data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
-
-    ordered_by_waste = data_by_user.nlargest(
-        columns="rgu_equivalent_waste", n=n_to_show, keep="all"
-    )
-    gpu_util_stats = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
-        {"gpu_utilization": "describe"}
-    )
-
-    # table = Table(
-    #     title=f"Most wasteful users (last 7 days) [{layout_iteration+1} / {n_layout_iterations}]",
-    #     expand=True,
-    # )
-    table.clear(columns=True)
-    table.add_column("#")
-    table.add_column("User")
-    table.add_column("Cluster")
-    table.add_column("GPU Utilization")
-    table.add_column("Job success rate")
-    # table.add_column("Total allocated GPUs/RGUs", justify="right")
-    table.add_column("Used/Wasted/Obstructed GPU days")
-    table.add_column("U/W/Obs RGU*days")
-
-    for i, (index, row) in enumerate(ordered_by_waste.iterrows(), start=1):
-        assert isinstance(index, tuple) and len(index) == 2
-        (cluster, user_email) = index
-        used_gpus = row["allocated.gres_gpu"]
-        gpu_util = gpu_util_stats.loc[index, "gpu_utilization"]
-        table.add_row(
-            f"{i}",
-            user_email,
-            cluster,
-            f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
-            f"{_colorize_utilization(row['job_success_rate'], red=0.1, orange=0.2)} (n={row['job_id']})",
-            # f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
-            f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
-            f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
-            # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
-        )
-    # return table
-
-
-def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
-    table.clear(columns=True)
-
-    total_mila_users = get_mila_students_in_period(
-        start=_midnight(datetime.now()) - timedelta(days=7),
-        end=_midnight(datetime.now()),
-    )
-    # total_mila_users = int(data["user.mila.email"].nunique())
-    grouped_data = data.groupby("cluster_name").aggregate(
-        {
-            "job_id": "nunique",
-            "user.mila.email": "nunique",
-            "gpu_utilization": ["mean", "std"],
-        }
-    )
-    gpu_cost_per_user_per_cluster = data.groupby(["cluster_name", "user.mila.email"])[
-        ["gpu_equivalent_cost", "allocated.gres_gpu"]
-    ].sum()
-    # TODO: look into naganuma.hiroki@mila.quebec on Mila (800 gpus*days)
-    gpus_per_user = gpu_cost_per_user_per_cluster.groupby("cluster_name").describe()
-
-    # table = Table(title="Overview by cluster (last 7 days)", expand=True)
-    # TODO: Show Min / Mean / Median / Max GPUs per user?
-    table.add_column("Cluster")
-    table.add_column("# of jobs")
-    table.add_column("GPU Util")
-    table.add_column("Mila students using this cluster")
-    table.add_column("GPUs days per user")
-
-    for index, row in grouped_data.iterrows():
-        assert isinstance(index, str)
-        cluster = index
-        mila_users = int(row["user.mila.email"]["nunique"])
-        # used_gpus_pct = avail_gpu / total_gpu
-        num_jobs = row["job_id"]["nunique"]
-        gpu_util_mean = row["gpu_utilization"]["mean"]
-        gpu_util_std = row["gpu_utilization"]["std"]
-        pct_of_mila_users = mila_users / total_mila_users
-
-        gpudays_per_user_here = gpus_per_user.xs(cluster)["gpu_equivalent_cost"]
-        gpus_per_user_str = (
-            # f"[{gpus_per_user_here['min'].days} {gpus_per_user_here['max'].days}] "
-            f"({gpudays_per_user_here['mean'].days:.1f}±{gpudays_per_user_here['std'].days:.1f})"
-        )
-        table.add_row(
-            cluster,
-            str(num_jobs),
-            # f"{avail_gpu} / {total_gpu} ({used_gpus_pct:.2%})",
-            f"{_colorize_utilization(gpu_util_mean)} ± {gpu_util_std:.1%}",
-            f"{mila_users} / {total_mila_users} ({pct_of_mila_users:.2%})",
-            gpus_per_user_str,
-        )
-
-
-async def fill_jobs_view_datatable(
-    datatable: DataTable, data: pd.DataFrame, n_to_show: int = 50, reverse: bool = False
-) -> None:
-    # Mock data (TODO: replace)
-    if reverse:
-        jobs = data.nsmallest(
-            n=n_to_show,
-            columns="rgu_equivalent_waste",
-            keep="all",
-        )
-    else:
-        jobs = data.nlargest(
-            n=n_to_show,
-            columns="rgu_equivalent_waste",
-            keep="all",
-        )
-
-    # Doesn't really work.
-    # submit_lines = await _preload_submit_lines(most_wasteful_jobs, n=n_to_show)
-
-    table = datatable
-    table.clear(columns=True)
-    table.add_column("#")
-    table.add_column("Job ID")
-    table.add_column("Cluster")
-    table.add_column("User")
-    table.add_column("Elapsed time")
-    table.add_column("Avg GPU Util")
-    table.add_column("Requested Ressources")
-    # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
-    table.add_column("Used/Wasted/Obstructed GPU days")
-    # table.add_column("Wasted GPU/RGU days", justify="right")
-    # table.add_column("Obstructed GPU days", justify="right")
-    table.add_column("SubmitLine")
-    # table.add_column("Workdir", justify="left")
-    # table.add_column("submit command", justify="left")
-
-    for i, (_index, row) in list(enumerate(jobs.iterrows(), start=1)):
-        requested_cols = [col for col in jobs.columns if col.startswith("requested.")]
-        job_id = str(row["job_id"])
-        cluster_name = row["cluster_name"]
-        user = row["user"]
-        job_id_link = None
-
-        if cluster_name == "tamia":
-            job_id_link = f"https://portail.{cluster_name}.ecpia.ca/secure/jobstats/{user}/{job_id}/"
-        elif cluster_name != "mila":
-            job_id_link = f"https://portail.{cluster_name}.calculquebec.ca/secure/jobstats/{user}/{job_id}/"
-
-        requested_resources = {
-            k.removeprefix("requested."): (
-                # TODO: Colorize the mem based on mem per GPU ratio?
-                f"{row[k] // 1024}GB"
-                if k.endswith("mem")
-                else (
-                    f"[bold]{row['allocated.gpu_type']}:{int(row[k])}[/bold]"
-                    if k.endswith("gres_gpu")
-                    else str(row[k])
-                )
-            )
-            for k in requested_cols
-        }
-        mila_user = (
-            row["user.mila.email"].removesuffix("@mila.quebec")
-            if isinstance(row["user.mila.email"], str)
-            else f"[red]{row['user']} (missing mila email)[/red]"
-        )
-        # TODO: Only fetch the submit line on a keypress event instead!
-        # submit_line = await get_submit_line(job_id, cluster_name)
-        if cluster_name != "mila":
-            submit_line = "Press 'f' to fetch the submit line."
-        else:
-            submit_line = await asyncio.get_running_loop().run_in_executor(
-                None, get_submit_line, job_id, cluster_name
-            )
-        # todo: use the returned key to update the row on keypress.
-        _key = table.add_row(
-            f"{i}",
-            f"[link={job_id_link}]{job_id}[/link]" if job_id_link else job_id,
-            cluster_name,
-            mila_user,
-            f"{row['elapsed_time']}",
-            _colorize_utilization(row["gpu_utilization"]),
-            # _requested_table,
-            " ".join(f"{k}={v}" for k, v in requested_resources.items() if v),
-            f"{row['gpu_equivalent_cost'].days} / [red]{row['gpu_equivalent_waste'].days}[/] / [red]{row['gpu_overbilling_cost'].days}",
-            # f"[red]{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
-            # f"[red]{row['gpu_overbilling_cost'].days}",
-            # submit_lines[i - 1],
-            submit_line,
-            # IDEA: Show it as a Syntax block:
-            # rich.syntax.Syntax(submit_line, lexer="bash"),
-            # key=f"{cluster_name}-{job_id}",
-        )
-
-
-def _colorize_utilization(util: float, red: float = 0.2, orange=0.5) -> str:
-    """Colorize the (GPU/CPU/whatever) utilization value based on thresholds."""
-    if np.isnan(util):
-        return f"[bold red]{util}"
-    assert 0 <= util <= 1, "utilization must be between 0 and 1"
-    util_pct = f"{util:.1%}"
-    if util < red:
-        return f"[red]{util_pct}"
-    elif util < orange:
-        return f"[yellow]{util_pct}"
-    else:
-        return f"[green]{util_pct}"
-
-
-def _header_panel():
-    """Display header with clock."""
-
-    class _Header:
-        def __rich__(self) -> Panel:
-            grid = Table.grid(expand=True)
-            grid.add_column(justify="center", ratio=1)
-            grid.add_column(justify="right")
-            grid.add_row(
-                "[b]SARC[/b] Waste Monitoring",
-                datetime.now().ctime().replace(":", "[blink]:[/]"),
-            )
-            return Panel(grid)
-
-    return _Header()
-
-
-def _midnight(dt: datetime) -> datetime:
-    """Returns the start of the given day (hour 00:00)."""
-    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-@functools.total_ordering
-@dataclasses.dataclass(frozen=True, unsafe_hash=True)
-class FilteringOptions:
-    """Configuration options for this script."""
-
-    start: datetime = simple_parsing.field(
-        default=(_midnight(datetime.now(tz=MTL)) - timedelta(days=30)),
-        type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
-    )
-    """ Start date. """
-
-    end: datetime = simple_parsing.field(
-        default=_midnight(datetime.now(tz=MTL)),
-        type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
-    )
-    """ End date. """
-
-    user: Sequence[str] = dataclasses.field(default_factory=tuple)
-    """ Which user(s) to query information for. Leave blank to get a global compute profile."""
-
-    clusters: Sequence[str] = dataclasses.field(default_factory=tuple)
-    """ Which clusters to query information for. Leave blank to get data from all clusters."""
-
-    cache_dir: Path = dataclasses.field(
-        default=(
-            Path(os.environ["CF_DATA"])
-            if "CF_DATA" in os.environ
-            else Path(os.environ.get("SCRATCH", tempfile.gettempdir()))
-        ),
-        hash=False,
-        repr=False,
-    )
-    """ Directory where temporary files will be stored."""
-    verbose: int = simple_parsing.field(
-        alias=["-v", "--verbose"], action="count", default=0, hash=False, repr=False
-    )
-
-    def get_users(self, assume_mila_email: bool = False) -> list[str]:
-        users = self.user
-        user_emails = []
-        for user in users:
-            if "@" in user:
-                user_emails.append(user.strip())
-            elif assume_mila_email:
-                user_emails.append(user.strip() + "@mila.quebec")
-            else:
-                raise ValueError(
-                    f"User '{user}' does not contain an email address. "
-                    "Please provide a valid email address or set `assume_mila_email=True`."
-                )
-        return sorted(user_emails)
-
-    def __eq__(self, other: object) -> bool:
-        """Returns whether this filter is equal to the other."""
-        if not isinstance(other, FilteringOptions):
-            return NotImplemented
-        return (
-            self.start == other.start
-            and self.end == other.end
-            and set(self.user) == set(other.user)
-            and set(self.clusters) == set(other.clusters)
-        )
-
-    def __lt__(self, other: Self) -> bool:
-        """Returns whether this filter is strictly more restrictive than the other."""
-        if not isinstance(other, FilteringOptions):
-            return NotImplemented
-        self_users = self.get_users(assume_mila_email=True)
-        other_users = other.get_users(assume_mila_email=True)
-        if self_users == [] and other_users != []:
-            # This filter matches all users while the other one doesn't.
-            return False
-        if self_users != [] and other_users == []:
-            # Pretend that the other filter matches one more user than this one,
-            # to make the comparison below cleaner.
-            other_users = self_users + ["some_random_user_that_isnt_in_self"]
-        self_clusters = sorted(set(self.clusters))
-        other_clusters = sorted(set(other.clusters))
-        if self_clusters == [] and other_clusters != []:
-            # This filter matches all clusters while the other one doesn't.
-            return False
-        if self_clusters != [] and other_clusters == []:
-            # Pretend that the other filter matches one more cluster than this one,
-            # to make the comparison below cleaner.
-            other_clusters = self_clusters + ["some_random_cluster_that_isnt_in_self"]
-
-        return (
-            (other.start < self.start)
-            and (self.end < other.end)
-            and (set(self_users) < set(other_users))
-            and (set(self.clusters) < set(other.clusters))
-        )
-
-
-def cached(fn: Callable[P, OutT]) -> Callable[P, OutT]:
-    """Caches a function in a given cache dir."""
-    assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
-
-    if inspect.iscoroutinefunction(fn):
-        raise NotImplementedError(f"Can't cache result of coroutines just yet.")
-
-    @functools.wraps(fn)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> OutT:
-        """Decorator to cache the results of a function."""
-        assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
-        cache_file = CACHE_DIR / _get_cache_file_name(fn, *args, **kwargs)
-        if cache_file.exists():
-            logger.info(f"Loading result of {fn.__name__} from {cache_file}")
-            if cache_file.suffix == ".txt":
-                result = cache_file.read_text()
-                # the function returns a string (`OutT` is `str`)
-                # return typing.cast(OutT, result)
-            else:
-                result = pickle.loads(cache_file.read_bytes())
-            # if inspect.iscoroutinefunction(fn):
-            #     # If the function is a coroutine, we need to return an awaitable.
-            #     return AwaitableWrapper(result)
-            # return AwaitableWrapper(result)
-            return result
-        else:
-            logger.debug(f"Cache miss for {fn.__name__} at {cache_file}")
-            result = fn(*args, **kwargs)
-            # if inspect.iscoroutinefunction(fn):
-            #     result = result.__await__()
-            if cache_file.suffix == ".txt":
-                if not isinstance(result, str):
-                    raise RuntimeError(
-                        f"Result should be str (annotation says so!), but got {result}"
-                    )
-                cache_file.write_text(result)
-            else:
-                cache_file.write_bytes(pickle.dumps(result))
-            logger.info(f"Saved result of computing {fn.__name__} to {cache_file}")
-            return result
-
-    return wrapper
-
-
-class AwaitableWrapper:
-    def __init__(self, value):
-        self.value = value
-
-    def __await__(self):
-        # This method must return an iterator.
-        # A common pattern is to return an async generator's __await__ method,
-        # or to yield values directly.
-        async def internal_awaitable():
-            # Simulate some asynchronous operation
-            # await asyncio.sleep(0)
-            return self.value
-
-        return internal_awaitable().__await__()
-
-
-def _get_cache_file_name(
-    fn: Callable[P, Any], *args: P.args, **kwargs: P.kwargs
-) -> str:
-    # More interpretable than using this:
-    # return hashlib.md5(
-    #     json.dumps((fn.__name__, args, kwargs), sort_keys=True, default=str).encode()
-    # ).hexdigest()
-
-    def _hash(v) -> str:
-        match v:
-            case FilteringOptions():
-                return "-".join(
-                    [
-                        _hash(v.get_users()),
-                        _hash(v.start),
-                        _hash(v.end),
-                        _hash(v.clusters),
-                    ]
-                )
-
-            case None | str():
-                return str(v).removesuffix("@mila.quebec")  # no quotes around strings.
-            case int() | float():
-                return repr(v)
-            case datetime(hour=0, minute=0, second=0, tzinfo=MTL) as d:
-                return d.strftime("%Y-%m-%d")
-            case datetime() as v:
-                return v.strftime("%Y-%m-%dT%H:%M:%S%z")
-            case [User(), *_]:
-                return _hash(sorted([student.mila.username for student in v]))
-            case [str(), *_] if len(v) > 2:
-                # If there are more than 3 strings, hash them together.
-                return hashlib.md5("+".join(sorted(v)).encode()).hexdigest()[:12]
-            case list():
-                return "+".join(sorted(map(_hash, v)))
-            case _:
-                raise NotImplementedError(
-                    f"Unsupported arg type: {v} of type {type(v)}"
-                )
-
-    hashed_args = "-".join(map(_hash, args)) + "-".join(
-        f"{k}-{_hash(v)}" for k, v in kwargs.items()
-    )
-    extension = ".pkl"
-    try:
-        if typing.get_type_hints(fn).get("return") is str:
-            extension = ".txt"
-    except TypeError:
-        pass
-    return f"{fn.__name__}-{hashed_args}{extension}"
-
-
-@functools.cache
-def get_submit_line(job_id: int | str, cluster_name: str) -> str:
-    # Do this only once (and then reuse the connection)
-    assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
-    cache_file = CACHE_DIR / _get_cache_file_name(get_submit_line, job_id, cluster_name)
-    if cache_file.exists():
-        logger.debug(f"Loading submit line from cache: {cache_file}")
-        return cache_file.read_text().strip()
-
-    if CLUSTER_DOWN.get(cluster_name):
-        return f"[red]Unable to SSH to {cluster_name} (is the cluster down?)[/red]"
-
-    control_path = _get_controlpath(cluster_name)
-    control_path.parent.mkdir(parents=True, exist_ok=True)
-    # if cluster_name in REMOTES:
-    #     login_node = REMOTES[cluster_name]
-    # else:
-    #     login_node = await RemoteV2.connect(cluster_name, control_path=control_path)
-    # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
-    # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
-    # also included in the output of the command.
-    submit_line = subprocess.getoutput(
-        f"ssh -o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
-    )
-    # submit_line = await login_node.get_output_async(
-    #     f"sacct -j {job_id} --noheader -o submitline%300",
-    # )
-    submit_line = submit_line.strip()
-    cache_file.write_text(submit_line)
-    logger.debug(f"Saved submit line to cache: {cache_file}")
-    return submit_line
-    # return subprocess.getoutput(
-    #     f"ssh {multiplexing_args} {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
-    # ).strip()
-
-
-@functools.cache
-@cached
-def get_mila_students_in_period(start: datetime, end: datetime) -> int:
-    students = get_users(latest=True)
-    return len(
-        set(user.mila.email for user in students if user.mila and user.mila.email)
-    )
-
-
-async def _setup_multiplexed_ssh_conection(hostname: str):
-    control_path = _get_controlpath(hostname)
-    control_path.parent.mkdir(parents=True, exist_ok=True)
-    multiplexing_args = (
-        f"-o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes"
-    )
-    # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
-    # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
-    # also included in the output of the command.
-    await run_subprocess(
-        f"ssh {multiplexing_args} {hostname} echo OK",
-        stdout=subprocess.DEVNULL,
-    )
-    return control_path
-
-
-def _get_controlpath(hostname: str) -> Path:
-    return Path(
-        paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-        .lookup(hostname)
-        .get("controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p")
-    ).expanduser()
-
-
-@functools.lru_cache(maxsize=1)  # cache results in memory
-# @cached  # Cache results to a file
-def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
-    """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
-    options = dataclasses.replace(
-        options,
-        start=options.start.astimezone(MTL),
-        end=options.end.astimezone(MTL),
-    )
-    logger.debug(
-        f"Looking up for data between {options.start} and {options.end} for all users on all clusters."
-    )
-
-    # In SARC we currently can't query by user.mila.email, so we query with all
-    # usernames and filter by user.mila.email after.
-    # Cache results of SARC query to a file.
-    df = cached(load_job_series)(start=options.start, end=options.end, clip_time=False)
-
-    if df.empty:
-        raise RuntimeError(f"NO SARC data for that period: {options}")
-
-    for time_column in ["submit_time", "start_time", "end_time"]:
-        # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
-        df[time_column] = df[time_column].dt.tz_convert(MTL)
-
-    _validate_gpu_ram()
-
-    # Clusters we want to compare
-    if options.clusters:
-        # Filter clusters
-        df = df[df["cluster_name"].isin(options.clusters)]
-
-    df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
-    df = _fix_lost_jobs(df)
-    df = _fix_unaligned_cache(df, options.start, options.end)
-    df = _remove_old_nodes(df)
-    df = _replace_outlier_stats_with_na(df)
-    df = _fix_missing_gpu_type(df)
-    df = _fix_allocated_gres_gpu_billing_drac(df)
-
-    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty
-    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
-    # df =  df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
-
-    df_before = df.copy()
-    df = update_job_series_rgu(df)
-    if not df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty:
-        logger.error(
-            f"Calling `update_job_series_rgu` caused some jobs to have an allocated.gres_gpu of NaN!\n"
-            f"Switching to a manual fix for this.\n"
-        )
-        df = df_before
-        # TODO: Can't use the `get_rgus` instead of `_RGUS` here because the gpu name mapping is not the same.
-
-        df = df.assign(
-            **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
-        )
-        df = df.assign(
-            **{
-                "allocated.gres_rgu": df["allocated.gres_gpu"]
-                * df["allocated.gpu_type_rgu"]
-            }
-        )
-
-    assert df["requested.gres_gpu"].notna().all()
-    assert df["allocated.gres_gpu"].notna().all()
-    assert df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0").empty
-    assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
-
-    df = _fix_allocated_cpus_drac(df)
-    df = _fix_requested_allocated_gres_gpu(df)
-    # TODO: Turning this off for now. Causes bugs with gpu_utilization, apparently.
-    # df = _fill_missing_metrics_using_means(df)
-
-    df = compute_cost_and_waste(df)
-
-    # Note: the elapsed_time, and cost / waste / overbilled columns are converted to a timedelta dtype.
-    df = df.assign(
-        **{
-            col: pd.to_timedelta(df[col], unit="s")
-            for col in df.columns
-            if col.endswith(("_cost", "_waste")) or col == "elapsed_time"
-        }
-    )
-
-    logger.info(
-        "Means of GPU cost: %s, waste: %s, equivalent cost: %s",
-        df["gpu_cost"].mean(),
-        df["gpu_waste"].mean(),
-        df["gpu_equivalent_cost"].mean(),
-    )
-    logger.info(
-        "Means of CPU cost: %s, waste: %s, equivalent cost: %s",
-        df["cpu_cost"].mean(),
-        df["cpu_waste"].mean(),
-        df["cpu_equivalent_cost"].mean(),
-    )
-
-    # Sanity checks.
-    assert (df["start_time"] != 0).all()
-    assert (_requested_gres_gpu := df["requested.gres_gpu"]).notnull().all() and (
-        _requested_gres_gpu >= 0
-    ).all()
-
-    df, missing_users = _find_missing_user_to_mila_emails(df)
-    if missing_users:
-        logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
-
-    df = df.assign(
-        rgu_equivalent_cost=(df["gpu_equivalent_cost"] * df["allocated.gpu_type_rgu"]),
-        rgu_equivalent_waste=(
-            df["gpu_equivalent_waste"] * df["allocated.gpu_type_rgu"]
-        ),
-        rgu_overbilling_cost=(
-            df["gpu_overbilling_cost"] * df["allocated.gpu_type_rgu"]
-        ),
-    )
-    return df
 
 
 def _fix_allocated_gres_gpu_billing_drac(df: pd.DataFrame) -> pd.DataFrame:
@@ -1222,42 +78,6 @@ def _fix_allocated_gres_gpu_billing_drac(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.update(target_jobs)
     return df
-
-
-def _get_stats(
-    sarc_data: pd.DataFrame,
-    options: FilteringOptions,
-    frame_size: timedelta | str | None = None,
-) -> pd.DataFrame:
-    stats = compute_time_frames(
-        sarc_data,
-        [
-            "gpu_cost",
-            "cpu_cost",
-            "cpu_equivalent_cost",
-            "gpu_equivalent_cost",
-            "rgu_equivalent_cost",  # todo: double-check that this gets split up correctly.
-            "cpu_equivalent_waste",
-            "gpu_equivalent_waste",
-        ],
-        start=options.start,
-        end=options.end,
-        frame_size=(
-            frame_size
-            if frame_size is not None
-            else (
-                "MS"
-                if (_period := (options.end - options.start)) > timedelta(days=90)
-                else (
-                    timedelta(days=7)
-                    if _period > timedelta(days=30)
-                    else timedelta(days=1)
-                )
-            )
-        ),
-    )
-
-    return stats
 
 
 def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
@@ -1376,193 +196,6 @@ def _replace_outlier_stats_with_na(df: pd.DataFrame):
     # df.loc[df["gpu_sm_occupancy"] > 1, "gpu_sm_occupancy"] = pd.NA
     # df.loc[df["gpu_power"] > 10e10, "gpu_power"] = pd.NA
     return df
-
-
-def _fill_missing_metrics_using_means(
-    df: pd.DataFrame, all_users_data: pd.DataFrame | None = None
-):
-    """Fill in missing JobStatistics metrics using average of available data."""
-    stat_columns = list(JobStatistics.__fields__.keys())
-    clusters = df["cluster_name"].unique()
-
-    # no_na = df.dropna(subset=stat_columns, how="any")
-    # assert no_na.shape[0] > 0
-
-    across_cluster_means = {col: df[col].dropna().mean() for col in stat_columns}
-    logger.debug(
-        f"Mean of stats across all clusters: {_get_stats_str(across_cluster_means)}"
-    )
-
-    # todo: cpu_utilization and system_memory should be there for all jobs, right?
-    gpu_columns = [col for col in stat_columns if col.startswith("gpu")]
-    cpu_system_stats_columns = list(set(stat_columns) - set(gpu_columns))
-
-    assert df["allocated.gres_gpu"].notna().all()
-
-    # Create some masks
-    has_gpu = df["allocated.gres_gpu"] > 0
-    is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis="columns")
-    is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis="columns")
-
-    sparsity_info_across_clusters = {
-        "has_gpu": has_gpu.mean(),
-        "is_missing_gpu_stats": is_missing_gpu_stats.mean(),
-        "is_missing_system_stats": is_missing_system_stats.mean(),
-    }
-    logger.info({k: f"{v:.2%}" for k, v in sparsity_info_across_clusters.items()})
-
-    for cluster in clusters:
-        is_in_cluster = df["cluster_name"] == cluster
-        cluster_mean_stats = {
-            col: df[is_in_cluster][col].dropna().mean() for col in stat_columns
-        }
-        # Use the cluster average if possible, otherwise use the average across all clusters.
-        missing_stats = [k for k, v in cluster_mean_stats.items() if np.isnan(v)]
-        if missing_stats:
-            logger.debug(
-                f"Missing stats for {cluster=}: {missing_stats}.\n"
-                f"The average of available stats across other clusters will be used."
-            )
-        stats_to_use = {
-            col: (
-                cluster_mean
-                if not np.isnan(cluster_mean)
-                else across_cluster_means[col]
-            )
-            for col, cluster_mean in cluster_mean_stats.items()
-        }
-        if missing_stats:
-            missing_stats_str = _get_stats_str(
-                {k: v for k, v in stats_to_use.items() if k in missing_stats}
-            )
-            n_to_fill = (is_in_cluster & is_missing_gpu_stats).sum()
-            logger.debug(
-                f"Stats to be used when infilling missing values for {n_to_fill} GPU jobs on {cluster}: {missing_stats_str}"
-            )
-        df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
-            stats_to_use[col] for col in gpu_columns
-        ]
-        df.loc[is_in_cluster & is_missing_system_stats, cpu_system_stats_columns] = [
-            stats_to_use[col] for col in cpu_system_stats_columns
-        ]
-    return df
-
-
-def _get_stats_str(stats_to_use: Mapping[str, np.ndarray | float]):
-    return {
-        k: (f"{v:.1f}" if k == "gpu_power" else f"{v:.2%}")
-        for k, v in stats_to_use.items()
-    }
-
-
-def _fix_lost_jobs(df: pd.DataFrame):
-    _28_days = timedelta(days=28)
-    lost_jobs = df["elapsed_time"] > _28_days.total_seconds()
-    df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
-    df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + _28_days
-    return df
-
-
-def _fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
-    # print("max start", df["start_time"].max())
-    # print("min end", df["end_time"].min())
-
-    df = df[df["end_time"].isnull() | (df["end_time"] > start)]
-    df = df[df["start_time"].notnull() & (df["start_time"] < end)]
-
-    # print("max start", df["start_time"].max())
-    # print("min end", df["end_time"].min())
-
-    return df
-
-
-def _remove_old_nodes(df: pd.DataFrame):
-    # Filter old nodes and unallocated jobs
-    nodes = df["nodes"].str[0]
-    old_nodes = [
-        "kepler3",
-        "kepler4",
-        "kepler5",
-        "mila01",
-        "mila02",
-        "mila03",
-        "rtx1",
-        "rtx3",
-        "rtx4",
-        "rtx5",
-        "rtx7",
-    ]
-    df = df[~(nodes.isnull() | (nodes.isin(old_nodes)))]
-    return df
-
-
-def _check_is_email_and_lower(v: str):
-    if not v:
-        return v
-    if "@" not in v or v.count("@") != 1:
-        raise ValueError(f"'{v}' is not a valid email address.")
-
-    return v.lower()
-
-
-def _validate_gpu_ram():
-    missing_ram = set(_gpu_name_mapping.values()) - set(_gpu_ram.keys())
-    if missing_ram:
-        raise ValueError(f"Missing ram: {missing_ram}")
-
-
-# todo: replace with the actual `get_node_to_gpu` function once it works with the client config.
-def _get_node_to_gpu(cluster_name: str):
-    # BUG: Times out atm, so skipping this to make it faster.
-    try:
-        node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
-        if node_to_gpu:
-            return node_to_gpu.node_to_gpu
-    except (
-        gifnoc.proxy.MissingConfigurationError,
-        pymongo.errors.OperationFailure,
-        pymongo.errors.ServerSelectionTimeoutError,
-        pydantic_core._pydantic_core.ValidationError,
-    ) as e:
-        logger.error(f"The `get_node_to_gpu` function didn't work: {str(e)[:100]}")
-    else:
-        logger.error(f"The `get_node_to_gpu` function returned {node_to_gpu}!")
-    cluster_configs = get_dev_cluster_configs()
-    cluster_config = cluster_configs[cluster_name]
-
-    _nodes_to_gpu_from_config = {
-        node: gpu_types_to_gpus.copy().popitem()[1]
-        for node, gpu_types_to_gpus in cluster_config.gpus_per_nodes.items()
-    }
-    hard_coded_node_to_gpu = _NODE_TO_GPU[cluster_name]
-    for node, gpu in hard_coded_node_to_gpu.items():
-        if node not in _nodes_to_gpu_from_config:
-            logger.debug(
-                f"Hard-coded node-to-gpu map is useful since it isn't in the config: {cluster_name=} {node=}"
-            )
-        else:
-            logger.warning(
-                f"Hard-coded node-to-gpu map is already in the config: {cluster_name=} {node=}"
-            )
-    return hard_coded_node_to_gpu | _nodes_to_gpu_from_config
-    # return _NODE_TO_GPU[cluster_name]
-
-
-def _get_cluster_configs() -> dict[str, ClusterConfig]:
-    cluster_configs = {
-        k: ClusterConfig(**v)
-        for k, v in yaml.safe_load(sarc_dev_config_file.read_text())["sarc"][
-            "clusters"
-        ].items()
-    }
-    return cluster_configs
-
-    with open(Path(__file__).parent.parent / "config/sarc-dev.yaml") as f:
-        cluster_configs = {
-            k: ClusterConfig(**v)
-            for k, v in yaml.safe_load(f)["sarc"]["clusters"].items()
-        }
-    return cluster_configs
 
 
 def _fix_missing_gpu_type(df: pd.DataFrame):
@@ -1700,6 +333,407 @@ def _fix_missing_gpu_type(df: pd.DataFrame):
     return df
 
 
+@functools.lru_cache(maxsize=1)  # cache results in memory
+# @cached  # Cache results to a file
+def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
+    """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
+    options = dataclasses.replace(
+        options,
+        start=options.start.astimezone(MTL),
+        end=options.end.astimezone(MTL),
+    )
+    logger.debug(
+        f"Looking up for data between {options.start} and {options.end} for all users on all clusters."
+    )
+
+    # In SARC we currently can't query by user.mila.email, so we query with all
+    # usernames and filter by user.mila.email after.
+    # Cache results of SARC query to a file.
+    df = cached(load_job_series)(start=options.start, end=options.end, clip_time=False)
+
+    if df.empty:
+        raise RuntimeError(f"NO SARC data for that period: {options}")
+
+    for time_column in ["submit_time", "start_time", "end_time"]:
+        # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
+        df[time_column] = df[time_column].dt.tz_convert(MTL)
+
+    _validate_gpu_ram()
+
+    # Clusters we want to compare
+    if options.clusters:
+        # Filter clusters
+        df = df[df["cluster_name"].isin(options.clusters)]
+
+    df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
+    df = _fix_lost_jobs(df)
+    df = _fix_unaligned_cache(df, options.start, options.end)
+    df = _remove_old_nodes(df)
+    df = _replace_outlier_stats_with_na(df)
+    df = _fix_missing_gpu_type(df)
+    df = _fix_allocated_gres_gpu_billing_drac(df)
+
+    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty
+    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
+    # df =  df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
+
+    df_before = df.copy()
+    df = update_job_series_rgu(df)
+    if not df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty:
+        logger.error(
+            "Calling `update_job_series_rgu` caused some jobs to have an allocated.gres_gpu of NaN!\n"
+            "Switching to a manual fix for this.\n"
+        )
+        df = df_before
+        # TODO: Can't use the `get_rgus` instead of `_RGUS` here because the gpu name mapping is not the same.
+
+        df = df.assign(
+            **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
+        )
+        df = df.assign(
+            **{
+                "allocated.gres_rgu": df["allocated.gres_gpu"]
+                * df["allocated.gpu_type_rgu"]
+            }
+        )
+
+    assert df["requested.gres_gpu"].notna().all()
+    assert df["allocated.gres_gpu"].notna().all()
+    assert df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0").empty
+    assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
+
+    df = _fix_allocated_cpus_drac(df)
+    df = _fix_requested_allocated_gres_gpu(df)
+    # TODO: Turning this off for now. Causes bugs with gpu_utilization, apparently.
+    # df = _fill_missing_metrics_using_means(df)
+
+    df = compute_cost_and_waste(df)
+
+    # Note: the elapsed_time, and cost / waste / overbilled columns are converted to a timedelta dtype.
+    df = df.assign(
+        **{
+            col: pd.to_timedelta(df[col], unit="s")
+            for col in df.columns
+            if col.endswith(("_cost", "_waste")) or col == "elapsed_time"
+        }
+    )
+
+    logger.info(
+        "Means of GPU cost: %s, waste: %s, equivalent cost: %s",
+        df["gpu_cost"].mean(),
+        df["gpu_waste"].mean(),
+        df["gpu_equivalent_cost"].mean(),
+    )
+    logger.info(
+        "Means of CPU cost: %s, waste: %s, equivalent cost: %s",
+        df["cpu_cost"].mean(),
+        df["cpu_waste"].mean(),
+        df["cpu_equivalent_cost"].mean(),
+    )
+
+    # Sanity checks.
+    assert (df["start_time"] != 0).all()
+    assert (_requested_gres_gpu := df["requested.gres_gpu"]).notnull().all() and (
+        _requested_gres_gpu >= 0
+    ).all()
+
+    df, missing_users = _find_missing_user_to_mila_emails(df)
+    if missing_users:
+        logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
+
+    df = df.assign(
+        rgu_equivalent_cost=(df["gpu_equivalent_cost"] * df["allocated.gpu_type_rgu"]),
+        rgu_equivalent_waste=(
+            df["gpu_equivalent_waste"] * df["allocated.gpu_type_rgu"]
+        ),
+        rgu_overbilling_cost=(
+            df["gpu_overbilling_cost"] * df["allocated.gpu_type_rgu"]
+        ),
+    )
+    return df
+
+
+def _get_stats(
+    sarc_data: pd.DataFrame,
+    options: FilteringOptions,
+    frame_size: timedelta | str | None = None,
+) -> pd.DataFrame:
+    stats = compute_time_frames(
+        sarc_data,
+        [
+            "gpu_cost",
+            "cpu_cost",
+            "cpu_equivalent_cost",
+            "gpu_equivalent_cost",
+            "rgu_equivalent_cost",  # todo: double-check that this gets split up correctly.
+            "cpu_equivalent_waste",
+            "gpu_equivalent_waste",
+        ],
+        start=options.start,
+        end=options.end,
+        frame_size=(
+            frame_size
+            if frame_size is not None
+            else (
+                "MS"
+                if (_period := (options.end - options.start)) > timedelta(days=90)
+                else (
+                    timedelta(days=7)
+                    if _period > timedelta(days=30)
+                    else timedelta(days=1)
+                )
+            )
+        ),
+    )
+
+    return stats
+
+
+def _get_stats_str(stats_to_use: Mapping[str, np.ndarray | float]):
+    return {
+        k: (f"{v:.1f}" if k == "gpu_power" else f"{v:.2%}")
+        for k, v in stats_to_use.items()
+    }
+
+
+def _fill_missing_metrics_using_means(
+    df: pd.DataFrame, all_users_data: pd.DataFrame | None = None
+):
+    """Fill in missing JobStatistics metrics using average of available data."""
+    stat_columns = list(JobStatistics.__fields__.keys())
+    clusters = df["cluster_name"].unique()
+
+    # no_na = df.dropna(subset=stat_columns, how="any")
+    # assert no_na.shape[0] > 0
+
+    across_cluster_means = {col: df[col].dropna().mean() for col in stat_columns}
+    logger.debug(
+        f"Mean of stats across all clusters: {_get_stats_str(across_cluster_means)}"
+    )
+
+    # todo: cpu_utilization and system_memory should be there for all jobs, right?
+    gpu_columns = [col for col in stat_columns if col.startswith("gpu")]
+    cpu_system_stats_columns = list(set(stat_columns) - set(gpu_columns))
+
+    assert df["allocated.gres_gpu"].notna().all()
+
+    # Create some masks
+    has_gpu = df["allocated.gres_gpu"] > 0
+    is_missing_gpu_stats = has_gpu & df[gpu_columns].isna().any(axis="columns")
+    is_missing_system_stats = df[cpu_system_stats_columns].isna().any(axis="columns")
+
+    sparsity_info_across_clusters = {
+        "has_gpu": has_gpu.mean(),
+        "is_missing_gpu_stats": is_missing_gpu_stats.mean(),
+        "is_missing_system_stats": is_missing_system_stats.mean(),
+    }
+    logger.info({k: f"{v:.2%}" for k, v in sparsity_info_across_clusters.items()})
+
+    for cluster in clusters:
+        is_in_cluster = df["cluster_name"] == cluster
+        cluster_mean_stats = {
+            col: df[is_in_cluster][col].dropna().mean() for col in stat_columns
+        }
+        # Use the cluster average if possible, otherwise use the average across all clusters.
+        missing_stats = [k for k, v in cluster_mean_stats.items() if np.isnan(v)]
+        if missing_stats:
+            logger.debug(
+                f"Missing stats for {cluster=}: {missing_stats}.\n"
+                f"The average of available stats across other clusters will be used."
+            )
+        stats_to_use = {
+            col: (
+                cluster_mean
+                if not np.isnan(cluster_mean)
+                else across_cluster_means[col]
+            )
+            for col, cluster_mean in cluster_mean_stats.items()
+        }
+        if missing_stats:
+            missing_stats_str = _get_stats_str(
+                {k: v for k, v in stats_to_use.items() if k in missing_stats}
+            )
+            n_to_fill = (is_in_cluster & is_missing_gpu_stats).sum()
+            logger.debug(
+                f"Stats to be used when infilling missing values for {n_to_fill} GPU jobs on {cluster}: {missing_stats_str}"
+            )
+        df.loc[is_in_cluster & is_missing_gpu_stats, gpu_columns] = [
+            stats_to_use[col] for col in gpu_columns
+        ]
+        df.loc[is_in_cluster & is_missing_system_stats, cpu_system_stats_columns] = [
+            stats_to_use[col] for col in cpu_system_stats_columns
+        ]
+    return df
+
+
+
+def _fix_lost_jobs(df: pd.DataFrame):
+    _28_days = timedelta(days=28)
+    lost_jobs = df["elapsed_time"] > _28_days.total_seconds()
+    df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
+    df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + _28_days
+    return df
+
+
+def _fix_unaligned_cache(df: pd.DataFrame, start: datetime, end: datetime):
+    # print("max start", df["start_time"].max())
+    # print("min end", df["end_time"].min())
+
+    df = df[df["end_time"].isnull() | (df["end_time"] > start)]
+    df = df[df["start_time"].notnull() & (df["start_time"] < end)]
+
+    # print("max start", df["start_time"].max())
+    # print("min end", df["end_time"].min())
+
+    return df
+
+
+def _remove_old_nodes(df: pd.DataFrame):
+    # Filter old nodes and unallocated jobs
+    nodes = df["nodes"].str[0]
+    old_nodes = [
+        "kepler3",
+        "kepler4",
+        "kepler5",
+        "mila01",
+        "mila02",
+        "mila03",
+        "rtx1",
+        "rtx3",
+        "rtx4",
+        "rtx5",
+        "rtx7",
+    ]
+    df = df[~(nodes.isnull() | (nodes.isin(old_nodes)))]
+    return df
+
+
+def _check_is_email_and_lower(v: str):
+    if not v:
+        return v
+    if "@" not in v or v.count("@") != 1:
+        raise ValueError(f"'{v}' is not a valid email address.")
+
+    return v.lower()
+
+
+def _validate_gpu_ram():
+    missing_ram = set(_gpu_name_mapping.values()) - set(_gpu_ram.keys())
+    if missing_ram:
+        raise ValueError(f"Missing ram: {missing_ram}")
+
+
+def _get_node_to_gpu(cluster_name: str):
+    # todo: replace with the actual `get_node_to_gpu` function once it works with the client config.
+    # BUG: Times out atm, so skipping this to make it faster.
+    try:
+        node_to_gpu = get_node_to_gpu(cluster_name=cluster_name)
+        if node_to_gpu:
+            return node_to_gpu.node_to_gpu
+    except (
+        gifnoc.proxy.MissingConfigurationError,
+        pymongo.errors.OperationFailure,
+        pymongo.errors.ServerSelectionTimeoutError,
+        pydantic_core._pydantic_core.ValidationError,
+    ) as e:
+        logger.error(f"The `get_node_to_gpu` function didn't work: {str(e)[:100]}")
+    else:
+        logger.error(f"The `get_node_to_gpu` function returned {node_to_gpu}!")
+    cluster_configs = get_dev_cluster_configs()
+    cluster_config = cluster_configs[cluster_name]
+
+    _nodes_to_gpu_from_config = {
+        node: gpu_types_to_gpus.copy().popitem()[1]
+        for node, gpu_types_to_gpus in cluster_config.gpus_per_nodes.items()
+    }
+    hard_coded_node_to_gpu = _NODE_TO_GPU[cluster_name]
+    for node, gpu in hard_coded_node_to_gpu.items():
+        if node not in _nodes_to_gpu_from_config:
+            logger.debug(
+                f"Hard-coded node-to-gpu map is useful since it isn't in the config: {cluster_name=} {node=}"
+            )
+        else:
+            logger.warning(
+                f"Hard-coded node-to-gpu map is already in the config: {cluster_name=} {node=}"
+            )
+    return hard_coded_node_to_gpu | _nodes_to_gpu_from_config
+
+
+def _get_cluster_configs() -> dict[str, ClusterConfig]:
+    cluster_configs = {
+        k: ClusterConfig(**v)
+        for k, v in yaml.safe_load(sarc_dev_config_file.read_text())["sarc"][
+            "clusters"
+        ].items()
+    }
+    return cluster_configs
+
+    with open(Path(__file__).parent.parent / "config/sarc-dev.yaml") as f:
+        cluster_configs = {
+            k: ClusterConfig(**v)
+            for k, v in yaml.safe_load(f)["sarc"]["clusters"].items()
+        }
+    return cluster_configs
+
+
+async def setup_sarc_connection():
+    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
+    control_socket_path = Path(
+        ssh_config.lookup("sarc").get(
+            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
+        )
+    ).expanduser()
+    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
+    multiplexing_args = (
+        f"-o ControlMaster=auto "
+        f"-o 'ControlPath={control_socket_path}' "
+        f"-o ControlPersist=yes"
+    )
+
+    sarc_client_connection_string = yaml.safe_load(sarc_client_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_client_connection_string, str)
+    # "mongodb://readuser:readpwd@localhost:8123/sarc" --> "8123"
+    sarc_client_local_port = (
+        sarc_client_connection_string.rpartition("@")[2]
+        .partition(":")[2]
+        .partition("/")[0]
+    )
+
+    sarc_dev_connection_string = yaml.safe_load(sarc_dev_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_dev_connection_string, str)
+    # "mongodb://localhost:27017/sarc-dev" --> "27017"
+    sarc_dev_remote_port = (
+        sarc_dev_connection_string.rpartition("@")[
+            2
+        ]  # might return the whole string if there is no user:pwd@...
+        .partition("://")[2]  # "localhost:27017/sarc-dev"
+        .partition("/")[0]  # "localhost:27017"
+        .partition(":")[2]  # "27017"
+    )
+    assert sarc_client_local_port
+    assert sarc_dev_remote_port
+
+    port_forwarding_args = (
+        f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
+    )
+
+    await run_subprocess(
+        f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK",
+        stdout=subprocess.DEVNULL,
+    )
+
+
+@functools.cache
+def get_available_clusters():
+    from sarc.client.job import get_available_clusters
+
+    return tuple(get_available_clusters())
+
+
 def _fix_allocated_cpus_drac(df: pd.DataFrame):
     """Fix for some issue where some jobs on Drac have allocated.cpu > 1000 because of something related to RGUs.
 
@@ -1747,96 +781,6 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
             )
         }
     )
-    return df
-    # df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
-
-    # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
-    # is_narval = df["cluster_name"] == "narval"
-
-    # Here we do it for all timeframes.
-    # df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
-
-
-def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
-    rgu_start_dates: dict[str, datetime | None] = {
-        "narval": narval_rgu_start_date,
-        "beluga": datetime(year=2024, month=4, day=3, tzinfo=MTL),
-        "graham": datetime(year=2024, month=4, day=3, tzinfo=MTL),
-        "cedar": datetime(year=2024, month=4, day=3, tzinfo=MTL),
-        "mila": None,
-    }
-    # narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
-    # _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
-    # _graham_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
-    # _cedar_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
-    # TODO: Clearly define the context for each patch.
-    _patch_context = FilteringOptions(
-        start=datetime(2023, 11, 28, tzinfo=MTL),  # doesn't make sense!
-        end=narval_rgu_start_date,
-    )
-
-    # NOTE: Fixing switch to RGU billing for a second time on Narval
-    # TODO: Unclear if this is fixed by the `update_job_series_rgu` function in SARC.
-    # with sarc.config.using_sarc_mode("scraping"):
-    # return update_job_series_rgu(df)
-
-    cluster_configs = _get_cluster_configs()
-    narval_config = cluster_configs["narval"]
-
-    assert df["allocated.gres_gpu"].notnull().all()
-    assert df["requested.gres_gpu"].notnull().all()
-
-    is_narval = df["cluster_name"] == "narval"
-    slice_during_rgu_time = (
-        is_narval
-        # Doesn't make sense! The `narval_rgu_start_date` is the same!
-        & (df["start_time"] >= datetime(2023, 11, 28, tzinfo=MTL))
-        & (df["start_time"] < narval_rgu_start_date)
-        & (df["elapsed_time"] > 0)
-    )
-    non_updated_df = df[slice_during_rgu_time]
-    # TODO: Seems like part of this patching is supposed to be done in SARC with the `update_job_series_rgu` function.
-    # However, we can't call that function here atm because it requires using the sarc-dev config.
-    # update_job_series_rgu
-    try:
-        df = update_job_series_rgu(df)
-    except pymongo.errors.OperationFailure as err:
-        logger.error(err)
-        logger.warning(
-            "Might not have correct RGU information for jobs. "
-            "Falling back to this hacky ugly workaround."
-        )
-        # If we can't update the job series, we will do it ourselves.
-        for name, cluster_config in cluster_configs.items():
-            # Make sure that we are indeed doing this processing for each cluster.
-            assert name
-            rgu_start_date = rgu_start_dates[name]
-            # TODO: how to get this now?
-            if name == "mila":
-                assert rgu_start_date is None
-            else:
-                assert rgu_start_date is not None, (name, cluster_config)
-            # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
-            _update_cluster_job_series_rgu(df, name)
-
-    # TODO: Why do we need this mapping here?
-    gpu_to_rgu_billing = {
-        "a100-40gb": 700,
-        "a100-40gb-3g.20gb": 1714.29 / 4000 * 700,
-        "a100-40gb-4g.20gb": 2285.71 / 4000 * 700,
-    }
-    col_ratio_rgu_by_gpu = df.loc[slice_during_rgu_time, "allocated.gpu_type"].map(
-        gpu_to_rgu_billing
-    )
-    df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
-    # todo: warning about type non-compatible with int64.
-    df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
-        non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
-    )
-    # Overwrite all RGU values
-    # TODO: Why?!
-    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
     return df
 
 
@@ -1919,6 +863,89 @@ def _update_cluster_job_series_rgu(df: pd.DataFrame, cluster_name: str) -> pd.Da
         cluster, df, cluster_name, gpu_to_rgu, dated_gpu_billings[-1]
     )
 
+    return df
+
+
+def _fix_rgu_discrepencies_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
+    rgu_start_dates: dict[str, datetime | None] = {
+        "narval": narval_rgu_start_date,
+        "beluga": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "graham": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "cedar": datetime(year=2024, month=4, day=3, tzinfo=MTL),
+        "mila": None,
+    }
+    # narval_rgu_start_date = datetime(year=2023, month=11, day=28, tzinfo=MTL)
+    # _beluga_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # _graham_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # _cedar_rgu_start_date = datetime(year=2024, month=4, day=3, tzinfo=MTL)
+    # TODO: Clearly define the context for each patch.
+    _patch_context = FilteringOptions(
+        start=datetime(2023, 11, 28, tzinfo=MTL),  # doesn't make sense!
+        end=narval_rgu_start_date,
+    )
+
+    # NOTE: Fixing switch to RGU billing for a second time on Narval
+    # TODO: Unclear if this is fixed by the `update_job_series_rgu` function in SARC.
+    # with sarc.config.using_sarc_mode("scraping"):
+    # return update_job_series_rgu(df)
+
+    cluster_configs = _get_cluster_configs()
+    narval_config = cluster_configs["narval"]
+
+    assert df["allocated.gres_gpu"].notnull().all()
+    assert df["requested.gres_gpu"].notnull().all()
+
+    is_narval = df["cluster_name"] == "narval"
+    slice_during_rgu_time = (
+        is_narval
+        # Doesn't make sense! The `narval_rgu_start_date` is the same!
+        & (df["start_time"] >= datetime(2023, 11, 28, tzinfo=MTL))
+        & (df["start_time"] < narval_rgu_start_date)
+        & (df["elapsed_time"] > 0)
+    )
+    non_updated_df = df[slice_during_rgu_time]
+    # TODO: Seems like part of this patching is supposed to be done in SARC with the `update_job_series_rgu` function.
+    # However, we can't call that function here atm because it requires using the sarc-dev config.
+    # update_job_series_rgu
+    try:
+        df = update_job_series_rgu(df)
+    except pymongo.errors.OperationFailure as err:
+        logger.error(err)
+        logger.warning(
+            "Might not have correct RGU information for jobs. "
+            "Falling back to this hacky ugly workaround."
+        )
+        # If we can't update the job series, we will do it ourselves.
+        for name, cluster_config in cluster_configs.items():
+            # Make sure that we are indeed doing this processing for each cluster.
+            assert name
+            rgu_start_date = rgu_start_dates[name]
+            # TODO: how to get this now?
+            if name == "mila":
+                assert rgu_start_date is None
+            else:
+                assert rgu_start_date is not None, (name, cluster_config)
+            # note: This might introduce some NANs in the `allocated.gres_gpu` for some jobs.
+            _update_cluster_job_series_rgu(df, name)
+
+    # TODO: Why do we need this mapping here?
+    gpu_to_rgu_billing = {
+        "a100-40gb": 700,
+        "a100-40gb-3g.20gb": 1714.29 / 4000 * 700,
+        "a100-40gb-4g.20gb": 2285.71 / 4000 * 700,
+    }
+    col_ratio_rgu_by_gpu = df.loc[slice_during_rgu_time, "allocated.gpu_type"].map(
+        gpu_to_rgu_billing
+    )
+    df.loc[slice_during_rgu_time, "allocated.gpu_type_rgu"] = col_ratio_rgu_by_gpu
+    # todo: warning about type non-compatible with int64.
+    df.loc[slice_during_rgu_time, "allocated.gres_gpu"] = (
+        non_updated_df["allocated.gres_gpu"] / col_ratio_rgu_by_gpu
+    )
+    # Overwrite all RGU values
+    # TODO: Why?!
+    df["allocated.gpu_type_rgu"] = df["allocated.gpu_type"].map(_RGUS)
     return df
 
 
@@ -2022,118 +1049,6 @@ def compute_time_frames(
         data_frames.append(frame)
 
     return pd.concat(data_frames, axis=0)
-
-
-def _setup_logging(verbose: int):
-    logging.basicConfig(
-        handlers=[
-            textual.logging.TextualHandler(),
-            # rich.logging.RichHandler(show_time=False),
-        ],
-        format="%(message)s",
-        level=logging.ERROR,
-        force=True,
-    )
-    logging.getLogger("sarc").setLevel(logging.WARNING)
-    logging.getLogger("examples").setLevel(logging.WARNING)
-
-    if verbose == 0:
-        logger.setLevel("WARNING")
-    elif verbose == 1:
-        logger.setLevel("INFO")
-    else:
-        logger.setLevel("DEBUG")
-
-
-async def get_output(cmd: str):
-    with (
-        tempfile.TemporaryFile(mode="w+") as out_file,
-        tempfile.TemporaryFile(mode="w+") as err_file,
-    ):
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=out_file,
-            stderr=err_file,
-        )
-        _out, _err = await proc.communicate()
-        out_file.seek(0)
-        stdout = out_file.read()
-        err_file.seek(0)
-        stderr = err_file.read()
-
-        assert proc.returncode is not None
-    if proc.returncode != 0:
-        raise _CalledProcessError(
-            returncode=proc.returncode,
-            cmd=cmd,
-            output=stdout if stdout else None,
-            stderr=stderr if stderr else None,
-        )
-    return subprocess.CompletedProcess(
-        args=cmd,
-        returncode=proc.returncode,
-        output=stdout if stdout else None,
-        stderr=stderr if stderr else None,
-    )
-
-
-async def run_subprocess(
-    cmd: str,
-    input: str | None = None,
-    stdout: int | IO[bytes] | None = asyncio.subprocess.PIPE,
-    stderr: int | IO[bytes] | None = asyncio.subprocess.PIPE,
-) -> subprocess.CompletedProcess[str]:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=stdout,
-        stderr=stderr,
-    )
-    out_stdout, out_stderr = await proc.communicate(
-        input.encode() if input is not None else None
-    )
-    assert proc.returncode is not None
-    if proc.returncode != 0:
-        raise _CalledProcessError(
-            returncode=proc.returncode,
-            cmd=cmd,
-            output=out_stdout.decode() if out_stdout is not None else None,
-            stderr=out_stderr.decode() if out_stderr is not None else None,
-        )
-    return subprocess.CompletedProcess(
-        args=cmd,
-        returncode=proc.returncode,
-        stdout=out_stdout.decode() if out_stdout is not None else None,
-        stderr=out_stderr.decode() if out_stderr is not None else None,
-    )
-
-
-class _CalledProcessError(subprocess.CalledProcessError):
-    """Custom error class to handle subprocess errors with additional context."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cmd = kwargs.get("cmd", "")
-        self.output = kwargs.get("output", "")
-        self.stderr = kwargs.get("stderr", "")
-
-    def __str__(self):
-        if self.returncode and self.returncode < 0:
-            try:
-                return "Command '%s' died with %r." % (
-                    self.cmd,
-                    signal.Signals(-self.returncode),
-                )
-            except ValueError:
-                return "Command '%s' died with unknown signal %d." % (
-                    self.cmd,
-                    -self.returncode,
-                )
-        else:
-            print(self.stderr, file=sys.stderr)
-            return "Command '%s' returned non-zero exit status %d." % (
-                self.cmd,
-                self.returncode,
-            )
 
 
 _gpu_name_mapping = {
@@ -3351,6 +2266,3 @@ gpu_to_rgu_billing = {
     },
 }
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
