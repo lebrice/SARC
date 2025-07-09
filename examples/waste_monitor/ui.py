@@ -2,6 +2,9 @@ import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
+import rich
+import rich.panel
+import rich.pretty
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
@@ -9,8 +12,8 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, ContentSwitcher, DataTable, RichLog
 
-from examples.waste_monitor.sarc_client import get_available_clusters
-from examples.waste_monitor.waste_utils import (
+from .sarc_client import get_available_clusters
+from .waste_utils import (
     fill_alerts_table,
     fill_cluster_overview_table,
     fill_jobs_view_datatable,
@@ -22,8 +25,13 @@ from examples.waste_monitor.waste_utils import (
 logger = logging.getLogger(__name__)
 
 class ValidateApp(App):
-    CSS_PATH = "validate01.tcss"
-
+    # CSS_PATH = "validate01.tcss"
+    CSS = """\
+    #buttons {
+        dock: top;
+        height: auto;
+    }
+    """
     count = reactive(0)
 
     def validate_count(self, count: int) -> int:
@@ -60,13 +68,13 @@ class ScratchMonitorApp(App):
     #     """Compose the widget."""
         # yield DataTable(id="scratch_monitor_table")
 
-    def render(self) -> str:
+    def render(self):
         """Render the widget."""
         if self.import_time is None:
             assert self.import_time_ema is None
-            return "No import time measured yet."
+            return rich.panel.Panel("No import time measured yet.", title="Scratch Monitor")
         assert self.import_time_ema is not None
-        return f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
+        return rich.panel.Panel(f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)", title="Scratch Monitor")
 
 
     def on_ready(self) -> None:
@@ -154,7 +162,7 @@ class ScratchMonitorWidget(Widget):
         logger.info(f"Torch import time EMA: {self.import_time_ema:T}")
 
 
-class RichLogApp(App):
+class WasteMonitor(App):
     TITLE = f"[b]SARC[/b] Waste Monitoring - {datetime.now().ctime().replace(':', '[blink]:[/]')}"
     SUB_TITLE = "Data from the last 7 days. Last update: TODO"
     # For live editing the CSS:
@@ -216,7 +224,7 @@ class RichLogApp(App):
             with Vertical(id="cluster_overview"):
                 with Horizontal():
                     yield DataTable(id="cluster_overview_table")
-                    yield ScratchMonitorWidget(id="scratch_monitor")
+                    # yield ScratchMonitorWidget(id="scratch_monitor")
                 yield DataTable(id="alerts_table")
                 yield RichLog(highlight=True, markup=True, id="overview_log")
             with VerticalScroll(id="user_view"):
@@ -233,11 +241,12 @@ class RichLogApp(App):
         )
 
     def on_ready(self) -> None:
-        self.update_data_and_ui()
+        # self.update_data_and_ui()
         self.set_interval(5 * 60, self.update_data_and_ui)
 
     def on_mount(self) -> None:
         self.update_data_and_ui()
+        pass
 
     # @on(Checkbox.Changed)
     async def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
@@ -250,7 +259,7 @@ class RichLogApp(App):
         # TODO: update the UI following changes to the data in an efficient way.
         text_log.write(rich.pretty.Pretty(sorted(self.clusters)))
         self.sub_title = f"Data for clusters {list(self.clusters)}"
-        self.update_data_and_ui()
+        # self.update_data_and_ui()
 
     @work(exclusive=True)
     async def update_data_and_ui(self) -> None:
@@ -286,4 +295,4 @@ class RichLogApp(App):
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
         pass        
-        
+                

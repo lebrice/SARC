@@ -1,12 +1,23 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "rich",
+#     "sarc",
+#     "textual",
+# ]
+#
+# [tool.uv.sources]
+# sarc = { path = "../../" }
 import logging
 import subprocess
 
 import rich.logging
 import textual.logging
 
-from .sarc_client import CLUSTER_DOWN, get_available_clusters, setup_sarc_connection
-from .ui import ScratchMonitorApp
-from .waste_utils import get_torch_import_time, logger, setup_multiplexed_ssh_conection
+from .sarc_client import get_available_clusters
+from .sarc_patches import CLUSTER_DOWN, setup_sarc_connection
+from .ui import WasteMonitor
+from .waste_utils import logger, setup_multiplexed_ssh_conection
 
 
 def _setup_logging(verbose: int):
@@ -32,9 +43,9 @@ def _setup_logging(verbose: int):
 
 async def main():
     _setup_logging(verbose=2)
-    await setup_sarc_connection()
-    print(await get_torch_import_time("mila"))
+    # print(await get_torch_import_time("mila"))
 
+    await setup_sarc_connection()
     for cluster in get_available_clusters():
         if CLUSTER_DOWN.get(cluster.cluster_name):
             logger.info(f"Skipping {cluster} cluster which is supposedly down.")
@@ -54,7 +65,7 @@ async def main():
     #     if not (_cluster_data.empty or CLUSTER_DOWN.get(cluster.cluster_name)):
     #         asyncio.run(fill_jobs_view_datatable(unittest.mock.Mock(), _cluster_data))
 
-    app = ScratchMonitorApp()
+    app = WasteMonitor()
     await app.run_async()    # _data = get_data()
 
 if __name__ == "__main__":

@@ -66,6 +66,8 @@ dev = [
     "ruff>=0.12,<0.13",
 ]
 examples = [
+    "fastapi[standard]>=0.116.0",
+    "orjson>=3.10.18",
     "rich>=14.0.0",
     "seaborn>=0.13.2,<0.14",
     "textual>=3.4.0",
@@ -80,13 +82,13 @@ examples = [
 [tool.ruff.lint]
 select = ["ARG", "E", "F", "FA", "LOG", "PERF", "PIE", "PL", "T20", "W"]
 ignore = [
-  "E501",     # line too long (ruff format will handle it)
-  "PLW2901",  # loop variable overwritten by assignment
-  "PLR0912",  # too many branches
-  "PLR0913",  # too many function arguments
-  "PLR0915",  # too many statements
-  "PLR2004",  # replace magic value by variable
-  "PLC0415",  # imports should be a the top level
+    "E501",    # line too long (ruff format will handle it)
+    "PLW2901", # loop variable overwritten by assignment
+    "PLR0912", # too many branches
+    "PLR0913", # too many function arguments
+    "PLR0915", # too many statements
+    "PLR2004", # replace magic value by variable
+    "PLC0415", # imports should be a the top level
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -97,10 +99,7 @@ ignore = [
 
 
 [tool.uv]
-default-groups = [
-    "dev",
-    "examples",
-]
+default-groups = ["dev", "examples"]
 
 [tool.uv.sources]
 iguane = { git = "https://github.com/mila-iqia/IGUANE.git", rev = "428a433d395ed17c00818beb865a38d321adf169" }

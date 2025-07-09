@@ -129,6 +129,9 @@ def _get_cache_file_name[**P](
                 return hashlib.md5("+".join(sorted(v)).encode()).hexdigest()[:12]
             case list():
                 return "+".join(sorted(map(_hash, v)))
+            case {"$in": list(values)}:
+                # Special case for MongoDB-like queries.
+                return _hash(values)
             case _:
                 raise NotImplementedError(
                     f"Unsupported arg type: {v} of type {type(v)}"

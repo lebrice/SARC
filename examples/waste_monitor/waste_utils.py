@@ -1,13 +1,3 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "rich",
-#     "sarc",
-#     "textual",
-# ]
-#
-# [tool.uv.sources]
-# sarc = { path = "../" }
 # ///
 from __future__ import annotations
 
@@ -20,9 +10,8 @@ import tempfile
 import textwrap
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import ParamSpec, Protocol, Sequence, TypeVar
+from typing import Protocol, Sequence
 
-import gifnoc
 import numpy as np
 import pandas as pd
 import paramiko
@@ -31,42 +20,24 @@ from rich.panel import Panel
 from rich.table import Table
 from textual.widgets import DataTable
 
-from examples.waste_monitor.common_utils import (
+from sarc.client.job import SlurmState
+from sarc.client.users.api import get_users
+from sarc.config import MTL
+
+from .common_utils import (
     CACHE_DIR,
+    FilteringOptions,
     _CalledProcessError,
     _get_cache_file_name,
     cached,
     midnight,
     run_subprocess,
 )
-from sarc.client.job import SlurmState
-from sarc.client.users.api import get_users
-from sarc.config import MTL
-
-from .sarc_client import get_clean_sarc_data, sarc_dev_config_file
-
-P = ParamSpec("P")
-OutT = TypeVar("OutT")
-
+from .sarc_patches import get_clean_sarc_data
 
 logger = logging.getLogger(__name__)
 
 
-
-
-def get_dev_cluster_configs():
-
-    import sarc.config
-
-    with gifnoc.use(sarc_dev_config_file):
-        dev_config = sarc.config.full_config
-        cluster_configs = dev_config.clusters.copy()
-        return cluster_configs
-    with sarc.config.using_sarc_mode("scraping"), gifnoc.use(sarc_dev_config_file):
-        dev_config = sarc.config.config()
-        # assert isinstance(dev_config, sarc.config.Config), type(dev_config)
-        cluster_configs = dev_config.clusters
-        return cluster_configs
 
 
 async def setup_torch_import_test(
