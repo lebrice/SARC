@@ -24,6 +24,7 @@ from .waste_utils import (
 
 logger = logging.getLogger(__name__)
 
+
 class ValidateApp(App):
     # CSS_PATH = "validate01.tcss"
     CSS = """\
@@ -66,16 +67,20 @@ class ScratchMonitorApp(App):
 
     # def compose(self) -> ComposeResult:
     #     """Compose the widget."""
-        # yield DataTable(id="scratch_monitor_table")
+    # yield DataTable(id="scratch_monitor_table")
 
     def render(self):
         """Render the widget."""
         if self.import_time is None:
             assert self.import_time_ema is None
-            return rich.panel.Panel("No import time measured yet.", title="Scratch Monitor")
+            return rich.panel.Panel(
+                "No import time measured yet.", title="Scratch Monitor"
+            )
         assert self.import_time_ema is not None
-        return rich.panel.Panel(f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)", title="Scratch Monitor")
-
+        return rich.panel.Panel(
+            f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)",
+            title="Scratch Monitor",
+        )
 
     def on_ready(self) -> None:
         """Called when the widget is ready."""
@@ -102,12 +107,10 @@ class ScratchMonitorApp(App):
             assert self.import_time_ema is not None
             # Exponential moving average
             alpha = 0.1
-            self.import_time_ema = (
-                self.import_time_ema * (1-alpha) + time * alpha
-            )
+            self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
         logger.info(f"Torch import time: {self.import_time}")
-        logger.info(f"Torch import time EMA: {self.import_time_ema}")     
+        logger.info(f"Torch import time EMA: {self.import_time_ema}")
 
 
 class ScratchMonitorWidget(Widget):
@@ -118,7 +121,7 @@ class ScratchMonitorWidget(Widget):
 
     # def compose(self) -> ComposeResult:
     #     """Compose the widget."""
-        # yield DataTable(id="scratch_monitor_table")
+    # yield DataTable(id="scratch_monitor_table")
 
     def render(self) -> str:
         """Render the widget."""
@@ -127,7 +130,6 @@ class ScratchMonitorWidget(Widget):
             return "No import time measured yet."
         assert self.import_time_ema is not None
         return f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
-
 
     def on_ready(self) -> None:
         """Called when the widget is ready."""
@@ -154,9 +156,7 @@ class ScratchMonitorWidget(Widget):
             assert self.import_time_ema is not None
             # Exponential moving average
             alpha = 0.1
-            self.import_time_ema = (
-                self.import_time_ema * (1-alpha) + time * alpha
-            )
+            self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
         logger.info(f"Torch import time: {self.import_time:T}")
         logger.info(f"Torch import time EMA: {self.import_time_ema:T}")
@@ -259,12 +259,15 @@ class WasteMonitor(App):
         # TODO: update the UI following changes to the data in an efficient way.
         text_log.write(rich.pretty.Pretty(sorted(self.clusters)))
         self.sub_title = f"Data for clusters {list(self.clusters)}"
-        # self.update_data_and_ui()
+        self.update_data_and_ui()
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     async def update_data_and_ui(self) -> None:
         """Update the data and the UI."""
-        data = get_data(list(self.clusters), ())
+        data = get_data(
+            list(self.clusters),
+            # (),
+        )
         await self.populate_ui(data)
 
     async def populate_ui(self, data: pd.DataFrame):
@@ -294,5 +297,4 @@ class WasteMonitor(App):
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         # self.screen.query_one(RichLog).write(event)
-        pass        
-                
+        pass

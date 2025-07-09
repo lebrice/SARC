@@ -127,7 +127,7 @@ def _get_cache_file_name[**P](
             case [str(), *_] if len(v) > 2:
                 # If there are more than 3 strings, hash them together.
                 return hashlib.md5("+".join(sorted(v)).encode()).hexdigest()[:12]
-            case list():
+            case list() | tuple():
                 return "+".join(sorted(map(_hash, v)))
             case {"$in": list(values)}:
                 # Special case for MongoDB-like queries.

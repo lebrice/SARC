@@ -38,8 +38,6 @@ from .sarc_patches import get_clean_sarc_data
 logger = logging.getLogger(__name__)
 
 
-
-
 async def setup_torch_import_test(
     hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
 ):
@@ -85,10 +83,14 @@ async def get_torch_import_time(
     return timedelta(seconds=float(result.stdout.strip()))
 
 
-def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
+def get_data(
+    clusters: Sequence[str] = (),
+    # users: Sequence[str] = (),
+):
     midnight_tonight = midnight(datetime.now() + timedelta(days=1))
     return _cached_get_data(
-        midnight_tonight, tuple(sorted(clusters)), tuple(sorted(users))
+        midnight_tonight,
+        tuple(sorted(clusters)),  # tuple(sorted(users))
     )
 
 
@@ -96,7 +98,7 @@ def get_data(clusters: Sequence[str] = (), users: Sequence[str] = ()):
 def _cached_get_data(
     midnight_tonight: datetime,
     clusters: tuple[str, ...] = (),
-    users: tuple[str, ...] = (),
+    # users: tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Cached function to get the data."""
     options = FilteringOptions(
@@ -106,11 +108,11 @@ def _cached_get_data(
         clusters=(),
     )
     # This is cached as well:
-    data = get_clean_sarc_data(options)
+    data = cached(get_clean_sarc_data)(options)
     if clusters:
         data = data[data["cluster_name"].isin(clusters)]
-    if users:
-        data = data[data["user.mila.email"].isin(users)]
+    # if users:
+    #     data = data[data["user.mila.email"].isin(users)]
     return data
 
 
@@ -538,9 +540,6 @@ def _get_controlpath(hostname: str) -> Path:
         .get("controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p")
     ).expanduser()
 
-
-
-
     # df.loc[slice_during_rgu_time, "allocated.cpu"] /= 1000.0
 
     # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
@@ -580,4 +579,3 @@ async def _get_output(cmd: str):
         output=stdout if stdout else None,
         stderr=stderr if stderr else None,
     )
-
