@@ -16,6 +16,10 @@ import numpy as np
 import pandas as pd
 import paramiko
 import paramiko.config
+import rich
+import rich.text
+import textual
+import textual.app
 from rich.panel import Panel
 from rich.table import Table
 from textual.widgets import DataTable
@@ -29,7 +33,7 @@ from .common_utils import (
     FilteringOptions,
     _CalledProcessError,
     _get_cache_file_name,
-    cached,
+    cache_results_to_file,
     midnight,
     run_subprocess,
 )
@@ -87,30 +91,29 @@ def get_data(
     clusters: Sequence[str] = (),
     # users: Sequence[str] = (),
 ):
-    midnight_tonight = midnight(datetime.now() + timedelta(days=1))
+    midnight_tonight = midnight(datetime.now()) + timedelta(days=1)
     return _cached_get_data(
-        midnight_tonight,
-        tuple(sorted(clusters)),  # tuple(sorted(users))
+        midnight_tonight=midnight_tonight,
+        clusters=tuple(sorted(clusters)),  # tuple(sorted(users))
     )
 
 
-@functools.lru_cache(maxsize=20)
+@functools.lru_cache(maxsize=16)
 def _cached_get_data(
     midnight_tonight: datetime,
+    period: timedelta = timedelta(days=7),
     clusters: tuple[str, ...] = (),
     # users: tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Cached function to get the data."""
     options = FilteringOptions(
-        start=(midnight_tonight - timedelta(days=7)),
+        start=(midnight_tonight - period),
         end=midnight_tonight,
         user=(),
-        clusters=(),
+        clusters=tuple(sorted(set(clusters))),
     )
     # This is cached as well:
-    data = cached(get_clean_sarc_data)(options)
-    if clusters:
-        data = data[data["cluster_name"].isin(clusters)]
+    data = cache_results_to_file(get_clean_sarc_data)(options)
     # if users:
     #     data = data[data["user.mila.email"].isin(users)]
     return data
@@ -155,12 +158,11 @@ async def unused_gpus_alert(data: pd.DataFrame) -> tuple[pd.DataFrame, str, Seve
     )
 
 
-alerts: list[Alert] = [
-    unused_gpus_alert,
-]
-
-
-async def fill_alerts_table(table: DataTable, data: pd.DataFrame) -> None:
+def fill_alerts_table(
+    table: DataTable,
+    alert_results: Sequence[tuple[pd.DataFrame, str, Severity]],
+    data: pd.DataFrame,
+) -> None:
     # alerts_table = Table(title="Alerts")
     table.clear(columns=True)
     table.add_column("Alert Time")
@@ -171,8 +173,7 @@ async def fill_alerts_table(table: DataTable, data: pd.DataFrame) -> None:
     table.add_column("severity")
     table.add_column("Description")
 
-    stuff = await asyncio.gather(*(alert(data) for alert in alerts))
-    jobs, descriptions, severities = zip(*stuff)
+    jobs, descriptions, severities = zip(*alert_results)
 
     for alert, jobs, description, severity in zip(
         alerts, jobs, descriptions, severities
@@ -334,8 +335,11 @@ def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
         )
 
 
-async def fill_jobs_view_datatable(
-    datatable: DataTable, data: pd.DataFrame, n_to_show: int = 50, reverse: bool = False
+def fill_jobs_view_datatable(
+    table: DataTable,
+    data: pd.DataFrame,
+    n_to_show: int = 50,
+    reverse: bool = False,
 ) -> None:
     # Mock data (TODO: replace)
     if reverse:
@@ -354,20 +358,27 @@ async def fill_jobs_view_datatable(
     # Doesn't really work.
     # submit_lines = await _preload_submit_lines(most_wasteful_jobs, n=n_to_show)
 
-    table = datatable
-    table.clear(columns=True)
-    table.add_column("#")
-    table.add_column("Job ID")
-    table.add_column("Cluster")
-    table.add_column("User")
-    table.add_column("Elapsed time")
-    table.add_column("Avg GPU Util")
-    table.add_column("Requested Ressources")
+    # table = table.clear(columns=True)
+    column_key_to_labels = {
+        "index": "#",
+        "job_id": "Job ID",
+        "cluster_name": "Cluster",
+        "user": "User",
+        "elapsed_time": "Elapsed time",
+        "gpu_utilization": "Avg GPU Util",
+        "requested.gres": "Requested Ressources",
+        "gpu_days": "Used/Wasted/Obstructed GPU days",
+        "submit_line": "SubmitLine",
+    }
     # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
-    table.add_column("Used/Wasted/Obstructed GPU days")
-    # table.add_column("Wasted GPU/RGU days", justify="right")
-    # table.add_column("Obstructed GPU days", justify="right")
-    table.add_column("SubmitLine")
+
+    if not table.columns:
+        column_keys = [
+            table.add_column(label, key=key)
+            for key, label in column_key_to_labels.items()
+        ]
+    else:
+        column_keys = column_key_to_labels.keys()
     # table.add_column("Workdir", justify="left")
     # table.add_column("submit command", justify="left")
 
@@ -414,8 +425,9 @@ async def fill_jobs_view_datatable(
             # submit_line = await asyncio.get_running_loop().run_in_executor(
             #     None, get_submit_line, job_id, cluster_name
             # )
-        # todo: use the returned key to update the row on keypress.
-        _key = table.add_row(
+        row_key = f"{cluster_name}_{job_id}"
+
+        row_data = [
             f"{i}",
             f"[link={job_id_link}]{job_id}[/link]" if job_id_link else job_id,
             cluster_name,
@@ -429,10 +441,29 @@ async def fill_jobs_view_datatable(
             # f"[red]{row['gpu_overbilling_cost'].days}",
             # submit_lines[i - 1],
             submit_line,
-            # IDEA: Show it as a Syntax block:
-            # rich.syntax.Syntax(submit_line, lexer="bash"),
-            # key=f"{cluster_name}-{job_id}",
-        )
+        ]
+
+        if row_key in table.rows:
+            existing_row_data = table.get_row(row_key)
+            assert len(existing_row_data) == len(row_data) == len(column_keys)
+            for col, old_data, new_data in zip(
+                column_keys, existing_row_data, row_data
+            ):
+                if old_data != new_data:
+                    logger.debug(
+                        f"Updating {col} for {row_key}: {old_data} -> {new_data}"
+                    )
+                    table.update_cell(row_key, column_key=col, value=new_data)
+        else:
+            #     # datatable.get_row_index(row_key)
+            #     table.remove_row(row_key)
+            # todo: use the returned key to update the row on keypress.
+            _key = table.add_row(
+                *row_data,
+                # IDEA: Show it as a Syntax block:
+                # rich.syntax.Syntax(submit_line, lexer="bash"),
+                key=row_key,
+            )
 
 
 def _colorize_utilization(util: float, red: float = 0.2, orange=0.5) -> str:
@@ -503,7 +534,7 @@ def get_submit_line(job_id: int | str, cluster_name: str) -> str:
 
 
 @functools.cache
-@cached
+@cache_results_to_file
 def get_mila_students_in_period(start: datetime, end: datetime) -> int:
     students = get_users(latest=True)
     return len(

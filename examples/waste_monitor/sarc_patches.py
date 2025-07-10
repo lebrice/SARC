@@ -22,10 +22,11 @@ import pandas as pd
 import paramiko
 import paramiko.config
 import pymongo.errors
+import rich
+import rich.pretty
 import yaml
 from simple_parsing.helpers.serialization.serializable import from_dict
 
-from examples.waste_monitor.sarc_client import get_available_clusters
 from sarc.client.gpumetrics import get_rgus
 from sarc.client.job import JobStatistics
 from sarc.client.series import (
@@ -37,7 +38,12 @@ from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClientConfig, ClusterConfig
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
-from .common_utils import FilteringOptions, cached, run_subprocess
+from .common_utils import (
+    FilteringOptions,
+    cache_results_to_file,
+    get_available_clusters,
+    run_subprocess,
+)
 
 # todo: add a proper date here.
 CLUSTER_DOWN: dict[str, bool] = {"cedar": datetime.now() < datetime(2025, 7, 1)}
@@ -358,20 +364,32 @@ def _fix_missing_gpu_type(df: pd.DataFrame):
         )
 
     return df
-   
+
+
 @functools.cache
-@cached
+@cache_results_to_file
 def get_mila_users_in_period(start: datetime, end: datetime) -> tuple[User, ...]:
     students = get_users(latest=False)
     return tuple(
         user
         for user in students
         if user.mila and user.mila.email
-        if (user.record_start and user.record_start.astimezone(MTL) <= end.astimezone(MTL))
-        and (user.record_end is None or user.record_end.astimezone(MTL) >= start.astimezone(MTL))
+        if (
+            user.record_start
+            and user.record_start.astimezone(MTL) <= end.astimezone(MTL)
+        )
+        and (
+            user.record_end is None
+            or user.record_end.astimezone(MTL) >= start.astimezone(MTL)
+        )
     )
 
-@functools.lru_cache(maxsize=1)  # cache results in memory
+
+def show_first_entry(df: pd.DataFrame):
+    return rich.pretty.pretty_repr(df.to_dict(orient="records")[0])
+
+
+# @functools.lru_cache(maxsize=1)  # cache results in memory
 # @cached  # Cache results to a file
 def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     """Gets "cleaned" SARC data for a given period, including *lots* of patches."""
@@ -380,6 +398,11 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         start=options.start.astimezone(MTL),
         end=options.end.astimezone(MTL),
     )
+    df = cache_results_to_file(get_raw_sarc_data)(options)
+    return clean_sarc_data(df, options)
+
+
+def get_raw_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     logger.debug(
         f"Looking up for data between {options.start} and {options.end} for all users on all clusters."
     )
@@ -388,9 +411,8 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     # usernames and filter by user.mila.email after.
     # IDEA: Instead, we could filter through all usernames that each user has!
     # Cache results of SARC query to a file.
-    
+
     all_users = get_mila_users_in_period(options.start, options.end)
- 
 
     query_mila_emails = set(options.get_users(assume_mila_email=True))
     usernames_to_query = []
@@ -402,12 +424,18 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
                 usernames_to_query.append(student.drac.username)
     if not usernames_to_query:
         usernames_to_query = [u.removesuffix("@mila.quebec") for u in query_mila_emails]
-    clusters = sorted(set(options.clusters))
     query_kwargs = {}
-    if clusters:
-        query_kwargs["cluster"] = clusters[0] if len(clusters) == 1 else {"$in": clusters}
+    if options.clusters:
+        clusters = sorted(set(options.clusters))
+        query_kwargs["cluster"] = (
+            clusters[0] if len(clusters) == 1 else {"$in": clusters}
+        )
     if usernames_to_query:
-        query_kwargs["user"] = usernames_to_query[0] if len(usernames_to_query) == 1 else {"$in": [u for u in usernames_to_query]}
+        query_kwargs["user"] = (
+            usernames_to_query[0]
+            if len(usernames_to_query) == 1
+            else {"$in": [u for u in usernames_to_query]}
+        )
 
     df = load_job_series(
         start=options.start,
@@ -415,11 +443,18 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         clip_time=False,
         **query_kwargs,
     )
-
     if df.empty:
         warnings.warn(RuntimeWarning(f"NO SARC data for that period: {options}"))
         return df
+    return df
 
+
+def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame:
+    options = dataclasses.replace(
+        options,
+        start=options.start.astimezone(MTL),
+        end=options.end.astimezone(MTL),
+    )
     for time_column in ["submit_time", "start_time", "end_time"]:
         # df[time_column] = df[time_column].dt.tz_localize("UTC").dt.tz_convert(MTL)
         df[time_column] = df[time_column].dt.tz_convert(MTL)
@@ -433,14 +468,20 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
 
     df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
     df = _fix_lost_jobs(df)
+    jobs_to_remove = df[df["end_time"] < options.start]
+    df = df.drop(jobs_to_remove.index)
     df = _fix_unaligned_cache(df, options.start, options.end)
     df = _remove_old_nodes(df)
     df = _replace_outlier_stats_with_na(df)
     df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_billing_drac(df)
 
-    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty
-    assert df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
+    assert (
+        t := df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()")
+    ).empty, show_first_entry(t)
+    assert (
+        t := df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()")
+    ).empty, show_first_entry(t)
     # df =  df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()").empty
 
     df_before = df.copy()
@@ -465,7 +506,9 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
 
     assert df["requested.gres_gpu"].notna().all()
     assert df["allocated.gres_gpu"].notna().all()
-    assert df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0").empty
+    assert (
+        t := df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0")
+    ).empty, show_first_entry(t)
     assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
 
     df = _fix_allocated_cpus_drac(df)

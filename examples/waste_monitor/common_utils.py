@@ -60,6 +60,7 @@ async def run_subprocess(
         stderr=out_stderr.decode() if out_stderr is not None else None,
     )
 
+
 class _CalledProcessError(subprocess.CalledProcessError):
     """Custom error class to handle subprocess errors with additional context."""
 
@@ -101,7 +102,7 @@ def _get_cache_file_name[**P](
     # return hashlib.md5(
     #     json.dumps((fn.__name__, args, kwargs), sort_keys=True, default=str).encode()
     # ).hexdigest()
-    
+
     def _hash(v) -> str:
         match v:
             case FilteringOptions():
@@ -155,7 +156,7 @@ def _get_cache_file_name[**P](
 # assert False, sarc_client_config
 
 
-def cached[**P, OutT](fn: Callable[P, OutT]) -> Callable[P, OutT]:
+def cache_results_to_file[**P, OutT](fn: Callable[P, OutT]) -> Callable[P, OutT]:
     """Caches a function in a given cache dir."""
     assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
 
@@ -197,6 +198,7 @@ def cached[**P, OutT](fn: Callable[P, OutT]) -> Callable[P, OutT]:
             return result
 
     return wrapper
+
 
 @functools.total_ordering
 @dataclasses.dataclass(frozen=True, unsafe_hash=True)
@@ -290,3 +292,10 @@ class FilteringOptions:
             and (set(self_users) < set(other_users))
             and (set(self.clusters) < set(other.clusters))
         )
+
+
+@functools.cache
+def get_available_clusters():
+    from sarc.client.job import get_available_clusters
+
+    return tuple(get_available_clusters())
