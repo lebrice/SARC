@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import csv
 import enum
 import functools
 import logging
@@ -82,7 +83,6 @@ class WasteMonitor(App):
 
     ContentSwitcher {
         border: round $primary;
-        # width: 90%;
         height: 1fr;
     }
 
@@ -95,17 +95,13 @@ class WasteMonitor(App):
     #cluster_overview_table {
         column-span: 1;
         padding: 1;
-        # width: 50%;
     }
     #scratch_monitor {
-        # height: 30%;
-        # width: 60%;
         column-span: 1;
         padding: 1;
     }
 
     #overview_log {
-        # height: 15%;
         column-span: 2;
         align: center bottom;
     }
@@ -344,6 +340,9 @@ class WasteMonitor(App):
     #     pass
 
 
+previous_torch_import_time_results_file = "mila_scratch_torch_import_time.csv"
+
+
 class ScratchMonitorWidget(Widget):
     """A widget to show the import time for torch."""
 
@@ -357,14 +356,27 @@ class ScratchMonitorWidget(Widget):
         """Compose the widget."""
         yield PlotextPlot(id="scratch_torch_import_time_plot")
 
+    def load_previous_results(self):
+        # Ugly: reopening the UI reloads the previous values.
+        if not CACHE_DIR:
+            return
+        saved_results_file = Path(CACHE_DIR) / previous_torch_import_time_results_file
+        if not saved_results_file.exists():
+            return
+        reader = csv.reader(saved_results_file.read_text().splitlines())
+        for row in reader:
+            dt = datetime.strptime(row[0], "%Y/%m/%d %H:%M:%S")
+            time = float(row[1])
+            self.vals.append((dt, time))
+
     def on_mount(self) -> None:
         plt = self.query_one(PlotextPlot).plt
-        plt.date_form("d/m/Y H:M:S")
-        # TODO: Hacky, save the import time to a file so reopening the UI reloads the previous values.
+        plt.date_form("Y/m/d H:M:S")
+        self.load_previous_results()
         if self.vals:
             times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
-            stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
+            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
             plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
         plt.title("Torch import time")
 
@@ -372,11 +384,11 @@ class ScratchMonitorWidget(Widget):
         """Set up the plot."""
         plt = self.query_one(PlotextPlot).plt
         plt.clear_data()
-        plt.date_form("d/m/Y H:M:S")
+        plt.date_form("Y/m/d H:M:S")
         if self.vals:
             times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
-            stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
+            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
             plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
         self.refresh()
 
@@ -391,6 +403,7 @@ class ScratchMonitorWidget(Widget):
             alpha = 0.1
             self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
+
         if time > self.import_time_ema:
             self.notify(
                 title="$SCRATCH is slow!",
@@ -403,6 +416,25 @@ class ScratchMonitorWidget(Widget):
             )
 
         self.vals.append((datetime.now(), time.total_seconds()))
+        self.vals = self.vals.copy()  # to trigger a reactive update.
+
+        if CACHE_DIR:
+            # Ugly: Save previous values to a file so reopening the UI reloads them.
+            saved_results_file = (
+                Path(CACHE_DIR) / previous_torch_import_time_results_file
+            )
+            # IDEA: Could also limit the number of rows in that file to some value like 100?
+            # For now, leaving the size of that file uncapped, it should take much space, and could give a good
+            # history of the import times.
+            with saved_results_file.open("a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+                        str(time.total_seconds()),
+                    ]
+                )
+
         logger.info(f"Torch import time: {self.import_time}")
         logger.info(f"EMA: {self.import_time_ema}")
         logger.info(f"Average: {self.import_time_ema}")
