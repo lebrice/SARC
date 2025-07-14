@@ -8,6 +8,7 @@ import pandas as pd
 import rich
 import rich.panel
 import rich.pretty
+import rich.text
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
@@ -111,9 +112,9 @@ class WasteMonitor(App):
         with ContentSwitcher(initial="cluster_overview"):
             # with VerticalScroll(id="cluster_overview"):
             with Vertical(id="cluster_overview"):
-                with Horizontal():
-                    yield DataTable(id="cluster_overview_table")
-                    # yield ScratchMonitorWidget(id="scratch_monitor")
+                # with Horizontal():
+                yield DataTable(id="cluster_overview_table")
+                yield ScratchMonitorWidget(id="scratch_monitor")
                 # yield DataTable(id="alerts_table")
             with VerticalScroll(id="user_view"):
                 yield DataTable(id="user_view_table")
@@ -156,25 +157,13 @@ class WasteMonitor(App):
         # self.query_one(RichLog).write("No submit line available for this job.")
 
     def on_ready(self) -> None:
-        self.setup_connections()
         self.update_jobs_dataframe()
+        self.measure_scratch_torch_import_time()
+        # self.populate_ui()
+        self.set_interval(60, self.measure_scratch_torch_import_time)
+        self.set_interval(5 * 60, self.update_jobs_dataframe)
         # assert self.full_data is not None
         # self.populate_ui(self.full_data)
-
-    @work(exclusive=True)
-    async def setup_connections(self) -> None:
-        await setup_sarc_connection()
-        for cluster in get_available_clusters():
-            if CLUSTER_DOWN.get(cluster.cluster_name):
-                logger.info(f"Skipping {cluster} cluster which is supposedly down.")
-                continue
-            try:
-                await setup_multiplexed_ssh_conection(cluster.cluster_name)
-            except subprocess.CalledProcessError as err:
-                logger.error(
-                    f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
-                )
-                CLUSTER_DOWN[cluster.cluster_name] = True
 
     #     self.update_data()
     #     await self.populate_ui()
@@ -217,7 +206,7 @@ class WasteMonitor(App):
         self.populate_ui(self.data)
         # self.update_jobs_dataframe()
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, group="data", thread=True)
     async def update_jobs_dataframe(self) -> None:
         full_data = get_data()
         self.call_from_thread(self.set_full_data, full_data)
@@ -273,6 +262,18 @@ class WasteMonitor(App):
                 cluster, _, job_id = row_key.value.partition("_")
                 if cluster not in self.clusters:
                     best_jobs_table.remove_row(row_key)
+
+    @work(exclusive=True, group="scratch")
+    async def measure_scratch_torch_import_time(self) -> None:
+        """Measure the time it takes to import torch from the scratch directory."""
+        # This is a placeholder for the actual implementation.
+        # You would run a command like `time python -c "import torch"` in the scratch directory.
+        # For now, we will just log a message.
+        logger.debug("Measuring scratch torch import time...")
+        time = await get_torch_import_time("mila")
+        assert time is not None
+        scratch_widget = self.query_exactly_one(ScratchMonitorWidget)
+        scratch_widget.update(time)
 
     # def on_mouse_move(self, event: events.MouseMove) -> None:
     #     # self.screen.query_one(RichLog).write(event)
@@ -377,20 +378,46 @@ class ScratchMonitorWidget(Widget):
     #     """Compose the widget."""
     # yield DataTable(id="scratch_monitor_table")
 
-    def render(self) -> str:
+    def update(self, time: timedelta) -> None:
+        if self.import_time is None:
+            assert self.import_time_ema is None
+            self.import_time = time
+            self.import_time_ema = time
+        else:
+            assert self.import_time_ema is not None
+            # Exponential moving average
+            alpha = 0.1
+            self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
+            self.import_time = time
+        logger.info(f"Torch import time: {self.import_time}")
+        logger.info(f"Torch import time EMA: {self.import_time_ema}")
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Called when the worker state changes."""
+        self.log(event)
+        assert self.parent
+        self.parent.query_one(RichLog).write(
+            f"{event.state.name}: ({event.worker})"
+            # if event.state in (WorkerState.PENDING, WorkerState.RUNNING)
+            # else event.state
+        )
+
+    def render(self):
         """Render the widget."""
         if self.import_time is None:
             assert self.import_time_ema is None
-            return "No import time measured yet."
+            return rich.text.Text("No torch import time measured yet.")
         assert self.import_time_ema is not None
-        return f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
+        return rich.text.Text(
+            f"Torch import time on $SCRATCH: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
+        )
 
     def on_ready(self) -> None:
         """Called when the widget is ready."""
         # self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
         #     "Timestamp", "Torch import time"
         # )
-        self.measure_scratch_torch_import_time()
+        self.log(f"Import time: {self.measure_scratch_torch_import_time()}")
         self.set_interval(60, self.measure_scratch_torch_import_time)
 
     @work(exclusive=True)
