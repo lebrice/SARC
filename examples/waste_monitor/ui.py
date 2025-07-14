@@ -331,7 +331,7 @@ class WasteMonitor(App):
         scratch_widget = self.query_exactly_one(ScratchMonitorWidget)
         scratch_widget.update(time)
         self.query_exactly_one(RichLog).write(
-            f"[{datetime.now()}] - Measured torch import time on SCRATCH: {time.total_seconds():.2f}s"
+            f"[{datetime.now()}] - Measured torch import time on SCRATCH: {time:.2f}s"
         )
         self.refresh()
 
@@ -346,11 +346,13 @@ previous_torch_import_time_results_file = "mila_scratch_torch_import_time.csv"
 class ScratchMonitorWidget(Widget):
     """A widget to show the import time for torch."""
 
-    import_time: reactive[timedelta | None] = reactive(None)
-    import_time_ema: reactive[timedelta | None] = reactive(None)
+    import_time: reactive[float | None] = reactive(None)
+    import_time_ema: reactive[float | None] = reactive(None)
     vals: reactive[collections.deque[tuple[datetime, float]]] = reactive(
         collections.deque(maxlen=100)
     )
+    min_val: reactive[float | None] = reactive(None)
+    max_val: reactive[float | None] = reactive(None)
 
     def compose(self):
         """Compose the widget."""
@@ -367,32 +369,13 @@ class ScratchMonitorWidget(Widget):
         for row in reader:
             dt = datetime.strptime(row[0], "%Y/%m/%d %H:%M:%S")
             time = float(row[1])
-            self.vals.append((dt, time))
+            self.add_value(time, when=dt)
 
-    def on_mount(self) -> None:
-        plt = self.query_one(PlotextPlot).plt
-        plt.date_form("Y/m/d H:M:S")
-        self.load_previous_results()
-        if self.vals:
-            times: tuple[datetime, ...]
-            times, vals = zip(*self.vals)
-            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
-        plt.title("Torch import time")
+    def add_value(self, time: float, when: datetime | None = None) -> None:
+        """Add a value to the plot."""
+        if when is None:
+            when = datetime.now()
 
-    def replot(self) -> None:
-        """Set up the plot."""
-        plt = self.query_one(PlotextPlot).plt
-        plt.clear_data()
-        plt.date_form("Y/m/d H:M:S")
-        if self.vals:
-            times: tuple[datetime, ...]
-            times, vals = zip(*self.vals)
-            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
-        self.refresh()
-
-    def update(self, time: timedelta) -> None:
         if self.import_time is None:
             assert self.import_time_ema is None
             self.import_time = time
@@ -404,19 +387,63 @@ class ScratchMonitorWidget(Widget):
             self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
 
-        if time > self.import_time_ema:
+        self.vals.append((when, time))
+        _, times = zip(*self.vals)
+
+        # Update in a way that preserves the min and max over all time, not just last 100
+        if self.min_val is None and self.max_val is None:
+            self.min_val = min(times)
+            self.max_val = max(times)
+        else:
+            assert self.min_val is not None and self.max_val is not None
+            self.min_val = min(min(times), self.min_val)
+            self.max_val = max(max(times), self.max_val)
+        # todo: unsure if it is a good idea to do this for every new value.
+        # self.vals = self.vals.copy()
+
+    def on_mount(self) -> None:
+        plt = self.query_one(PlotextPlot).plt
+        plt.date_form("Y/m/d H:M:S")
+        self.load_previous_results()
+        if self.vals:
+            times: tuple[datetime, ...]
+            times, vals = zip(*self.vals)
+            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
+            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
+        plt.title(f"Torch import time (min={self.min_val}, max={self.max_val})")
+
+    def replot(self) -> None:
+        """Set up the plot."""
+        plt = self.query_one(PlotextPlot).plt
+        plt.clear_data()
+        plt.date_form("Y/m/d H:M:S")
+        if self.vals:
+            times: tuple[datetime, ...]
+            times, vals = zip(*self.vals)
+            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
+            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
+        plt.title(f"Torch import time (min={self.min_val}, max={self.max_val})")
+        self.refresh()
+
+    def update(self, time: float) -> None:
+        now = datetime.now()
+        self.add_value(time, when=now)
+        _when, times = zip(*self.vals)
+
+        std = np.std(times)
+        assert self.min_val is not None
+        assert self.max_val is not None
+
+        if time > self.min_val + std:
             self.notify(
                 title="$SCRATCH is slow!",
                 message=(
                     f"$SCRATCH on Mila cluster is slower than usual: "
-                    f"{time.total_seconds():.2}s vs {self.import_time_ema.total_seconds():.2f}s"
+                    f"{time:.2f}s vs {self.import_time_ema:.2f}s"
                 ),
                 severity="warning",
                 timeout=300,
             )
-
-        self.vals.append((datetime.now(), time.total_seconds()))
-        self.vals = self.vals.copy()  # to trigger a reactive update.
 
         if CACHE_DIR:
             # Ugly: Save previous values to a file so reopening the UI reloads them.
@@ -430,14 +457,15 @@ class ScratchMonitorWidget(Widget):
                 writer = csv.writer(f)
                 writer.writerow(
                     [
-                        datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
-                        str(time.total_seconds()),
+                        now.strftime("%Y/%m/%d %H:%M:%S"),
+                        str(time),
                     ]
                 )
 
         logger.info(f"Torch import time: {self.import_time}")
         logger.info(f"EMA: {self.import_time_ema}")
-        logger.info(f"Average: {self.import_time_ema}")
+        logger.info(f"Average: {np.mean(times)}")
+        self.vals = self.vals.copy()  # to trigger a reactive update.
         self.replot()
 
 
@@ -466,7 +494,7 @@ async def setup_torch_import_time_project(
 
 async def get_torch_import_time(
     hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-) -> timedelta | None:
+) -> float | None:
     # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
     # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
     uv = await get_uv_path(hostname)
@@ -481,7 +509,7 @@ async def get_torch_import_time(
         'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
     )
     result = await run_subprocess(command)
-    return timedelta(seconds=float(result.stdout.strip()))
+    return float(result.stdout.strip())
 
 
 async def get_uv_path(hostname: str) -> str | None:
