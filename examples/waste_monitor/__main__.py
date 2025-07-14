@@ -70,6 +70,7 @@ async def setup_connections():
 async def async_main():
     _setup_logging(verbose=2)
     await setup_connections()
+    get_data([cluster.cluster_name for cluster in get_available_clusters()])
     app = WasteMonitor()
     await app.run_async()
 
