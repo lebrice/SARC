@@ -209,25 +209,33 @@ class WasteMonitor(App):
         # self.update_jobs_dataframe()
         assert self.full_data is not None
         self.data = self.full_data[self.full_data["cluster_name"].isin(self.clusters)]
+        self.query_one(RichLog).write(
+            rich.pretty.Pretty(sorted(self.data["cluster_name"].unique()))
+        )
+        self.query_exactly_one("#worst_jobs_table", DataTable).clear()
+        self.query_exactly_one("#best_jobs_table", DataTable).clear()
         self.populate_ui(self.data)
+        # self.update_jobs_dataframe()
 
     @work(exclusive=True, thread=True)
     async def update_jobs_dataframe(self) -> None:
         full_data = get_data()
+        self.call_from_thread(self.set_full_data, full_data)
         self.call_from_thread(self.populate_ui, full_data)
         # return self.data
         # self.data = data
         # await self.populate_ui(data)
+
+    def set_full_data(self, data: pd.DataFrame) -> None:
+        """Set the full data and update the UI."""
+        self.full_data = data
 
     # @work(exclusive=True)
     # async def update_alerts(self) -> None:
     #     self.alerts = await asyncio.gather(*(alert(self.data) for alert in alerts))
 
     def populate_ui(self, data: pd.DataFrame) -> None:
-        self.full_data = data
-        # todo: still probably expensive to run, right?
-        self.data = self.full_data[self.full_data["cluster_name"].isin(self.clusters)]
-
+        self.data = data
         # TODO: The multiplexed SSH connections to all clusters should already be setup before this is launched
         # to avoid the SSH 2FA prompts messing up the UI.
         cluster_overview_table = self.query_exactly_one(
@@ -247,7 +255,7 @@ class WasteMonitor(App):
         worst_jobs_table = self.query_exactly_one("#worst_jobs_table", DataTable)
         worst_jobs_table.cursor_type = "row"
         fill_jobs_view_datatable(worst_jobs_table, data)
-        for row_key, row in worst_jobs_table.rows.items():
+        for row_key, row in list(worst_jobs_table.rows.items()):
             if row_key.value:
                 cluster, _, job_id = row_key.value.partition("_")
                 if cluster not in self.clusters:
@@ -260,7 +268,7 @@ class WasteMonitor(App):
         best_jobs_table = self.query_exactly_one("#best_jobs_table", DataTable)
         best_jobs_table.cursor_type = "row"
         fill_jobs_view_datatable(best_jobs_table, data, reverse=True)
-        for row_key, row in best_jobs_table.rows.items():
+        for row_key, row in list(best_jobs_table.rows.items()):
             if row_key.value:
                 cluster, _, job_id = row_key.value.partition("_")
                 if cluster not in self.clusters:

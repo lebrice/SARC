@@ -346,13 +346,13 @@ def fill_jobs_view_datatable(
         jobs = data.nsmallest(
             n=n_to_show,
             columns="rgu_equivalent_waste",
-            keep="all",
+            # keep="all",
         )
     else:
         jobs = data.nlargest(
             n=n_to_show,
             columns="rgu_equivalent_waste",
-            keep="all",
+            # keep="all",
         )
 
     # Doesn't really work.
