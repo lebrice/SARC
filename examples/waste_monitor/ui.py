@@ -410,19 +410,27 @@ class ScratchMonitorWidget(Widget):
             times, vals = zip(*self.vals)
             stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
             plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
-        plt.title(f"Torch import time (min={self.min_val}, max={self.max_val})")
+            plt.title(
+                f"Torch import time (min={self.min_val}, max={self.max_val}) (WIP: hover to see updated values)"
+            )
+        else:
+            plt.title(
+                "Torch import time: loading... (WIP: hover in a few seconds to see updated values)"
+            )
 
     def replot(self) -> None:
         """Set up the plot."""
         plt = self.query_one(PlotextPlot).plt
         plt.clear_data()
         plt.date_form("Y/m/d H:M:S")
-        if self.vals:
-            times: tuple[datetime, ...]
-            times, vals = zip(*self.vals)
-            stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
-        plt.title(f"Torch import time (min={self.min_val}, max={self.max_val})")
+        assert self.vals
+        times: tuple[datetime, ...]
+        times, vals = zip(*self.vals)
+        stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
+        plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
+        plt.title(
+            f"Torch import time (min={self.min_val}, max={self.max_val}) (WIP: hover to see updated values)"
+        )
         self.refresh()
 
     def update(self, time: float) -> None:
@@ -439,7 +447,7 @@ class ScratchMonitorWidget(Widget):
                 title="$SCRATCH is slow!",
                 message=(
                     f"$SCRATCH on Mila cluster is slower than usual: "
-                    f"{time:.2f}s vs {self.import_time_ema:.2f}s"
+                    f"{time=:.2f}s vs {self.min_val=:.2f}s"
                 ),
                 severity="warning",
                 timeout=300,
