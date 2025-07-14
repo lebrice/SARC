@@ -1,4 +1,4 @@
-from .ui import ValidateApp, WasteMonitor
+from .ui import WasteMonitor
 
 # app = WasteMonitor
-__all__ = ["WasteMonitor", "ValidateApp"]
+__all__ = ["WasteMonitor"]

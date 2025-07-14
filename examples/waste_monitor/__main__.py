@@ -4,27 +4,18 @@
 #     "rich",
 #     "sarc",
 #     "textual",
+#     "textual_plotext",
 # ]
 #
 # [tool.uv.sources]
 # sarc = { path = "../../" }
 # ///
+import asyncio
 import logging
-import os
 import subprocess
-import sys
-from pathlib import Path
 
 import rich.logging
 import textual.logging
-
-# Get the absolute path of the directory containing the current script
-current_dir = Path(__file__).resolve().parent
-
-# Add the project's root directory (or any other relevant directory) to sys.path
-# This allows importing modules from that added directory as if they were top-level packages.
-project_root = current_dir.parent  # Adjust based on your project structure
-sys.path.append(str(project_root))
 from waste_monitor.common_utils import get_available_clusters
 from waste_monitor.sarc_patches import CLUSTER_DOWN, setup_sarc_connection
 from waste_monitor.ui import WasteMonitor
@@ -75,14 +66,16 @@ async def setup_connections():
             )
 
 
-async def app():
+async def async_main():
     _setup_logging(verbose=2)
     await setup_connections()
     app = WasteMonitor()
     await app.run_async()
 
 
-if __name__ == "__main__":
-    import asyncio
+def main():
+    asyncio.run(async_main())
 
-    asyncio.run(app())
+
+if __name__ == "__main__":
+    main()

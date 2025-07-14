@@ -7,12 +7,8 @@ from typing import Sequence
 
 import pandas as pd
 import rich
-import rich.panel
 import rich.pretty
-import rich.text
-import textual
-import textual.widgets
-from textual import events, work
+from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import (
     Grid,
@@ -33,6 +29,7 @@ from textual.widgets import (
     RichLog,
 )
 from textual.worker import Worker, WorkerState, get_current_worker
+from textual_plotext import PlotextPlot
 
 from examples.waste_monitor.sarc_patches import CLUSTER_DOWN, setup_sarc_connection
 
@@ -59,7 +56,7 @@ alerts: list[Alert] = [
 
 
 class WasteMonitor(App):
-    TITLE = f"[b]SARC[/b] Waste Monitoring - {datetime.now().ctime().replace(':', '[blink]:[/]')}"
+    TITLE = "SARC Waste Monitoring"
     SUB_TITLE = "Data from the last 7 days. Last update: TODO"
     # For live editing the CSS:
     # CSS_PATH = Path(__file__).parent / "waste_monitor.tcss"
@@ -80,6 +77,9 @@ class WasteMonitor(App):
         height: 1fr;
     }
 
+    RichLog {
+    }
+    
     #cluster_overview {
         padding: 2 4;
     }
@@ -132,7 +132,13 @@ class WasteMonitor(App):
                 with Grid():  # with Horizontal():
                     yield DataTable(id="cluster_overview_table")
                     yield ScratchMonitorWidget(id="scratch_monitor")
-                yield RichLog(highlight=True, markup=True, id="overview_log")
+                # todo: make this smaller (at the bottom of the screen)
+                yield RichLog(
+                    # max_lines=5,
+                    highlight=True,
+                    markup=True,
+                    id="overview_log",
+                )
                 # yield DataTable(id="alerts_table")
             with VerticalScroll(id="user_view"):
                 yield DataTable(id="user_view_table")
@@ -196,32 +202,42 @@ class WasteMonitor(App):
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Called when the worker state changes."""
         self.log(event)
-        self.query_one(RichLog).write(
-            f"{event.state.name}: ({event.worker})"
-            # if event.state in (WorkerState.PENDING, WorkerState.RUNNING)
-            # else event.state
-        )
+        # self.query_one(RichLog).write(
+        #     f"{event.state.name}: ({event.worker})"
+        #     # if event.state in (WorkerState.PENDING, WorkerState.RUNNING)
+        #     # else event.state
+        # )
 
     # @on(Checkbox.Changed)
     async def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         assert event.checkbox.id
+        cluster = event.checkbox.id
         if event.value:
-            self.query_one(RichLog).write(f"Added {event.checkbox.id} cluster")
-            self.clusters = self.clusters | {event.checkbox.id}
+            # self.query_one(RichLog).write(f"Added {cluster} cluster")
+            self.clusters = self.clusters | {cluster}
+            self.notify(
+                title="Cluster Selected",
+                message=f"Selected {cluster} cluster.",
+                timeout=5,
+            )
         else:
-            self.query_one(RichLog).write(f"Unselected cluster {event.checkbox.id}")
-            self.clusters = self.clusters.difference({event.checkbox.id})
+            # self.query_one(RichLog).write(f"Unselected cluster {cluster}")
+            self.clusters = self.clusters.difference({cluster})
+            self.notify(
+                title="Cluster Unselected",
+                message=f"Unselected {cluster} cluster.",
+                timeout=5,
+            )
         # self.query_one(RichLog).write(rich.pretty.Pretty(sorted(self.clusters)))
         # self.sub_title = f"Data for clusters {list(self.clusters)}"
         # self.update_jobs_dataframe()
         assert self.full_data is not None
         self.data = self.full_data[self.full_data["cluster_name"].isin(self.clusters)]
-        self.query_one(RichLog).write(
-            rich.pretty.Pretty(sorted(self.data["cluster_name"].unique()))
-        )
         self.query_exactly_one("#worst_jobs_table", DataTable).clear()
         self.query_exactly_one("#best_jobs_table", DataTable).clear()
         self.populate_ui(self.data)
+        # self.clear_notifications()
+
         # self.update_jobs_dataframe()
 
     @work(exclusive=True, group="data", thread=True)
@@ -236,6 +252,7 @@ class WasteMonitor(App):
     def set_full_data(self, data: pd.DataFrame) -> None:
         """Set the full data and update the UI."""
         self.full_data = data
+        self.sub_title = f"Data from the last 7 days. Last update: {datetime.now()}"
 
     # @work(exclusive=True)
     # async def update_alerts(self) -> None:
@@ -298,43 +315,6 @@ class WasteMonitor(App):
     #     pass
 
 
-class ValidateApp(App):
-    # CSS_PATH = "validate01.tcss"
-    CSS = """\
-    #buttons {
-        dock: top;
-        height: auto;
-    }
-    """
-    count = reactive(0)
-
-    def validate_count(self, count: int) -> int:
-        """Validate value."""
-        if count < 0:
-            count = 0
-        elif count > 10:
-            count = 10
-        return count
-
-    def compose(self) -> ComposeResult:
-        yield Horizontal(
-            Button("+1", id="plus", variant="success"),
-            Button("-1", id="minus", variant="error"),
-            id="buttons",
-        )
-        yield RichLog(highlight=True)
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "plus":
-            self.count += 1
-        else:
-            self.count -= 1
-        self.query_one(RichLog).write(f"count = {self.count}")
-
-
-from textual_plotext import PlotextPlot
-
-
 class ScratchMonitorWidget(Widget):
     """A widget to show the import time for torch."""
 
@@ -355,7 +335,7 @@ class ScratchMonitorWidget(Widget):
             times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
             stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, label="Torch import time on $SCRATCH")
+            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
         plt.title("Torch import time")
 
     def replot(self) -> None:
@@ -363,16 +343,11 @@ class ScratchMonitorWidget(Widget):
         plt = self.query_one(PlotextPlot).plt
         plt.clear_data()
         plt.date_form("d/m/Y H:M:S")
-        # time, vals = zip(*self.vals)
         if self.vals:
             times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
-            # times = [str(t) for t in times]
             stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, label="Torch import time on $SCRATCH")
-        # else:
-        #     time = []
-        #     vals = []
+            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
         self.refresh()
 
     def update(self, time: timedelta) -> None:
@@ -386,6 +361,17 @@ class ScratchMonitorWidget(Widget):
             alpha = 0.1
             self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
+        if time > self.import_time_ema:
+            self.notify(
+                title="$SCRATCH is slow!",
+                message=(
+                    f"$SCRATCH on Mila cluster is slower than usual: "
+                    f"{time.total_seconds():.2}s vs {self.import_time_ema.total_seconds():.2f}s"
+                ),
+                severity="warning",
+                timeout=300,
+            )
+
         self.vals.append((datetime.now(), time.total_seconds()))
         logger.info(f"Torch import time: {self.import_time}")
         logger.info(f"EMA: {self.import_time_ema}")
@@ -402,34 +388,12 @@ class ScratchMonitorWidget(Widget):
             # else event.state
         )
 
-    # def render(self):
-    #     """Render the widget."""
-    # import plotext as plt
-
-    # x = [i for i in range(100)]
-    # y = [i**2 for i in x]
-
-    # plt.plot(x, y)
-    # plt.title("My Terminal Plot")
-    # plt.xlabel("X-axis")
-    # plt.ylabel("Y-axis")
-    # fig = plt.active()
-    # fig.build()
-    # return fig.monitor.matrix.canvas
-
-    # if self.import_time is None:
-    #     assert self.import_time_ema is None
-    #     return rich.text.Text("No torch import time measured yet.")
-    # assert self.import_time_ema is not None
-    # return rich.text.Text(
-    #     f"Torch import time on $SCRATCH: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
-    # )
-
     def on_ready(self) -> None:
         """Called when the widget is ready."""
         # self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
         #     "Timestamp", "Torch import time"
         # )
+        self.notify("Hello, from Textual!", title="Welcome")
         self.log(f"Import time: {self.measure_scratch_torch_import_time()}")
         self.set_interval(60, self.measure_scratch_torch_import_time)
 

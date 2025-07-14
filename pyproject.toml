@@ -39,7 +39,7 @@ dependencies = [
 
 [project.scripts]
 sarc = "sarc.cli:main"
-waste_monitor = "examples.waste_monitor:main"
+waste_monitor = "examples.waste_monitor.__main__:main"
 
 [dependency-groups]
 dev = [
