@@ -10,7 +10,7 @@ import tempfile
 import textwrap
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Protocol, Sequence, Text
 
 import numpy as np
 import pandas as pd
@@ -37,7 +37,7 @@ from .common_utils import (
     midnight,
     run_subprocess,
 )
-from .sarc_patches import get_clean_sarc_data
+from .sarc_patches import CLUSTER_DOWN, get_clean_sarc_data
 
 logger = logging.getLogger(__name__)
 
@@ -425,17 +425,18 @@ def fill_jobs_view_datatable(
         )
         # TODO: Only fetch the submit line on a keypress event instead!
         # submit_line = await get_submit_line(job_id, cluster_name)
-        if cluster_name != "mila":
-            submit_line = "Press 'f' to fetch the submit line."
-        else:
-            # TODO: Slows up the UI way too much!
-            submit_line = "Press 'f' to fetch the submit line."
-            # submit_line = get_submit_line, job_id, cluster_name
-            # )
+        submit_line = f"[@click=app.get_submit_line('{cluster_name}','{job_id}')]Click to get submit line[/]"
+        # if cluster_name != "mila":
+        # submit_line = "Press 'f' to fetch the submit line."
+        # else:
+        # TODO: Slows up the UI way too much!
+        # submit_line = "Press 'f' to fetch the submit line."
+        # submit_line = get_submit_line, job_id, cluster_name
+        # )
 
-            # submit_line = await asyncio.get_running_loop().run_in_executor(
-            #     None, get_submit_line, job_id, cluster_name
-            # )
+        # submit_line = await asyncio.get_running_loop().run_in_executor(
+        #     None, get_submit_line, job_id, cluster_name
+        # )
         row_key = f"{cluster_name}_{job_id}"
 
         row_data = [
@@ -460,6 +461,9 @@ def fill_jobs_view_datatable(
             for col, old_data, new_data in zip(
                 column_keys, existing_row_data, row_data
             ):
+                if col == "submit_line":
+                    if "submit line" in new_data:
+                        continue  # keep old data with actual submit line!
                 if old_data != new_data:
                     logger.debug(
                         f"Updating {col} for {row_key}: {old_data} -> {new_data}"
@@ -508,8 +512,7 @@ def _header_panel():
     return _Header()
 
 
-@functools.cache
-def get_submit_line(job_id: int | str, cluster_name: str) -> str:
+async def get_submit_line(job_id: int | str, cluster_name: str) -> str:
     # Do this only once (and then reuse the connection)
     assert CACHE_DIR and CACHE_DIR.exists() and CACHE_DIR.is_dir()
     cache_file = CACHE_DIR / _get_cache_file_name(get_submit_line, job_id, cluster_name)
@@ -529,13 +532,13 @@ def get_submit_line(job_id: int | str, cluster_name: str) -> str:
     # Need to first establish the multiplexed SSH connection to the cluster, in case it uses 2FA.
     # If we didn't and used a single command, the login banner / 2FA message on DRAC would be
     # also included in the output of the command.
-    submit_line = subprocess.getoutput(
+    proc = await run_subprocess(
         f"ssh -o ControlMaster=auto -o 'ControlPath={control_path}' -o ControlPersist=yes {cluster_name} sacct -j {job_id} --noheader -o submitline%300"
     )
     # submit_line = await login_node.get_output_async(
     #     f"sacct -j {job_id} --noheader -o submitline%300",
     # )
-    submit_line = submit_line.strip()
+    submit_line = proc.stdout.strip()
     cache_file.write_text(submit_line)
     logger.debug(f"Saved submit line to cache: {cache_file}")
     return submit_line

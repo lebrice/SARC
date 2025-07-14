@@ -9,6 +9,8 @@ import pandas as pd
 import rich
 import rich.logging
 import rich.pretty
+import rich.syntax
+from pandas import DataFrame
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import (
@@ -103,7 +105,7 @@ class WasteMonitor(App):
     # stuff = [alert(data) for alert in alerts]
 
     BINDINGS = [
-        ("f", "get_submit_line", "Get job submit line"),
+        # ("f", "get_submit_line", "Get job submit line"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -156,30 +158,41 @@ class WasteMonitor(App):
             "_button"
         )
 
-    def action_get_submit_line(self) -> None:
+    async def action_get_submit_line(self, cluster_name: str, job_id: str) -> None:
         """Get the job submit line for the currently selected job."""
         current_panel = self.query_one(ContentSwitcher).current
+        self.query_one(RichLog).write(
+            f"Fetching submit_line for selected job: {cluster_name=}, {job_id=}"
+        )
         if current_panel not in {"worst_jobs", "best_jobs"}:
             return
+        row_key = f"{cluster_name}_{job_id}"
+        tables_to_update = [
+            table for table in self.query(DataTable) if row_key in table.rows
+        ]
+        assert tables_to_update, "can't update a job that isnt in any of the tables!"
+        current_submit_line = tables_to_update[0].get_row(row_key)[-1]
 
-        table = self.query_one(DataTable)
-        # if not table.cursor_row:
-        #     self.query_one(RichLog).write("No job selected.")
-        #     return
-        index = table.cursor_row
-        row_key, col_key = table.coordinate_to_cell_key(table.cursor_coordinate)
+        if "submit_line" not in current_submit_line:
+            # Submit line was already fetched for this job.
+            return
+
         self.query_one(RichLog).write(
-            f"Current selected job: {row_key.value}, {col_key.value}"
+            f"Fetching submit_line for selected job: {cluster_name=}, {job_id=}"
         )
-        return  # TODO: implement the rest of this here.
-        assert row_key.value
-        job_id, _, cluster = row_key.value.partition("_")
-        submit_line = get_submit_line(job_id=job_id, cluster=cluster)
-        table.update_cell(row_key=row_key, column_key="submit_line", value=submit_line)
-        # if "submit_line" in job:
-        # self.query_one(RichLog).write(f"Job submit line: {job['submit_line']}")
-        # else:
-        # self.query_one(RichLog).write("No submit line available for this job.")
+        submit_line = await get_submit_line(cluster_name=cluster_name, job_id=job_id)
+        self.query_one(RichLog).write(
+            f"Received submit_line for {job_id=}, {cluster_name=}:\n"
+            f"{rich.syntax.Syntax(submit_line, 'bash')}"
+        )
+        for table_to_update in tables_to_update:
+            # Update the submit line in the table.
+            table_to_update.update_cell(
+                row_key=row_key,
+                column_key="submit_line",
+                value=submit_line,
+                update_width=True,
+            )
 
     def on_ready(self) -> None:
         self.update_jobs_dataframe()
