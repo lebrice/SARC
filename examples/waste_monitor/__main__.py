@@ -17,10 +17,9 @@ import subprocess
 import rich.logging
 import textual.logging
 
-from .common_utils import get_available_clusters
-from .sarc_patches import CLUSTER_DOWN, setup_sarc_connection
-from .ui import WasteMonitor
-from .waste_utils import (
+from .common_utils import CLUSTER_DOWN, get_available_clusters, setup_sarc_connection
+from .ui import (
+    WasteMonitor,
     get_data,
     logger,
     setup_multiplexed_ssh_conection,
@@ -55,6 +54,9 @@ _setup_logging(verbose=2)
 
 async def setup_connections():
     await setup_sarc_connection()
+    logger.info(
+        "Successfully set up multiplexed SSH connection to sarc01-dev with port forwarding."
+    )
     for cluster in get_available_clusters():
         if CLUSTER_DOWN.get(cluster.cluster_name):
             logger.info(f"Skipping {cluster} cluster which is supposedly down.")

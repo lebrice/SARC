@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 import functools
@@ -15,13 +17,51 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Callable
 
+import gifnoc
+import paramiko
+import paramiko.config
 import simple_parsing
+import yaml
+from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self, Sequence
 
 from sarc.client.users.api import User
-from sarc.config import MTL
+from sarc.config import MTL, ClientConfig
 
 logger = logging.getLogger(__name__)
+
+
+# todo: add a proper date here.
+CLUSTER_DOWN: dict[str, bool] = {"cedar": datetime.now() < datetime(2025, 7, 1)}
+sarc_client_config_file = (
+    Path(__file__).parent.parent.parent / "config/sarc-client.yaml"
+)
+sarc_dev_config_file = Path(__file__).parent.parent.parent / "config/sarc-dev.yaml"
+if sarc_client_config_file.exists():
+    # This script is being executed either from the SARC root, or maybe from an editable install
+    # of the SARC package.
+    assert sarc_dev_config_file.exists()
+elif (
+    other_possible_config_path := sarc_client_config_file.parent.parent
+    / "sarc"
+    / "config"
+    / sarc_client_config_file.name
+).exists():
+    # SARC was installed as a package, and the package-data was included a the path `sarc/config`
+    # (via `tool.hatch.build.targets.wheel.force-include`), so the sarc configs are actually now
+    # inside SARC (instead of being a separate package in the site-packages directory).
+    sarc_client_config_file = other_possible_config_path
+    sarc_dev_config_file = sarc_client_config_file.parent / sarc_dev_config_file.name
+
+assert sarc_client_config_file.exists(), sarc_client_config_file
+assert sarc_dev_config_file.exists(), sarc_dev_config_file
+
+gifnoc.set_sources(sarc_client_config_file)
+
+sarc_client_config = from_dict(
+    ClientConfig, yaml.safe_load(sarc_client_config_file.read_text())["sarc"]
+)
+
 
 CACHE_DIR: Path | None = (
     Path(os.environ["CF_DATA"])
@@ -306,3 +346,64 @@ def get_available_clusters():
     from sarc.client.job import get_available_clusters
 
     return tuple(get_available_clusters())
+
+
+async def setup_sarc_connection():
+    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
+    control_socket_path = Path(
+        ssh_config.lookup("sarc").get(
+            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
+        )
+    ).expanduser()
+
+    user = ssh_config.lookup("sarc").get("user", ssh_config.lookup("mila").get("user"))
+    if not user:
+        raise ValueError(
+            "Don't know which user to use when connecting to sarc! Make sure you have either a 'mila' or 'sarc' entry in your SSH config file."
+        )
+
+    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
+    multiplexing_args = (
+        f"-o ControlMaster=auto "
+        f"-o 'ControlPath={control_socket_path}' "
+        f"-o ControlPersist=yes"
+    )
+
+    sarc_client_connection_string = yaml.safe_load(sarc_client_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_client_connection_string, str)
+    # "mongodb://readuser:readpwd@localhost:8123/sarc" --> "8123"
+    sarc_client_local_port = (
+        sarc_client_connection_string.rpartition("@")[2]
+        .partition(":")[2]
+        .partition("/")[0]
+    )
+
+    sarc_dev_connection_string = yaml.safe_load(sarc_dev_config_file.read_text())[
+        "sarc"
+    ]["mongo"]["connection_string"]
+    assert isinstance(sarc_dev_connection_string, str)
+    # "mongodb://localhost:27017/sarc-dev" --> "27017"
+    sarc_dev_remote_port = (
+        sarc_dev_connection_string.rpartition("@")[
+            2
+        ]  # might return the whole string if there is no user:pwd@...
+        .partition("://")[2]  # "localhost:27017/sarc-dev"
+        .partition("/")[0]  # "localhost:27017"
+        .partition(":")[2]  # "27017"
+    )
+    assert sarc_client_local_port
+    assert sarc_dev_remote_port
+
+    port_forwarding_args = (
+        f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
+    )
+
+    await run_subprocess(
+        f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} {user}@sarc01-dev echo OK",
+        stdout=subprocess.PIPE,
+    )
+    logger.info(
+        "Successfully set up SSH connection to sarc01-dev with port forwarding."
+    )

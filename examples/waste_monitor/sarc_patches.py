@@ -10,22 +10,20 @@ from __future__ import annotations
 import dataclasses
 import functools
 import logging
-import subprocess
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Mapping
 
 import gifnoc
+import gifnoc.proxy
 import numpy as np
 import pandas as pd
-import paramiko
-import paramiko.config
+import pydantic_core
 import pymongo.errors
 import rich
 import rich.pretty
 import yaml
-from simple_parsing.helpers.serialization.serializable import from_dict
 
 from sarc.client.gpumetrics import get_rgus
 from sarc.client.job import JobStatistics
@@ -35,45 +33,14 @@ from sarc.client.series import (
     update_job_series_rgu,
 )
 from sarc.client.users.api import User, get_users
-from sarc.config import MTL, ClientConfig, ClusterConfig
+from sarc.config import MTL, ClusterConfig
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
 
 from .common_utils import (
     FilteringOptions,
     cache_results_to_file,
     get_available_clusters,
-    run_subprocess,
-)
-
-# todo: add a proper date here.
-CLUSTER_DOWN: dict[str, bool] = {"cedar": datetime.now() < datetime(2025, 7, 1)}
-sarc_client_config_file = (
-    Path(__file__).parent.parent.parent / "config/sarc-client.yaml"
-)
-sarc_dev_config_file = Path(__file__).parent.parent.parent / "config/sarc-dev.yaml"
-if sarc_client_config_file.exists():
-    # This script is being executed either from the SARC root, or maybe from an editable install
-    # of the SARC package.
-    assert sarc_dev_config_file.exists()
-elif (
-    other_possible_config_path := sarc_client_config_file.parent.parent
-    / "sarc"
-    / "config"
-    / sarc_client_config_file.name
-).exists():
-    # SARC was installed as a package, and the package-data was included a the path `sarc/config`
-    # (via `tool.hatch.build.targets.wheel.force-include`), so the sarc configs are actually now
-    # inside SARC (instead of being a separate package in the site-packages directory).
-    sarc_client_config_file = other_possible_config_path
-    sarc_dev_config_file = sarc_client_config_file.parent / sarc_dev_config_file.name
-
-assert sarc_client_config_file.exists(), sarc_client_config_file
-assert sarc_dev_config_file.exists(), sarc_dev_config_file
-
-gifnoc.set_sources(sarc_client_config_file)
-
-sarc_client_config = from_dict(
-    ClientConfig, yaml.safe_load(sarc_client_config_file.read_text())["sarc"]
+    sarc_dev_config_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -782,57 +749,6 @@ def _get_cluster_configs() -> dict[str, ClusterConfig]:
             for k, v in yaml.safe_load(f)["sarc"]["clusters"].items()
         }
     return cluster_configs
-
-
-async def setup_sarc_connection():
-    ssh_config = paramiko.config.SSHConfig.from_path(Path.home() / ".ssh" / "config")
-    control_socket_path = Path(
-        ssh_config.lookup("sarc").get(
-            "controlpath", Path.home() / ".cache" / "ssh" / "%r@%h:%p"
-        )
-    ).expanduser()
-    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
-    multiplexing_args = (
-        f"-o ControlMaster=auto "
-        f"-o 'ControlPath={control_socket_path}' "
-        f"-o ControlPersist=yes"
-    )
-
-    sarc_client_connection_string = yaml.safe_load(sarc_client_config_file.read_text())[
-        "sarc"
-    ]["mongo"]["connection_string"]
-    assert isinstance(sarc_client_connection_string, str)
-    # "mongodb://readuser:readpwd@localhost:8123/sarc" --> "8123"
-    sarc_client_local_port = (
-        sarc_client_connection_string.rpartition("@")[2]
-        .partition(":")[2]
-        .partition("/")[0]
-    )
-
-    sarc_dev_connection_string = yaml.safe_load(sarc_dev_config_file.read_text())[
-        "sarc"
-    ]["mongo"]["connection_string"]
-    assert isinstance(sarc_dev_connection_string, str)
-    # "mongodb://localhost:27017/sarc-dev" --> "27017"
-    sarc_dev_remote_port = (
-        sarc_dev_connection_string.rpartition("@")[
-            2
-        ]  # might return the whole string if there is no user:pwd@...
-        .partition("://")[2]  # "localhost:27017/sarc-dev"
-        .partition("/")[0]  # "localhost:27017"
-        .partition(":")[2]  # "27017"
-    )
-    assert sarc_client_local_port
-    assert sarc_dev_remote_port
-
-    port_forwarding_args = (
-        f"-o 'LocalForward={sarc_client_local_port} 127.0.0.1:{sarc_dev_remote_port}'"
-    )
-
-    await run_subprocess(
-        f"ssh -o ProxyJump=mila {port_forwarding_args} {multiplexing_args} sarc01-dev echo OK",
-        stdout=subprocess.DEVNULL,
-    )
 
 
 def _fix_allocated_cpus_drac(df: pd.DataFrame):
