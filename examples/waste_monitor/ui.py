@@ -21,11 +21,11 @@ from rich.table import Table
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import (
-    Grid,
     Horizontal,
     HorizontalScroll,
+    Vertical,
     VerticalScroll,
-)
+)  # noqa
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import (
@@ -68,7 +68,7 @@ class WasteMonitor(App):
     TITLE = "SARC Waste Monitoring"
     SUB_TITLE = "Data from the last 7 days. Last update: TODO"
     # For live editing the CSS:
-    # CSS_PATH = Path(__file__).parent / "waste_monitor.tcss"
+    __CSS_PATH = Path(__file__).parent / "ui.tcss"
     CSS = """\
     Screen {
         align: center middle;
@@ -82,24 +82,32 @@ class WasteMonitor(App):
 
     ContentSwitcher {
         border: round $primary;
-        width: 90%;
+        # width: 90%;
         height: 1fr;
     }
 
-    RichLog {
-    }
-    
     #cluster_overview {
-        padding: 2 4;
+        padding: 1;
+        layout: grid;
+        grid-size: 2;
     }
 
     #cluster_overview_table {
-        align: center middle;
-        padding: 1 2;
+        column-span: 1;
+        padding: 1;
+        # width: 50%;
+    }
+    #scratch_monitor {
+        # height: 30%;
+        # width: 60%;
+        column-span: 1;
+        padding: 1;
     }
 
-    #alerts_table {
-        padding: 1 2;
+    #overview_log {
+        # height: 15%;
+        column-span: 2;
+        align: center bottom;
     }
     """
     clusters: reactive[set[str]] = reactive(set())
@@ -135,10 +143,12 @@ class WasteMonitor(App):
 
         with ContentSwitcher(initial="cluster_overview"):
             # with VerticalScroll(id="cluster_overview"):
-            with VerticalScroll(id="cluster_overview"):
-                with Grid():  # with Horizontal():
-                    yield DataTable(id="cluster_overview_table")
-                    yield ScratchMonitorWidget(id="scratch_monitor")
+            with Vertical(id="cluster_overview"):
+                # with Grid():  # with Horizontal():
+                yield DataTable(
+                    id="cluster_overview_table", name="Cluster Overview Table"
+                )
+                yield ScratchMonitorWidget(id="scratch_monitor")
                 # todo: make this smaller (at the bottom of the screen)
                 yield RichLog(
                     # max_lines=5,
@@ -350,6 +360,7 @@ class ScratchMonitorWidget(Widget):
     def on_mount(self) -> None:
         plt = self.query_one(PlotextPlot).plt
         plt.date_form("d/m/Y H:M:S")
+        # TODO: Hacky, save the import time to a file so reopening the UI reloads the previous values.
         if self.vals:
             times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
