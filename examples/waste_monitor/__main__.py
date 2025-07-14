@@ -16,10 +16,11 @@ import subprocess
 
 import rich.logging
 import textual.logging
-from waste_monitor.common_utils import get_available_clusters
-from waste_monitor.sarc_patches import CLUSTER_DOWN, setup_sarc_connection
-from waste_monitor.ui import WasteMonitor
-from waste_monitor.waste_utils import get_data, logger, setup_multiplexed_ssh_conection
+
+from .common_utils import get_available_clusters
+from .sarc_patches import CLUSTER_DOWN, setup_sarc_connection
+from .ui import WasteMonitor
+from .waste_utils import get_data, logger, setup_multiplexed_ssh_conection
 
 
 def _setup_logging(verbose: int):
