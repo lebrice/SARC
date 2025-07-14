@@ -72,6 +72,7 @@ examples = [
     "seaborn>=0.13.2,<0.14",
     "textual>=3.4.0",
     "textual-dev>=1.7.0",
+    "textual-plotext>=1.0.1",
 ]
 
 # to consider

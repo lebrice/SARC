@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import logging
 import subprocess
 from datetime import datetime, timedelta
@@ -9,12 +10,28 @@ import rich
 import rich.panel
 import rich.pretty
 import rich.text
+import textual
+import textual.widgets
 from textual import events, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
+from textual.containers import (
+    Grid,
+    Horizontal,
+    HorizontalScroll,
+    Vertical,
+    VerticalScroll,
+)
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Checkbox, ContentSwitcher, DataTable, RichLog
+from textual.widgets import (
+    Button,
+    Checkbox,
+    ContentSwitcher,
+    DataTable,
+    Footer,
+    Header,
+    RichLog,
+)
 from textual.worker import Worker, WorkerState, get_current_worker
 
 from examples.waste_monitor.sarc_patches import CLUSTER_DOWN, setup_sarc_connection
@@ -91,7 +108,7 @@ class WasteMonitor(App):
     def compose(self) -> ComposeResult:
         # Todo: time doesn't update properly.
         # yield Static(_header_panel(), id="header_panel")
-
+        yield Header(show_clock=True, id="header")
         with Horizontal(id="buttons"):
             yield Button("Overview", id="cluster_overview_button")
             yield Button("User View", id="user_view_button")
@@ -111,10 +128,11 @@ class WasteMonitor(App):
 
         with ContentSwitcher(initial="cluster_overview"):
             # with VerticalScroll(id="cluster_overview"):
-            with Vertical(id="cluster_overview"):
-                # with Horizontal():
-                yield DataTable(id="cluster_overview_table")
-                yield ScratchMonitorWidget(id="scratch_monitor")
+            with VerticalScroll(id="cluster_overview"):
+                with Grid():  # with Horizontal():
+                    yield DataTable(id="cluster_overview_table")
+                    yield ScratchMonitorWidget(id="scratch_monitor")
+                yield RichLog(highlight=True, markup=True, id="overview_log")
                 # yield DataTable(id="alerts_table")
             with VerticalScroll(id="user_view"):
                 yield DataTable(id="user_view_table")
@@ -123,7 +141,7 @@ class WasteMonitor(App):
             with VerticalScroll(id="best_jobs"):
                 yield DataTable(id="best_jobs_table")
 
-        yield RichLog(highlight=True, markup=True, id="overview_log")
+        yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         assert event.button.id is not None
@@ -134,7 +152,7 @@ class WasteMonitor(App):
     def action_get_submit_line(self) -> None:
         """Get the job submit line for the currently selected job."""
         current_panel = self.query_one(ContentSwitcher).current
-        if current_panel != "worst_jobs" and current_panel != "best_jobs":
+        if current_panel not in {"worst_jobs", "best_jobs"}:
             return
 
         table = self.query_one(DataTable)
@@ -314,58 +332,7 @@ class ValidateApp(App):
         self.query_one(RichLog).write(f"count = {self.count}")
 
 
-class ScratchMonitorApp(App):
-    # def compose(self):
-    #     yield ScratchMonitor()
-    import_time: reactive[timedelta | None] = reactive(None)
-    import_time_ema: reactive[timedelta | None] = reactive(None)
-
-    # def compose(self) -> ComposeResult:
-    #     """Compose the widget."""
-    # yield DataTable(id="scratch_monitor_table")
-
-    def render(self):
-        """Render the widget."""
-        if self.import_time is None:
-            assert self.import_time_ema is None
-            return rich.panel.Panel(
-                "No import time measured yet.", title="Scratch Monitor"
-            )
-        assert self.import_time_ema is not None
-        return rich.panel.Panel(
-            f"Import time: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)",
-            title="Scratch Monitor",
-        )
-
-    def on_ready(self) -> None:
-        """Called when the widget is ready."""
-        # self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
-        #     "Timestamp", "Torch import time"
-        # )
-        self.measure_scratch_torch_import_time()
-        self.set_interval(60, self.measure_scratch_torch_import_time)
-
-    @work(exclusive=True)
-    async def measure_scratch_torch_import_time(self) -> None:
-        """Measure the time it takes to import torch from the scratch directory."""
-        # This is a placeholder for the actual implementation.
-        # You would run a command like `time python -c "import torch"` in the scratch directory.
-        # For now, we will just log a message.
-        logger.debug("Measuring scratch torch import time...")
-        time = await get_torch_import_time("mila")
-        assert time is not None
-        if self.import_time is None:
-            assert self.import_time_ema is None
-            self.import_time = time
-            self.import_time_ema = time
-        else:
-            assert self.import_time_ema is not None
-            # Exponential moving average
-            alpha = 0.1
-            self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
-            self.import_time = time
-        logger.info(f"Torch import time: {self.import_time}")
-        logger.info(f"Torch import time EMA: {self.import_time_ema}")
+from textual_plotext import PlotextPlot
 
 
 class ScratchMonitorWidget(Widget):
@@ -373,10 +340,40 @@ class ScratchMonitorWidget(Widget):
 
     import_time: reactive[timedelta | None] = reactive(None)
     import_time_ema: reactive[timedelta | None] = reactive(None)
+    vals: reactive[collections.deque[tuple[datetime, float]]] = reactive(
+        collections.deque(maxlen=100)
+    )
 
-    # def compose(self) -> ComposeResult:
-    #     """Compose the widget."""
-    # yield DataTable(id="scratch_monitor_table")
+    def compose(self):
+        """Compose the widget."""
+        yield PlotextPlot()
+
+    def on_mount(self) -> None:
+        plt = self.query_one(PlotextPlot).plt
+        plt.date_form("d/m/Y H:M:S")
+        if self.vals:
+            times: tuple[datetime, ...]
+            times, vals = zip(*self.vals)
+            stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
+            plt.scatter(stimes, vals, label="Torch import time on $SCRATCH")
+        plt.title("Torch import time")
+
+    def replot(self) -> None:
+        """Set up the plot."""
+        plt = self.query_one(PlotextPlot).plt
+        plt.clear_data()
+        plt.date_form("d/m/Y H:M:S")
+        # time, vals = zip(*self.vals)
+        if self.vals:
+            times: tuple[datetime, ...]
+            times, vals = zip(*self.vals)
+            # times = [str(t) for t in times]
+            stimes = [t.strftime("%d/%m/%Y %H:%M:%S") for t in times]
+            plt.scatter(stimes, vals, label="Torch import time on $SCRATCH")
+        # else:
+        #     time = []
+        #     vals = []
+        self.refresh()
 
     def update(self, time: timedelta) -> None:
         if self.import_time is None:
@@ -389,8 +386,11 @@ class ScratchMonitorWidget(Widget):
             alpha = 0.1
             self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
             self.import_time = time
+        self.vals.append((datetime.now(), time.total_seconds()))
         logger.info(f"Torch import time: {self.import_time}")
-        logger.info(f"Torch import time EMA: {self.import_time_ema}")
+        logger.info(f"EMA: {self.import_time_ema}")
+        logger.info(f"Average: {self.import_time_ema}")
+        self.replot()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Called when the worker state changes."""
@@ -402,15 +402,28 @@ class ScratchMonitorWidget(Widget):
             # else event.state
         )
 
-    def render(self):
-        """Render the widget."""
-        if self.import_time is None:
-            assert self.import_time_ema is None
-            return rich.text.Text("No torch import time measured yet.")
-        assert self.import_time_ema is not None
-        return rich.text.Text(
-            f"Torch import time on $SCRATCH: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
-        )
+    # def render(self):
+    #     """Render the widget."""
+    # import plotext as plt
+
+    # x = [i for i in range(100)]
+    # y = [i**2 for i in x]
+
+    # plt.plot(x, y)
+    # plt.title("My Terminal Plot")
+    # plt.xlabel("X-axis")
+    # plt.ylabel("Y-axis")
+    # fig = plt.active()
+    # fig.build()
+    # return fig.monitor.matrix.canvas
+
+    # if self.import_time is None:
+    #     assert self.import_time_ema is None
+    #     return rich.text.Text("No torch import time measured yet.")
+    # assert self.import_time_ema is not None
+    # return rich.text.Text(
+    #     f"Torch import time on $SCRATCH: {self.import_time.total_seconds():.2f} seconds (EMA: {self.import_time_ema.total_seconds():.2f} seconds)"
+    # )
 
     def on_ready(self) -> None:
         """Called when the widget is ready."""
