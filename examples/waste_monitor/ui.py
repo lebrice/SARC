@@ -165,9 +165,6 @@ class WasteMonitor(App):
     async def action_get_submit_line(self, cluster_name: str, job_id: str) -> None:
         """Get the job submit line for the currently selected job."""
         current_panel = self.query_one(ContentSwitcher).current
-        self.query_one(RichLog).write(
-            f"Fetching submit_line for selected job: {cluster_name=}, {job_id=}"
-        )
         if current_panel not in {"worst_jobs", "best_jobs"}:
             return
         row_key = f"{cluster_name}_{job_id}"
@@ -181,12 +178,9 @@ class WasteMonitor(App):
             # Submit line was already fetched for this job.
             return
 
-        self.query_one(RichLog).write(
-            f"Fetching submit_line for selected job: {cluster_name=}, {job_id=}"
-        )
         submit_line = await get_submit_line(cluster_name=cluster_name, job_id=job_id)
         self.query_one(RichLog).write(
-            f"Received submit_line for {job_id=}, {cluster_name=}:\n\t{submit_line!r}"
+            f"[{datetime.now()}] Retrieved submit_line for selected job: {cluster_name=}, {job_id=}: {submit_line!r}"
         )
         for table_to_update in tables_to_update:
             # Update the submit line in the table.
@@ -351,7 +345,7 @@ class ScratchMonitorWidget(Widget):
 
     def compose(self):
         """Compose the widget."""
-        yield PlotextPlot()
+        yield PlotextPlot(id="scratch_torch_import_time_plot")
 
     def on_mount(self) -> None:
         plt = self.query_one(PlotextPlot).plt
@@ -402,50 +396,6 @@ class ScratchMonitorWidget(Widget):
         logger.info(f"EMA: {self.import_time_ema}")
         logger.info(f"Average: {self.import_time_ema}")
         self.replot()
-
-    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Called when the worker state changes."""
-        self.log(event)
-        assert self.parent
-        self.parent.query_one(RichLog).write(
-            f"{event.state.name}: ({event.worker})"
-            # if event.state in (WorkerState.PENDING, WorkerState.RUNNING)
-            # else event.state
-        )
-
-    def on_ready(self) -> None:
-        """Called when the widget is ready."""
-        # self.query_exactly_one("#scratch_monitor_table", DataTable).add_columns(
-        #     "Timestamp", "Torch import time"
-        # )
-        self.notify("Hello, from Textual!", title="Welcome")
-        self.log(f"Import time: {self.measure_scratch_torch_import_time()}")
-        self.set_interval(60, self.measure_scratch_torch_import_time)
-
-    @work(exclusive=True)
-    async def measure_scratch_torch_import_time(self) -> None:
-        """Measure the time it takes to import torch from the scratch directory."""
-        # This is a placeholder for the actual implementation.
-        # You would run a command like `time python -c "import torch"` in the scratch directory.
-        # For now, we will just log a message.
-        logger.debug("Measuring scratch torch import time...")
-        time = await get_torch_import_time("mila")
-        assert time is not None
-        if self.import_time is None:
-            assert self.import_time_ema is None
-            self.import_time = time
-            self.import_time_ema = time
-        else:
-            assert self.import_time_ema is not None
-            # Exponential moving average
-            alpha = 0.1
-            self.import_time_ema = self.import_time_ema * (1 - alpha) + time * alpha
-            self.import_time = time
-        logger.info(f"Torch import time: {self.import_time:T}")
-        logger.info(f"Torch import time EMA: {self.import_time_ema:T}")
-
-
-# ///
 
 
 async def setup_torch_import_time_project(

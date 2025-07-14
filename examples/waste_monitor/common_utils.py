@@ -359,7 +359,8 @@ async def setup_sarc_connection():
     user = ssh_config.lookup("sarc").get("user", ssh_config.lookup("mila").get("user"))
     if not user:
         raise ValueError(
-            "Don't know which user to use when connecting to sarc! Make sure you have either a 'mila' or 'sarc' entry in your SSH config file."
+            "Don't know which user to use when connecting to sarc! "
+            "Make sure you have either a 'mila' or 'sarc' entry in your SSH config file."
         )
 
     control_socket_path.parent.mkdir(parents=True, exist_ok=True)
