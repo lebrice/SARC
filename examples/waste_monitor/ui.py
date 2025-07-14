@@ -411,7 +411,7 @@ class ScratchMonitorWidget(Widget):
             stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
             plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
             plt.title(
-                f"Torch import time (min={self.min_val}, max={self.max_val}) (WIP: hover to see updated values)"
+                f"Torch import time (min={self.min_val:.2f}, max={self.max_val:.2f}) (WIP: hover to see updated values)"
             )
         else:
             plt.title(
@@ -429,7 +429,7 @@ class ScratchMonitorWidget(Widget):
         stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
         plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
         plt.title(
-            f"Torch import time (min={self.min_val}, max={self.max_val}) (WIP: hover to see updated values)"
+            f"Torch import time (min={self.min_val:.2f}, max={self.max_val:.2f}) (WIP: hover to see updated values)"
         )
         self.refresh()
 
