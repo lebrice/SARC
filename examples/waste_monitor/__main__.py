@@ -20,7 +20,12 @@ import textual.logging
 from .common_utils import get_available_clusters
 from .sarc_patches import CLUSTER_DOWN, setup_sarc_connection
 from .ui import WasteMonitor
-from .waste_utils import get_data, logger, setup_multiplexed_ssh_conection
+from .waste_utils import (
+    get_data,
+    logger,
+    setup_multiplexed_ssh_conection,
+    setup_torch_import_time_project,
+)
 
 
 def _setup_logging(verbose: int):
@@ -71,6 +76,7 @@ async def async_main():
     _setup_logging(verbose=2)
     await setup_connections()
     get_data([cluster.cluster_name for cluster in get_available_clusters()])
+    await setup_torch_import_time_project("mila")
     app = WasteMonitor()
     await app.run_async()
 

@@ -7,6 +7,7 @@ from typing import Sequence
 
 import pandas as pd
 import rich
+import rich.logging
 import rich.pretty
 from textual import work
 from textual.app import App, ComposeResult
@@ -253,6 +254,9 @@ class WasteMonitor(App):
         """Set the full data and update the UI."""
         self.full_data = data
         self.sub_title = f"Data from the last 7 days. Last update: {datetime.now()}"
+        self.query_exactly_one(RichLog).write(
+            f"[{datetime.now()}] - Updated SARC data."
+        )
 
     # @work(exclusive=True)
     # async def update_alerts(self) -> None:
@@ -309,6 +313,10 @@ class WasteMonitor(App):
         assert time is not None
         scratch_widget = self.query_exactly_one(ScratchMonitorWidget)
         scratch_widget.update(time)
+        self.query_exactly_one(RichLog).write(
+            f"[{datetime.now()}] - Measured torch import time on SCRATCH: {time.total_seconds():.2f}s"
+        )
+        self.refresh()
 
     # def on_mouse_move(self, event: events.MouseMove) -> None:
     #     # self.screen.query_one(RichLog).write(event)

@@ -42,22 +42,27 @@ from .sarc_patches import get_clean_sarc_data
 logger = logging.getLogger(__name__)
 
 
-async def setup_torch_import_test(
+async def setup_torch_import_time_project(
     hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
 ):
-    result = await run_subprocess(
-        f"ssh {hostname} bash -l",
-        input="\n".join(
-            [
-                f"mkdir -p {remote_dir}",
-                f"uv --directory='{remote_dir}' init",
-                f"uv --directory='{remote_dir}' add torch numpy",
-            ]
-        ),
+    uv = await get_uv_path(hostname)
+    if not uv:
+        logger.warning(
+            f"Could not find the `uv` executable on {hostname}. "
+            "Please ensure that UV is installed and available in the PATH."
+        )
+        return
+    proc = await run_subprocess(
+        f"ssh {hostname} '{uv} init {remote_dir} --python=3.12'", check=False
     )
-    print(result.stdout)
-    print(result.stderr)
-    result = await run_subprocess(f"ssh {hostname} 'ls {remote_dir}'")
+    if proc.returncode != 0:
+        if "Project is already initialized" in proc.stderr:
+            logger.info(f"Project {remote_dir} already exists on {hostname}.")
+        else:
+            raise _CalledProcessError.from_completed(proc)
+    await run_subprocess(
+        f"ssh {hostname} '{uv} add --project={remote_dir} torch numpy'", check=False
+    )
 
 
 async def get_torch_import_time(
@@ -65,6 +70,22 @@ async def get_torch_import_time(
 ) -> timedelta | None:
     # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
     # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
+    uv = await get_uv_path(hostname)
+    if not uv:
+        logger.warning(
+            f"Could not find the `uv` executable on {hostname}. "
+            "Please ensure that UV is installed and available in the PATH."
+        )
+        return None
+    command = (
+        f"ssh {hostname} '{uv} run --project={remote_dir} --directory={remote_dir} "
+        'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
+    )
+    result = await run_subprocess(command)
+    return timedelta(seconds=float(result.stdout.strip()))
+
+
+async def get_uv_path(hostname: str) -> str | None:
     with tempfile.TemporaryFile(mode="w+") as temp_file:
         logger.info("Finding the `uv` executable on %s", hostname)
         _proc = await asyncio.create_subprocess_shell(
@@ -73,18 +94,8 @@ async def get_torch_import_time(
         uv = await _proc.communicate()
         temp_file.seek(0)
         uv = temp_file.read().strip()
-    if not uv:
-        logger.warning(
-            f"Could not find the `uv` executable on {hostname}. "
-            "Please ensure that UV is installed and available in the PATH."
-        )
-        return None
-    command = (
-        f"ssh {hostname} '{uv} run --directory={remote_dir} "
-        'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
-    )
-    result = await run_subprocess(command)
-    return timedelta(seconds=float(result.stdout.strip()))
+
+    return uv
 
 
 def get_data(

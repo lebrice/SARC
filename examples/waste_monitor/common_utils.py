@@ -35,6 +35,7 @@ async def run_subprocess(
     input: str | None = None,
     stdout: int | IO[bytes] | None = asyncio.subprocess.PIPE,
     stderr: int | IO[bytes] | None = asyncio.subprocess.PIPE,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     logger.debug(f"Running command: {cmd!r}")
     proc = await asyncio.create_subprocess_shell(
@@ -46,10 +47,10 @@ async def run_subprocess(
         input.encode() if input is not None else None
     )
     assert proc.returncode is not None
-    if proc.returncode != 0:
+    if check and proc.returncode != 0:
         raise _CalledProcessError(
-            returncode=proc.returncode,
             cmd=cmd,
+            returncode=proc.returncode,
             output=out_stdout.decode() if out_stdout is not None else None,
             stderr=out_stderr.decode() if out_stderr is not None else None,
         )
@@ -64,11 +65,8 @@ async def run_subprocess(
 class _CalledProcessError(subprocess.CalledProcessError):
     """Custom error class to handle subprocess errors with additional context."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cmd = kwargs.get("cmd", "")
-        self.output = kwargs.get("output", "")
-        self.stderr = kwargs.get("stderr", "")
+    def __init__(self, returncode, cmd, output=None, stderr=None):
+        super().__init__(returncode, cmd, output=output, stderr=stderr)
 
     def __str__(self):
         if self.returncode and self.returncode < 0:
@@ -88,6 +86,15 @@ class _CalledProcessError(subprocess.CalledProcessError):
                 self.cmd,
                 self.returncode,
             )
+
+    @classmethod
+    def from_completed(cls, completed: subprocess.CompletedProcess[str]) -> Self:
+        raise cls(
+            cmd=completed.args,
+            returncode=completed.returncode,
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
 
 
 def midnight(dt: datetime) -> datetime:
