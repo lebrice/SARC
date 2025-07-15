@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import ClassVar, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
@@ -342,13 +342,9 @@ class WasteMonitor(App):
         # You would run a command like `time python -c "import torch"` in the scratch directory.
         # For now, we will just log a message.
         logger.debug("Measuring scratch torch import time...")
-        time = await get_torch_import_time("mila")
-        assert time is not None
         scratch_widget = self.query_exactly_one(ScratchMonitorWidget)
-        scratch_widget.update(time)
-        self.query_exactly_one(RichLog).write(
-            f"[{datetime.now()}] - Measured torch import time on SCRATCH: {time:.2f}s"
-        )
+        await scratch_widget.measure_and_save()
+
         self.refresh()
 
     # def on_mouse_move(self, event: events.MouseMove) -> None:
@@ -374,21 +370,80 @@ class ScratchMonitorWidget(Widget):
         """Compose the widget."""
         yield PlotextPlot(id="scratch_torch_import_time_plot")
 
-    def load_previous_results(self):
-        # Ugly: reopening the UI reloads the previous values.
-        if not CACHE_DIR:
-            return
-        saved_results_file = Path(CACHE_DIR) / previous_torch_import_time_results_file
-        if not saved_results_file.exists():
-            return
-        reader = csv.reader(saved_results_file.read_text().splitlines())
-        for row in reader:
-            dt = datetime.strptime(row[0], "%Y/%m/%d %H:%M:%S")
-            time = float(row[1])
+    period: ClassVar[timedelta] = timedelta(minutes=5)
+    previous_results_file: ClassVar[str] = (
+        "/network/scratch/n/normandf/torch_import_times.csv"
+    )
+
+    async def on_mount(self) -> None:
+        previous_times = await self.get_previous_import_times()
+        for dt, time in previous_times:
             self.add_value(time, when=dt)
+        self.update_ui()
+        # self._plot(clear=False)
+
+    async def measure_and_save(self):
+        previous_results = await self.get_previous_import_times(n=1)
+        sample_datetime: datetime | None = None
+        measured_time: float | None = None
+        if previous_results:
+            sample_datetime, measured_time = previous_results[0]
+
+        """
+        Look at the entries for the past 10 minutes.
+        The "person" (userid_programid) that wrote the most is the "writer". Everyone else is a reader. 
+        
+        """
+
+        if (
+            sample_datetime is not None
+            # and last_sample_in_vals_datetime is not None
+            and (datetime.now() - sample_datetime) < (1.5 * self.period)
+        ):
+            assert measured_time is not None
+            logger.info(
+                f"Not measuring torch import time, last sample was taken less than {self.period} ago."
+            )
+            self.app.query_exactly_one(RichLog).write(
+                f"[{sample_datetime}] - SCRATCH import time: {measured_time}s (read from shared file)"
+            )
+            self.add_value(measured_time, when=sample_datetime)
+        else:
+            measured_time = await get_torch_import_time("mila")
+            assert measured_time is not None
+            sample_datetime = datetime.now()
+            self.add_value(measured_time, when=sample_datetime)
+            await self.save_result(measured_time, when=sample_datetime)
+            self.app.query_exactly_one(RichLog).write(
+                f"[{sample_datetime}] - SCRATCH import time: {measured_time}s (saved to shared file)"
+            )
+        self.update_ui()
+        return (sample_datetime, measured_time)
+
+    async def get_previous_import_times(self, n: int = 100):
+        previous_results_lines = csv.reader(
+            (
+                await _get_output(f"ssh mila tail -n {n} {self.previous_results_file}")
+            ).splitlines(keepends=True)
+        )
+        results: list[tuple[datetime, float]] = []
+        for row in previous_results_lines:
+            dt = datetime.strptime(row[0], "%Y/%m/%d %H:%M:%S.%f")
+            time = float(row[1])
+            results.append((dt, time))
+        return results
+
+    async def save_result(self, time: float, when: datetime | None = None) -> None:
+        """Save the results to a shared file."""
+        if when is None:
+            when = datetime.now()
+        line_to_add = f"{when.strftime('%Y/%m/%d %H:%M:%S.%f')},{time}"
+        await run_subprocess(
+            f"""ssh mila 'echo "{line_to_add}" >> {self.previous_results_file}'"""
+        )
 
     def add_value(self, time: float, when: datetime | None = None) -> None:
-        """Add a value to the plot."""
+        """Add a value to `self.vals` and update the running statistics."""
         if when is None:
             when = datetime.now()
 
@@ -417,10 +472,6 @@ class ScratchMonitorWidget(Widget):
         # todo: unsure if it is a good idea to do this for every new value.
         # self.vals = self.vals.copy()
 
-    def on_mount(self) -> None:
-        self.load_previous_results()
-        self._plot(clear=False)
-
     def replot(self) -> None:
         """Set up the plot."""
         self._plot(clear=True)
@@ -445,9 +496,11 @@ class ScratchMonitorWidget(Widget):
                 "Torch import time: loading... (WIP: hover in a few seconds to see updated values)"
             )
 
-    def update(self, time: float) -> None:
-        now = datetime.now()
-        self.add_value(time, when=now)
+    def update_ui(self) -> None:
+        assert self.vals
+        now, time = self.vals[-1]
+        # now = datetime.now()
+        # self.add_value(time, when=now)
         _when, times = zip(*self.vals)
 
         std = np.std(times)
@@ -467,23 +520,6 @@ class ScratchMonitorWidget(Widget):
                 severity="warning",
                 timeout=300,
             )
-
-        if CACHE_DIR:
-            # Ugly: Save previous values to a file so reopening the UI reloads them.
-            saved_results_file = (
-                Path(CACHE_DIR) / previous_torch_import_time_results_file
-            )
-            # IDEA: Could also limit the number of rows in that file to some value like 100?
-            # For now, leaving the size of that file uncapped, it should take much space, and could give a good
-            # history of the import times.
-            with saved_results_file.open("a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(
-                    [
-                        now.strftime("%Y/%m/%d %H:%M:%S"),
-                        str(time),
-                    ]
-                )
 
         logger.info(f"Torch import time: {self.import_time}")
         logger.info(f"EMA: {self.import_time_ema}")
@@ -1068,9 +1104,4 @@ async def _get_output(cmd: str):
             output=stdout if stdout else None,
             stderr=stderr if stderr else None,
         )
-    return subprocess.CompletedProcess(
-        args=cmd,
-        returncode=proc.returncode,
-        output=stdout if stdout else None,
-        stderr=stderr if stderr else None,
-    )
+    return stdout.strip()
