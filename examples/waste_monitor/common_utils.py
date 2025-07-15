@@ -356,7 +356,13 @@ async def setup_sarc_connection():
         )
     ).expanduser()
 
-    user = ssh_config.lookup("sarc").get("user", ssh_config.lookup("mila").get("user"))
+    # Try sarc, then sarc01-dev, then mila.
+    user = ssh_config.lookup("sarc").get(
+        "user",
+        ssh_config.lookup("sarc01-dev").get(
+            "user", ssh_config.lookup("mila").get("user")
+        ),
+    )
     if not user:
         raise ValueError(
             "Don't know which user to use when connecting to sarc! "
