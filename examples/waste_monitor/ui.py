@@ -126,22 +126,22 @@ class WasteMonitor(App):
             yield Button("Worst Jobs", id="worst_jobs_button")
             yield Button("Best Jobs", id="best_jobs_button")
             with HorizontalScroll():
-                for cluster in get_available_clusters():
+                clusters = [c.cluster_name for c in get_available_clusters()]
+                for cluster in clusters:
                     yield Checkbox(
-                        label=cluster.cluster_name.capitalize(),
+                        label=cluster.capitalize(),
                         value=True,
-                        id=cluster.cluster_name,
-                        name=f"{cluster.cluster_name}_checkbox",
+                        id=cluster,
+                        name=f"{cluster}_checkbox",
+                        tooltip=f"Include or Exclude data from the {cluster.capitalize()} cluster.",
                     )
                     # clusters = self.clusters | {cluster.cluster_name}
-                for other_cluster in [
-                    "tamia",
-                    "rorqual",
-                    "fir",
-                    "nibi",
-                    "killarney",
-                    "vulcan",
-                ]:
+                other_clusters = [
+                    c
+                    for c in ["tamia", "rorqual", "fir", "nibi", "killarney", "vulcan"]
+                    if c not in clusters
+                ]
+                for other_cluster in other_clusters:
                     yield Checkbox(
                         label=f"[strike]{other_cluster.capitalize()}[/]",
                         value=False,

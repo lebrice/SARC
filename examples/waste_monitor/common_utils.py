@@ -356,11 +356,12 @@ async def setup_sarc_connection():
         )
     ).expanduser()
 
-    # Try sarc, then sarc01-dev, then mila.
-    user = ssh_config.lookup("sarc").get(
+    # Try sarc01-dev, then sarc, then mila.
+    user = ssh_config.lookup("sarc01-dev").get(
         "user",
-        ssh_config.lookup("sarc01-dev").get(
-            "user", ssh_config.lookup("mila").get("user")
+        ssh_config.lookup("sarc").get(
+            "user",
+            ssh_config.lookup("mila").get("user"),
         ),
     )
     if not user:
