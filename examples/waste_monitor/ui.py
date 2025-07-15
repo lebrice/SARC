@@ -456,7 +456,7 @@ class ScratchMonitorWidget(Widget):
 
         if time > self.min_val + std:
             self.app.query_exactly_one(RichLog).write(
-                f"[{now}] [orange]$SCRATCH is slow on the Mila cluster![/]"
+                f"[{now}] - [yellow]$SCRATCH is slow on the Mila cluster! {time=:.2f}s vs {self.min_val=:.2f}s[/yellow]"
             )
             self.notify(
                 title="$SCRATCH is slow!",
