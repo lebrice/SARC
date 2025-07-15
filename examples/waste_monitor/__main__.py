@@ -17,7 +17,12 @@ import subprocess
 import rich.logging
 import textual.logging
 
-from .common_utils import CLUSTER_DOWN, get_available_clusters, setup_sarc_connection
+from .common_utils import (
+    CLUSTER_DOWN,
+    get_available_clusters,
+    run_subprocess,
+    setup_sarc_connection,
+)
 from .ui import (
     WasteMonitor,
     get_data,
@@ -57,21 +62,44 @@ async def setup_connections():
     logger.info(
         "Successfully set up multiplexed SSH connection to sarc01-dev with port forwarding."
     )
-    for cluster in get_available_clusters():
-        if CLUSTER_DOWN.get(cluster.cluster_name):
+
+    clusters = [c.cluster_name for c in get_available_clusters()]
+    already_connected = await asyncio.gather(
+        *[check_for_existing_multiplexed_connection(c) for c in clusters]
+    )
+    already_connected = dict(zip(clusters, already_connected))
+    if any(already_connected.values()):
+        logger.info(
+            "Already connected to "
+            + ", ".join(c for c, connected in already_connected.items() if connected)
+        )
+    if not all(already_connected.values()):
+        logger.info(
+            "Creating a new SSH connection (with ControlMaster) to the following clusters: "
+            + ", ".join(
+                c for c, connected in already_connected.items() if not connected
+            )
+        )
+
+    # note: can't do all of them at once with asyncio.gather because of the 2FA prompts.
+    for cluster in [c for c in clusters if not already_connected[c]]:
+        if CLUSTER_DOWN.get(cluster):
             logger.info(f"Skipping {cluster} cluster which is supposedly down.")
             continue
         try:
-            await setup_multiplexed_ssh_conection(cluster.cluster_name)
+            await setup_multiplexed_ssh_conection(cluster)
         except subprocess.CalledProcessError as err:
             logger.error(
-                f"Failed to setup multiplexed SSH connection to {cluster.cluster_name}: {err}"
+                f"Failed to setup multiplexed SSH connection to {cluster}: {err}"
             )
-            CLUSTER_DOWN[cluster.cluster_name] = True
+            CLUSTER_DOWN[cluster] = True
         else:
-            logger.info(
-                f"Successfully set up multiplexed SSH connection to {cluster.cluster_name}"
-            )
+            logger.info(f"Successfully set up multiplexed SSH connection to {cluster}")
+
+
+async def check_for_existing_multiplexed_connection(hostname: str):
+    proc = await run_subprocess(f"ssh -O check {hostname}", check=False)
+    return proc.returncode == 0
 
 
 async def async_main():

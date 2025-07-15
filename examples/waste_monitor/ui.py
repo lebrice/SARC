@@ -134,6 +134,22 @@ class WasteMonitor(App):
                         name=f"{cluster.cluster_name}_checkbox",
                     )
                     # clusters = self.clusters | {cluster.cluster_name}
+                for other_cluster in [
+                    "tamia",
+                    "rorqual",
+                    "fir",
+                    "nibi",
+                    "killarney",
+                    "vulcan",
+                ]:
+                    yield Checkbox(
+                        label=f"[strike]{other_cluster.capitalize()}[/]",
+                        value=False,
+                        id=other_cluster,
+                        name=f"{other_cluster}_checkbox",
+                        disabled=True,
+                        tooltip=f"{other_cluster.capitalize()} cluster has not been added to SARC yet.",
+                    )
                 # self.clusters = clusters
             # yield Input(placeholder="User to query for")
 
@@ -402,14 +418,25 @@ class ScratchMonitorWidget(Widget):
         # self.vals = self.vals.copy()
 
     def on_mount(self) -> None:
-        plt = self.query_one(PlotextPlot).plt
-        plt.date_form("Y/m/d H:M:S")
         self.load_previous_results()
+        self._plot(clear=False)
+
+    def replot(self) -> None:
+        """Set up the plot."""
+        self._plot(clear=True)
+        self.refresh()
+
+    def _plot(self, clear: bool = True):
+        plt = self.query_one(PlotextPlot).plt
+        if clear:
+            plt.clear_data()
+        plt.date_form(input_form="Y/m/d H:M:S", output_form="H:M:S")
+        times: tuple[datetime, ...]
+        vals: tuple[float, ...]
         if self.vals:
-            times: tuple[datetime, ...]
             times, vals = zip(*self.vals)
             stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
-            plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
+            plt.bar(stimes, vals, label="$SCRATCH (Mila)", minimum=self.min_val)
             plt.title(
                 f"Torch import time (min={self.min_val:.2f}, max={self.max_val:.2f}) (WIP: hover to see updated values)"
             )
@@ -417,21 +444,6 @@ class ScratchMonitorWidget(Widget):
             plt.title(
                 "Torch import time: loading... (WIP: hover in a few seconds to see updated values)"
             )
-
-    def replot(self) -> None:
-        """Set up the plot."""
-        plt = self.query_one(PlotextPlot).plt
-        plt.clear_data()
-        plt.date_form("Y/m/d H:M:S")
-        assert self.vals
-        times: tuple[datetime, ...]
-        times, vals = zip(*self.vals)
-        stimes = [t.strftime("%Y/%m/%d %H:%M:%S") for t in times]
-        plt.scatter(stimes, vals, marker="*", label="$SCRATCH (Mila)")
-        plt.title(
-            f"Torch import time (min={self.min_val:.2f}, max={self.max_val:.2f}) (WIP: hover to see updated values)"
-        )
-        self.refresh()
 
     def update(self, time: float) -> None:
         now = datetime.now()
@@ -443,6 +455,9 @@ class ScratchMonitorWidget(Widget):
         assert self.max_val is not None
 
         if time > self.min_val + std:
+            self.app.query_exactly_one(RichLog).write(
+                f"[{now}] [orange]$SCRATCH is slow on the Mila cluster![/]"
+            )
             self.notify(
                 title="$SCRATCH is slow!",
                 message=(
