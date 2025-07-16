@@ -426,13 +426,15 @@ class ScratchMonitorWidget(Widget):
         if current_writer != self.user_id:
             assert previous_results
             sample_datetime, measured_time, _who = previous_results[-1]
-            logger.info(
-                f"Not measuring torch import time, reusing sample from {current_writer} ago."
-            )
-            self.app.query_exactly_one(RichLog).write(
-                f"[{sample_datetime}] - SCRATCH import time: {measured_time}s (read from shared file)"
-            )
-            self.add_value(measured_time, when=sample_datetime)
+            if previous_results[-1][:2] != self.vals[-1]:
+                # Don't add a duplicate sample.
+                logger.info(
+                    f"Not measuring torch import time, reusing sample from {current_writer} ago."
+                )
+                self.app.query_exactly_one(RichLog).write(
+                    f"[{sample_datetime}] - SCRATCH import time: {measured_time}s (read from shared file)"
+                )
+                self.add_value(measured_time, when=sample_datetime)
         else:
             if not previous_results:
                 logger.info("No previous results found. Starting to write.")
