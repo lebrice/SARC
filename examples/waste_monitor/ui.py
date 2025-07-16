@@ -401,7 +401,7 @@ class ScratchMonitorWidget(Widget):
         The "person" (userid_programid) that wrote the most is the "writer".
         Everyone else is a reader. In a tie, use first alphabetically.
         """
-        current_writer: str
+        current_writer: str = self.user_id
         if previous_results:
             last_10_minutes: list[tuple[datetime, float, str]] = []
             ten_minutes_ago = datetime.now() - timedelta(minutes=10)
@@ -411,17 +411,16 @@ class ScratchMonitorWidget(Widget):
             most_common_writers = collections.Counter(
                 userid for _, _, userid in last_10_minutes
             ).most_common(2)
-            most_common_count = most_common_writers[0][1]
-            # re-sort a potential tie for first place in alphabetical order.
-            current_writer = sorted(
-                [
-                    writer
-                    for writer, count in most_common_writers
-                    if count == most_common_count
-                ]
-            )[0]
-        else:
-            current_writer = self.user_id
+            if most_common_writers:
+                most_common_count = most_common_writers[0][1]
+                # re-sort a potential tie for first place in alphabetical order.
+                current_writer = sorted(
+                    [
+                        writer
+                        for writer, count in most_common_writers
+                        if count == most_common_count
+                    ]
+                )[0]
 
         if current_writer != self.user_id:
             assert previous_results
