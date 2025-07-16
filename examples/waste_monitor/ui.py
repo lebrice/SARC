@@ -5,7 +5,9 @@ import collections
 import csv
 import enum
 import functools
+import getpass
 import logging
+import os
 import subprocess
 import tempfile
 import textwrap
@@ -377,38 +379,68 @@ class ScratchMonitorWidget(Widget):
 
     async def on_mount(self) -> None:
         previous_times = await self.get_previous_import_times()
-        for dt, time in previous_times:
+        for dt, time, _who in previous_times:
             self.add_value(time, when=dt)
-        self.update_ui()
+        if previous_times:
+            self.update_ui()
         # self._plot(clear=False)
+
+    @staticmethod
+    def unzip[A, B, C](v: list[tuple[A, B, C]]) -> tuple[list[A], list[B], list[C]]:
+        """Unzip a list of tuples into three lists."""
+        if not v:
+            return [], [], []
+        tuples = zip(*v)
+        return tuple(list(t) for t in tuples)  # type: ignore
 
     async def measure_and_save(self):
         previous_results = await self.get_previous_import_times(n=1)
-        sample_datetime: datetime | None = None
-        measured_time: float | None = None
-        if previous_results:
-            sample_datetime, measured_time = previous_results[0]
 
         """
         Look at the entries for the past 10 minutes.
-        The "person" (userid_programid) that wrote the most is the "writer". Everyone else is a reader. 
-        
+        The "person" (userid_programid) that wrote the most is the "writer".
+        Everyone else is a reader. In a tie, use first alphabetically.
         """
+        current_writer: str
+        if previous_results:
+            last_10_minutes: list[tuple[datetime, float, str]] = []
+            ten_minutes_ago = datetime.now() - timedelta(minutes=10)
+            for when, time, userid in previous_results:
+                if when >= ten_minutes_ago:
+                    last_10_minutes.append((when, time, userid))
+            most_common_writers = collections.Counter(
+                userid for _, _, userid in last_10_minutes
+            ).most_common(2)
+            most_common_count = most_common_writers[0][1]
+            # re-sort a potential tie for first place in alphabetical order.
+            current_writer = sorted(
+                [
+                    writer
+                    for writer, count in most_common_writers
+                    if count == most_common_count
+                ]
+            )[0]
+        else:
+            current_writer = self.user_id
 
-        if (
-            sample_datetime is not None
-            # and last_sample_in_vals_datetime is not None
-            and (datetime.now() - sample_datetime) < (1.5 * self.period)
-        ):
-            assert measured_time is not None
+        if current_writer != self.user_id:
+            assert previous_results
+            sample_datetime, measured_time, _who = previous_results[-1]
             logger.info(
-                f"Not measuring torch import time, last sample was taken less than {self.period} ago."
+                f"Not measuring torch import time, reusing sample from {current_writer} ago."
             )
             self.app.query_exactly_one(RichLog).write(
                 f"[{sample_datetime}] - SCRATCH import time: {measured_time}s (read from shared file)"
             )
             self.add_value(measured_time, when=sample_datetime)
         else:
+            if not previous_results:
+                logger.info("No previous results found. Starting to write.")
+            else:
+                logger.info(
+                    "This process is measuring and writing the torch import time for all other readers."
+                )
+
             measured_time = await get_torch_import_time("mila")
             assert measured_time is not None
             sample_datetime = datetime.now()
@@ -420,24 +452,30 @@ class ScratchMonitorWidget(Widget):
         self.update_ui()
         return (sample_datetime, measured_time)
 
+    @functools.cached_property
+    def user_id(self) -> str:
+        # get the system user name and programid
+        return f"{getpass.getuser()}_{os.getpid()}"
+
     async def get_previous_import_times(self, n: int = 100):
         previous_results_lines = csv.reader(
             (
                 await _get_output(f"ssh mila tail -n {n} {self.previous_results_file}")
             ).splitlines(keepends=True)
         )
-        results: list[tuple[datetime, float]] = []
+        results: list[tuple[datetime, float, str]] = []
         for row in previous_results_lines:
             dt = datetime.strptime(row[0], "%Y/%m/%d %H:%M:%S.%f")
             time = float(row[1])
-            results.append((dt, time))
+            userid = row[2].strip()
+            results.append((dt, time, userid))
         return results
 
     async def save_result(self, time: float, when: datetime | None = None) -> None:
         """Save the results to a shared file."""
         if when is None:
             when = datetime.now()
-        line_to_add = f"{when.strftime('%Y/%m/%d %H:%M:%S.%f')},{time}"
+        line_to_add = f"{when.strftime('%Y/%m/%d %H:%M:%S.%f')},{time},{self.user_id}"
         await run_subprocess(
             f"""ssh mila 'echo "{line_to_add}" >> {self.previous_results_file}'"""
         )
