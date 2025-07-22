@@ -896,17 +896,20 @@ def fill_jobs_view_datatable(
     n_to_show: int = 50,
     reverse: bool = False,
 ) -> None:
-    # Mock data (TODO: replace)
+    # Running jobs don't have a gpu utilization, so we filter them out.
+    data = data.query("gpu_utilization.notna()")
+    assert data.query("gpu_equivalent_waste.isna()").empty
+
     if reverse:
         jobs = data.nsmallest(
             n=n_to_show,
-            columns="rgu_equivalent_waste",
+            columns="gpu_equivalent_waste",
             # keep="all",
         )
     else:
         jobs = data.nlargest(
             n=n_to_show,
-            columns="rgu_equivalent_waste",
+            columns="gpu_equivalent_waste",
             # keep="all",
         )
 
@@ -919,10 +922,11 @@ def fill_jobs_view_datatable(
         "job_id": "Job ID",
         "cluster_name": "Cluster",
         "user": "User",
+        "start": "Start time",
         "elapsed_time": "Elapsed time",
         "gpu_utilization": "Avg GPU Util",
         "requested.gres": "Requested Ressources",
-        "gpu_days": "Used/Wasted/Obstructed GPU days",
+        "gpu_days": "Used/Wasted/Obstructed GPU time",
         "submit_line": "SubmitLine",
     }
     # TODO: Have the interval be displayed with the unit selected dynamically instead (e.g. "days" or "hours")
@@ -988,11 +992,16 @@ def fill_jobs_view_datatable(
             f"[link={job_id_link}]{job_id}[/link]" if job_id_link else job_id,
             cluster_name,
             mila_user,
+            row["start_time"].strftime("%Y-%m-%d %H:%M:%S"),
             f"{row['elapsed_time']}",
             _colorize_utilization(row["gpu_utilization"]),
             # _requested_table,
             " ".join(f"{k}={v}" for k, v in requested_resources.items() if v),
-            f"{row['gpu_equivalent_cost'].days} / [red]{row['gpu_equivalent_waste'].days}[/] / [red]{row['gpu_overbilling_cost'].days}",
+            (
+                f"{datetime_str(row['gpu_equivalent_cost'])} / "
+                f"[red]{datetime_str(row['gpu_equivalent_waste'])}[/red] / "
+                f"[red]{datetime_str(row['gpu_overbilling_cost'])}[/red]"
+            ),
             # f"[red]{row['gpu_equivalent_waste'].days} / {row['rgu_equivalent_waste'].days}",
             # f"[red]{row['gpu_overbilling_cost'].days}",
             # submit_lines[i - 1],

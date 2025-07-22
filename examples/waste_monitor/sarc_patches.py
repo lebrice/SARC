@@ -435,6 +435,7 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
 
     df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
     df = _fix_lost_jobs(df)
+    # Actually remove the lost jobs (e.g. job id 16 on the Mila cluster) after we fix their end time.
     jobs_to_remove = df[df["end_time"] < options.start]
     df = df.drop(jobs_to_remove.index)
     df = _fix_unaligned_cache(df, options.start, options.end)
