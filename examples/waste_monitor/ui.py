@@ -313,7 +313,7 @@ class WasteMonitor(App):
 
         user_table = self.query_exactly_one("#user_view_table", DataTable)
         user_table.cursor_type = "row"
-        fill_waste_overview_datatable(user_table, data)
+        fill_user_view_datatable(user_table, data)
 
         worst_jobs_table = self.query_exactly_one("#worst_jobs_table", DataTable)
         worst_jobs_table.cursor_type = "row"
@@ -756,11 +756,11 @@ def fill_alerts_table(
     # )
 
 
-def fill_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
+def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     """Make a new table."""
     n_to_show = 50
 
-    data_by_user = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
+    data_by_user = data.groupby(["user.mila.email"]).aggregate(
         {
             "job_id": "nunique",
             "job_state": lambda v: (v == SlurmState.COMPLETED).mean(),
@@ -780,7 +780,7 @@ def fill_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
     ordered_by_waste = data_by_user.nlargest(
         columns="rgu_equivalent_waste", n=n_to_show, keep="all"
     )
-    gpu_util_stats = data.groupby(["cluster_name", "user.mila.email"]).aggregate(
+    gpu_util_stats = data.groupby(["user.mila.email"]).aggregate(
         {"gpu_utilization": "describe"}
     )
 
@@ -791,30 +791,49 @@ def fill_waste_overview_datatable(table: DataTable, data: pd.DataFrame) -> None:
     table.clear(columns=True)
     table.add_column("#")
     table.add_column("User")
-    table.add_column("Cluster")
+    # table.add_column("Cluster")
     table.add_column("GPU Utilization")
     table.add_column("Job success rate")
     # table.add_column("Total allocated GPUs/RGUs", justify="right")
-    table.add_column("Used/Wasted/Obstructed GPU days")
-    table.add_column("U/W/Obs RGU*days")
+    table.add_column("Used/Wasted/Obstructed GPU time")
+    table.add_column("U/W/Obs RGU time")
 
     for i, (index, row) in enumerate(ordered_by_waste.iterrows(), start=1):
-        assert isinstance(index, tuple) and len(index) == 2
-        (cluster, user_email) = index
+        assert isinstance(index, str)
+        user_email = index
         used_gpus = row["allocated.gres_gpu"]
         gpu_util = gpu_util_stats.loc[index, "gpu_utilization"]
         table.add_row(
             f"{i}",
             user_email,
-            cluster,
+            # cluster,
             f"{_colorize_utilization(gpu_util['mean'])} ± {gpu_util['std']:.1%}",
             f"{_colorize_utilization(row['job_success_rate'], red=0.1, orange=0.2)} (n={row['job_id']})",
             # f"{round(row['allocated.gres_gpu'])} / {round(row['allocated.gres_rgu'])}",
-            f"[green]{row['gpu_equivalent_cost'].days}[/green] / [red]{row['gpu_equivalent_waste'].days}[/red] / [red]{row['gpu_overbilling_cost'].days}[/red]",
-            f"[green]{row['rgu_equivalent_cost'].days}[/green] / [red]{row['rgu_equivalent_waste'].days}[/red] / [red]{row['rgu_overbilling_cost'].days}[/red]",
+            (
+                f"[green]{datetime_str(row['gpu_equivalent_cost'])}[/green] /"
+                f" [red]{datetime_str(row['gpu_equivalent_waste'])}[/red] /"
+                f" [red]{datetime_str(row['gpu_overbilling_cost'])}[/red]"
+            ),
+            (
+                f"[green]{datetime_str(row['rgu_equivalent_cost'])}[/green] /"
+                f" [red]{datetime_str(row['rgu_equivalent_waste'])}[/red] /"
+                f" [red]{datetime_str(row['rgu_overbilling_cost'])}[/red]"
+            ),
             # f"[red] {row['gpu_equivalent_waste'].days:.2f} / {row['rgu_equivalent_waste'].days:.2f}",
         )
     # return table
+
+
+def datetime_str(td: pd.Timedelta) -> str:
+    if pd.isna(td):
+        return "N/A"
+    if td.days > 0:
+        hours = td.seconds // 3600
+        hours_as_fraction = round(10 * hours / 24)
+        return f"{td.days}.{hours_as_fraction} days"
+    else:
+        return f"{round(td.seconds / 3600)} hours"
 
 
 def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
