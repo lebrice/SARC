@@ -566,15 +566,16 @@ class ScratchMonitorWidget(Widget):
 
         self.app.query_exactly_one(RichLog).write(
             f"[{now}] - [yellow]$SCRATCH is slow on the Mila cluster! {import_torch_time=:.2f}s vs {self.min_val=:.2f}s.[/yellow] "
-            f"Offender: {worst_offender_username} (uid {worst_offender_uid}, has {len(job_ids)} running jobs. For example, job id {job_ids[0]})"
+            f"Offender: {worst_offender_username} (uid {worst_offender_uid}, has {len(job_ids)} running jobs. "
+            + (f"Example job id: {job_ids[0]}" if job_ids else "")
         )
         self.notify(
             title="$SCRATCH is slow!",
             message=(
                 f"$SCRATCH on Mila cluster is slower than usual: "
                 f"{import_torch_time=:.2f}s vs {self.min_val=:.2f}s\n"
-                f"Offender: {worst_offender_username} (uid {worst_offender_uid} with {len(job_ids)} running jobs."
-                f"(For example, job id {job_ids[0]})"
+                f"Offender: {worst_offender_username} (uid {worst_offender_uid} with {len(job_ids)} running jobs. "
+                + (f"Example job id: {job_ids[0]}" if job_ids else "")
             ),
             severity="warning",
             timeout=300,
