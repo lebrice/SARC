@@ -884,8 +884,10 @@ def datetime_str(td: pd.Timedelta) -> str:
         hours = td.seconds // 3600
         hours_as_fraction = round(10 * hours / 24)
         return f"{td.days}.{hours_as_fraction} days"
-    else:
-        return f"{round(td.seconds / 3600)} hours"
+    hours = td.seconds / 3600
+    if (rounded_hours := round(hours)) > 1:
+        return f"{hours:.1f}h"
+    return f"{round(td.seconds / 60)} min"
 
 
 def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
