@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import ClassVar, Protocol, Sequence
 
+import httpx
 import numpy as np
 import pandas as pd
 import paramiko
@@ -461,7 +462,7 @@ class ScratchMonitorWidget(Widget):
     async def get_previous_import_times(self, n: int = 100):
         previous_results_lines = csv.reader(
             (
-                await _get_output(f"ssh mila tail -n {n} {self.previous_results_file}")
+                await get_output(f"ssh mila tail -n {n} {self.previous_results_file}")
             ).splitlines(keepends=True)
         )
         results: list[tuple[datetime, float, str]] = []
@@ -547,24 +548,75 @@ class ScratchMonitorWidget(Widget):
         assert self.max_val is not None
 
         if time > self.min_val + std:
-            self.app.query_exactly_one(RichLog).write(
-                f"[{now}] - [yellow]$SCRATCH is slow on the Mila cluster! {time=:.2f}s vs {self.min_val=:.2f}s[/yellow]"
-            )
-            self.notify(
-                title="$SCRATCH is slow!",
-                message=(
-                    f"$SCRATCH on Mila cluster is slower than usual: "
-                    f"{time=:.2f}s vs {self.min_val=:.2f}s"
-                ),
-                severity="warning",
-                timeout=300,
-            )
+            self.make_popup(now, time)
 
         logger.info(f"Torch import time: {self.import_time}")
         logger.info(f"EMA: {self.import_time_ema}")
         logger.info(f"Average: {np.mean(times)}")
         self.vals = self.vals.copy()  # to trigger a reactive update.
         self.replot()
+
+    @work(exclusive=True, group="popup")
+    async def make_popup(self, now: datetime, import_torch_time: float):
+        worst_offender_uid = await get_uid_of_worst_scratch_user()
+        worst_offender_username = await get_username_from_uid(
+            worst_offender_uid, cluster="mila"
+        )
+        job_ids = await get_running_job_ids(worst_offender_username, cluster="mila")
+
+        self.app.query_exactly_one(RichLog).write(
+            f"[{now}] - [yellow]$SCRATCH is slow on the Mila cluster! {import_torch_time=:.2f}s vs {self.min_val=:.2f}s.[/yellow] "
+            f"Offender: {worst_offender_username} (uid {worst_offender_uid}, has {len(job_ids)} running jobs. For example, job id {job_ids[0]})"
+        )
+        self.notify(
+            title="$SCRATCH is slow!",
+            message=(
+                f"$SCRATCH on Mila cluster is slower than usual: "
+                f"{import_torch_time=:.2f}s vs {self.min_val=:.2f}s\n"
+                f"Offender: {worst_offender_username} (uid {worst_offender_uid} with {len(job_ids)} running jobs."
+                f"(For example, job id {job_ids[0]})"
+            ),
+            severity="warning",
+            timeout=300,
+        )
+
+
+INFLUX_URL = "http://sn-a001.dc1.server.mila.quebec:8086/query"
+
+
+async def get_uid_of_worst_scratch_user():
+    query = """
+    SELECT TOP(mean_sum, 1), "user"
+    FROM (
+        SELECT MEAN("sum") AS mean_sum
+        FROM "storageClientOpsByUser"
+        WHERE time >= now() - 1h
+        GROUP BY "user"
+    )
+    """
+    params = {"db": "beegfs_mon", "q": query}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(INFLUX_URL, params=params)
+        uid = response.json()["results"][0]["series"][0]["values"][0][2]
+        assert isinstance(uid, str)
+        return int(uid)
+
+
+async def get_username_from_uid(uid: int, cluster: str = "mila") -> str:
+    """Get the username from the UID on the specified cluster."""
+    # This is a placeholder for the actual implementation.
+    # You would run a command like `ssh mila id -nu <uid>` to get the username.
+    command = f"ssh {cluster} id -nu {uid}"
+    result = await run_subprocess(command)
+    return result.stdout.strip()
+
+
+async def get_running_job_ids(username: str, cluster: str = "mila") -> list[int]:
+    command = f"ssh {cluster} squeue -u {username} -h -t RUNNING -o %i"
+    result = await run_subprocess(command)
+    job_ids = result.stdout.strip().splitlines()
+    return [int(job_id) for job_id in job_ids]
 
 
 async def setup_torch_import_time_project(
@@ -1147,7 +1199,7 @@ def _get_controlpath(hostname: str) -> Path:
     # df.loc[is_drac & outrageous_num_of_cpus, "allocated.cpu"] /= 1000.0
 
 
-async def _get_output(cmd: str):
+async def get_output(cmd: str):
     with (
         tempfile.TemporaryFile(mode="w+") as out_file,
         tempfile.TemporaryFile(mode="w+") as err_file,
