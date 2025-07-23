@@ -444,6 +444,7 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
     df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_billing_drac(df)
 
+    # NOTE: If jobs are pending, it might be that pending jobs match this criteria!
     assert (
         t := df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()")
     ).empty, show_first_entry(t)
