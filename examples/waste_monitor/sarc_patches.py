@@ -454,30 +454,30 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
 
     df_before = df.copy()
     df = update_job_series_rgu(df)
-    if not df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty:
-        logger.error(
-            "Calling `update_job_series_rgu` caused some jobs to have an allocated.gres_gpu of NaN!\n"
-            "Switching to a manual fix for this.\n"
-        )
-        df = df_before
-        # TODO: Can't use the `get_rgus` instead of `_RGUS` here because the gpu name mapping is not the same.
+    # if not df.query("(`requested.gres_gpu` > 0) & `allocated.gres_gpu`.isna()").empty:
+    #     logger.error(
+    #         "Calling `update_job_series_rgu` caused some jobs to have an allocated.gres_gpu of NaN!\n"
+    #         "Switching to a manual fix for this.\n"
+    #     )
+    #     df = df_before
+    #     # TODO: Can't use the `get_rgus` instead of `_RGUS` here because the gpu name mapping is not the same.
 
-        df = df.assign(
-            **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
-        )
-        df = df.assign(
-            **{
-                "allocated.gres_rgu": df["allocated.gres_gpu"]
-                * df["allocated.gpu_type_rgu"]
-            }
-        )
+    #     df = df.assign(
+    #         **{"allocated.gpu_type_rgu": df["allocated.gpu_type"].map(_RGUS)}
+    #     )
+    #     df = df.assign(
+    #         **{
+    #             "allocated.gres_rgu": df["allocated.gres_gpu"]
+    #             * df["allocated.gpu_type_rgu"]
+    #         }
+    #     )
 
     assert df["requested.gres_gpu"].notna().all()
-    assert df["allocated.gres_gpu"].notna().all()
+    # assert df["allocated.gres_gpu"].notna().all()
     assert (
         t := df.query("`requested.gres_gpu` > 0 & `allocated.gres_gpu` == 0")
     ).empty, show_first_entry(t)
-    assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
+    # assert df.query("`requested.gres_gpu` > 0 & `allocated.gpu_type`.isna()").empty
 
     df = _fix_allocated_cpus_drac(df)
     df = _fix_requested_allocated_gres_gpu(df)

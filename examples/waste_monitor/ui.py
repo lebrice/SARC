@@ -812,6 +812,7 @@ def fill_alerts_table(
 def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     """Make a new table."""
     n_to_show = 50
+    data = data.query("gpu_utilization.notna()")
 
     data_by_user = data.groupby(["user.mila.email"]).aggregate(
         {
@@ -831,7 +832,7 @@ def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     data_by_user = data_by_user.rename(columns={"job_state": "job_success_rate"})
 
     ordered_by_waste = data_by_user.nlargest(
-        columns="rgu_equivalent_waste", n=n_to_show, keep="all"
+        columns="gpu_equivalent_waste", n=n_to_show
     )
     gpu_util_stats = data.groupby(["user.mila.email"]).aggregate(
         {"gpu_utilization": "describe"}
