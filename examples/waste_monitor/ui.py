@@ -59,7 +59,7 @@ from .common_utils import (
     midnight,
     run_subprocess,
 )
-from .sarc_patches import get_clean_sarc_data
+from .sarc_patches import get_clean_sarc_data, show_first_entry
 
 logger = logging.getLogger(__name__)
 

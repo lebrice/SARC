@@ -486,6 +486,12 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
     # df = _fill_missing_metrics_using_means(df)
 
     df = compute_cost_and_waste(df)
+    df = df.assign(
+        **{
+            "requested.gres_rgu": df["requested.gres_gpu"]
+            * (df["allocated.gres_rgu"] / df["allocated.gres_gpu"])
+        }
+    )
 
     # Note: the elapsed_time, and cost / waste / overbilled columns are converted to a timedelta dtype.
     df = df.assign(
@@ -519,14 +525,12 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
     if missing_users:
         logger.info(f"Missing the mila email for these users: {sorted(missing_users)}")
 
+    rgu_per_gpu = df["allocated.gres_rgu"] / df["allocated.gres_gpu"]
     df = df.assign(
-        rgu_equivalent_cost=(df["gpu_equivalent_cost"] * df["allocated.gpu_type_rgu"]),
-        rgu_equivalent_waste=(
-            df["gpu_equivalent_waste"] * df["allocated.gpu_type_rgu"]
-        ),
-        rgu_overbilling_cost=(
-            df["gpu_overbilling_cost"] * df["allocated.gpu_type_rgu"]
-        ),
+        rgu_cost=df["gpu_cost"] * rgu_per_gpu,
+        rgu_equivalent_cost=df["gpu_equivalent_cost"] * rgu_per_gpu,
+        rgu_equivalent_waste=df["gpu_equivalent_waste"] * rgu_per_gpu,
+        rgu_overbilling_cost=df["gpu_overbilling_cost"] * rgu_per_gpu,
     )
     return df
 
