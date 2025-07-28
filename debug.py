@@ -24,6 +24,7 @@ import rich.logging
 import rich.pretty
 import simple_parsing
 
+from sarc.client.job import SlurmState
 from sarc.client.series import (
     compute_cost_and_waste,
     load_job_series,
@@ -154,16 +155,18 @@ def main():
             },
         }
     )
-    rich.print("Aggregated job statistics:")
+    rich.print(f"Aggregated job statistics for query {options}")
     rich.pretty.pprint(stats.to_dict())
 
-    rich.print(jobs.size)
-    rich.print(jobs.query("(`allocated.gres_gpu` > 0) & gpu_utilization.isna()").size)
-
-    # uncomment to show the jobs:
-    # for job in reversed(jobs.to_dict(orient="records")):
-    #     rich.pretty.pprint(job)
-    #     break
+    weird_jobs = jobs[
+        jobs["job_state"].isin([SlurmState.COMPLETED, SlurmState.TIMEOUT])
+    ].query("(`allocated.gres_gpu` > 0) & gpu_utilization.isna()")
+    if weird_jobs.size:
+        rich.print(f"Found {weird_jobs.size} weird jobs out of {jobs.size} total jobs:")
+        # Show most recent first, to skip old weird jobs.
+        for job in reversed(weird_jobs.to_dict(orient="records")):
+            rich.pretty.pprint(job)
+            # break
 
 
 def add_rgu_cost_and_waste(jobs: pd.DataFrame) -> pd.DataFrame:
