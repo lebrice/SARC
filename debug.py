@@ -51,7 +51,7 @@ class QueryOptions:
     user_mila_email: str | None = None
 
 
-def cache[**P, Out](func: Callable[P, Out]) -> Callable[P, Out]:
+def cache_results_to_file[**P, Out](func: Callable[P, Out]) -> Callable[P, Out]:
     @functools.wraps(func)
     def _wrapped(*args, **kwargs):
         path = tempfile.gettempdir() / Path(
@@ -97,55 +97,41 @@ def main():
     options = simple_parsing.parse(QueryOptions)
     # period = options.end - options.start if options.start else datetime.timedelta(days=90)
 
-    jobs = cache(load_job_series)(
-        start=options.start,
-        end=options.end,
-        job_id=options.job_id,
-        user=options.user,
-        cluster=options.cluster,
+    jobs = cache_results_to_file(load_job_series)(
+        # start=options.start,
+        # end=options.end,
+        **(dict(start=options.start) if options.start else {}),
+        **(dict(end=options.end) if options.end else {}),
+        **(dict(job_id=options.job_id) if options.job_id else {}),
+        **(dict(user=options.user) if options.user else {}),
+        **(dict(cluster=options.cluster) if options.cluster else {}),
     )
+    # jobs = jobs.query("gpu_utilization.notna()")
     if options.user_mila_email:
         jobs = jobs.query(f"`user.mila.email` == '{options.user_mila_email}'")
 
     # Get rid of weird "lost" jobs
-    jobs = jobs.query("(start_time - submit_time).dt.days <= 90")
-    jobs = jobs.query("(end_time - start_time).dt.days <= 90")
-    # remove jobs that started way before the start date of the query.
-    if options.start:
-        td = datetime.timedelta(days=30)
-        end = (
-            options.end
-            if isinstance(options.end, datetime.datetime)
-            else datetime.datetime.strptime(options.end, "%Y-%m-%d").astimezone(MTL)
-        )
-        # Remove jobs that started more than 30 days before the query start date. (weird lost jobs).
-        jobs = jobs[
-            (end - jobs["start_time"])  # type: ignore
-            < min(td * 2, td + datetime.timedelta(days=30))
-        ]
+    jobs = remove_lost_jobs(jobs, options)
 
     jobs = update_job_series_rgu(jobs)
     # This makes it much easier to understand the compute times later (gpu days for instance).
     jobs = jobs.assign(elapsed_time=pd.to_timedelta(jobs["elapsed_time"], unit="s"))
     jobs = compute_cost_and_waste(jobs)
-    # Add "requested.gres_rgu", also makes sense to have.
-    rgu_per_gpu = jobs["allocated.gres_rgu"] / jobs["allocated.gres_gpu"]
-    jobs = jobs.assign(
-        **{
-            "requested.gres_rgu": jobs["requested.gres_gpu"] * rgu_per_gpu,
-            # Add the same cost/waste stats for RGUs.
-            "rgu_cost": jobs["gpu_cost"] * rgu_per_gpu,
-            "rgu_waste": jobs["gpu_waste"] * rgu_per_gpu,
-            "rgu_equivalent_cost": jobs["gpu_equivalent_cost"] * rgu_per_gpu,
-            "rgu_equivalent_waste": jobs["gpu_equivalent_waste"] * rgu_per_gpu,
-            "rgu_overbilling_cost": jobs["gpu_overbilling_cost"] * rgu_per_gpu,
-        }
-    )
-    average = jobs.aggregate(
+    jobs = add_rgu_cost_and_waste(jobs)
+
+    # weird_jobs = jobs.query("(`allocated.gres_gpu` > 0) & gpu_utilization.isna()")
+    # if not weird_jobs.empty:
+    #     logger.warning(
+    #         f"Found {len(weird_jobs)} jobs with allocated GPUs but no GPU utilization data."
+    #     )
+    #     rich.pretty.pprint(weird_jobs.to_dict(orient="records")[0])
+    #     return
+
+    stats = jobs.aggregate(
         {
             "cpu_utilization": "mean",
             "gpu_utilization": "mean",
-            "gpu_sm_occupancy": "mean",
+            # "gpu_sm_occupancy": "mean",
             "gpu_power": "mean",
             "requested.gres_gpu": "sum",
             "elapsed_time": "sum",
@@ -168,12 +154,51 @@ def main():
             },
         }
     )
-    print("Aggregated job statistics:")
-    rich.pretty.pprint(average.to_dict())
+    rich.print("Aggregated job statistics:")
+    rich.pretty.pprint(stats.to_dict())
+
+    rich.print(jobs.size)
+    rich.print(jobs.query("(`allocated.gres_gpu` > 0) & gpu_utilization.isna()").size)
 
     # uncomment to show the jobs:
-    # for job in jobs.to_dict(orient="records"):
+    # for job in reversed(jobs.to_dict(orient="records")):
     #     rich.pretty.pprint(job)
+    #     break
+
+
+def add_rgu_cost_and_waste(jobs: pd.DataFrame) -> pd.DataFrame:
+    # Add "requested.gres_rgu", also makes sense to have.
+    rgu_per_gpu = jobs["allocated.gres_rgu"] / jobs["allocated.gres_gpu"]
+    return jobs.assign(
+        **{
+            "requested.gres_rgu": jobs["requested.gres_gpu"] * rgu_per_gpu,
+            # Add the same cost/waste stats for RGUs.
+            "rgu_cost": jobs["gpu_cost"] * rgu_per_gpu,
+            "rgu_waste": jobs["gpu_waste"] * rgu_per_gpu,
+            "rgu_equivalent_cost": jobs["gpu_equivalent_cost"] * rgu_per_gpu,
+            "rgu_equivalent_waste": jobs["gpu_equivalent_waste"] * rgu_per_gpu,
+            "rgu_overbilling_cost": jobs["gpu_overbilling_cost"] * rgu_per_gpu,
+        }
+    )
+
+
+def remove_lost_jobs(jobs: pd.DataFrame, options: QueryOptions) -> pd.DataFrame:
+    jobs = jobs.query("(start_time - submit_time).dt.days <= 90")
+    jobs = jobs.query("(end_time - start_time).dt.days <= 90")
+    # remove jobs that started way before the start date of the query.
+    if options.start:
+        td = datetime.timedelta(days=30)
+        end = (
+            options.end
+            if isinstance(options.end, datetime.datetime)
+            else datetime.datetime.strptime(options.end, "%Y-%m-%d").astimezone(MTL)
+        )
+        # Remove jobs that started more than 30 days before the query start date. (weird lost jobs).
+        jobs = jobs[
+            (end - jobs["start_time"])  # type: ignore
+            < min(td * 2, td + datetime.timedelta(days=30))
+        ]
+    return jobs
 
 
 def _show_first_entry(df: pd.DataFrame):
