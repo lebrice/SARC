@@ -158,16 +158,15 @@ def usage_plot_mila_or_drac(
 
     is_prof = sarc_data["user.mila.email"].isin(prof_emails)
     is_staff = sarc_data["user.mila_ldap.supervisor"].isna() & ~is_prof
-    # sarc_data.loc[is_staff, "user.mila_ldap.supervisor"] = "Staff/Industry/Other"
+
     # TODO: Need to count the compute of profs towards themselves, even though they don't have a supervisor field!
-    for job in sarc_data[is_prof].itertuples():
-        job_index = job.Index
-        sarc_data.at[job_index, "user.mila_ldap.supervisor"] = sarc_data.at[
-            job_index, "user.mila.email"
-        ]
+    sarc_data.loc[is_prof, "user.mila_ldap.supervisor"] = sarc_data.loc[
+        is_prof, "user.mila.email"
+    ]
+    sarc_data.loc[is_staff, "user.mila_ldap.supervisor"] = "Staff/Industry/Other"
 
     usage_data = (
-        sarc_data.groupby("user.mila_ldap.supervisor", dropna=False)[
+        sarc_data.groupby("user.mila_ldap.supervisor")[
             ["gpu_cost", "gpu_equivalent_cost", "rgu_cost", "rgu_equivalent_cost"]
         ]
         .sum()
@@ -176,23 +175,21 @@ def usage_plot_mila_or_drac(
 
     # TODO: renaming nan in index to something else doesn't seem to work.
     # usage_data = usage_data.rename(index={np.nan: "Staff/Industry/Other"})
+    is_non_core_prof = ~(
+        usage_data.index.isin(CORE_PROF_EMAILS)
+        | (usage_data.index == "Staff/Industry/Other")
+    )
     usage_data = pd.concat(
         [
-            usage_data[usage_data.index.isin(CORE_PROF_EMAILS)],
+            usage_data[~is_non_core_prof],
             pd.DataFrame(
-                usage_data[
-                    usage_data.index.notna() & usage_data.index.isin(CORE_PROF_EMAILS)
-                ],
+                usage_data[is_non_core_prof].sum(axis=0),
                 index=["Non-core profs"],
-                columns=usage_data.columns,
-            ),
-            pd.DataFrame(
-                usage_data[usage_data.index.isna()],
-                index=["Staff/Industry/Other"],
                 columns=usage_data.columns,
             ),
         ]
     )
+    print(usage_data.to_markdown())
     fig = px.pie(
         usage_data,
         values="rgu_equivalent_cost",
