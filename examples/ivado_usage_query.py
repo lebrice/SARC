@@ -101,18 +101,40 @@ def main():
     # a) splitting between supervisor and co-supervisor, or
     # b) duplicating the values by counting it for both the supervisor or co-supervisor.
     usage_data, fig = usage_plot_mila_or_drac(
-        filter, users_in_period, professors, sarc_data
+        filter=filter,
+        professors=professors,
+        sarc_data=sarc_data,
+        mila_only=True,
     )
-
+    print(usage_data.to_markdown())
     fig.show(renderer="browser")
+
+    usage_data, fig = usage_plot_mila_or_drac(
+        filter=filter,
+        professors=professors,
+        sarc_data=sarc_data,
+        mila_only=False,
+        drac_only=True,
+    )
+    print(usage_data.to_markdown())
+    fig.show(renderer="browser")
+
+    usage_data, fig = usage_plot_mila_or_drac(
+        filter=filter,
+        professors=professors,
+        sarc_data=sarc_data,
+        mila_only=False,
+        drac_only=False,
+    )
+    print(usage_data.to_markdown())
+    fig.show(renderer="browser")
+
     fig.write_image("usage_per_prof_on_mila_cluster.png")
     # plt.show(block=True)
-    print(usage_data.to_markdown())
 
 
 def usage_plot_mila_or_drac(
     filter: FilteringOptions,
-    users_in_period: Sequence[User],
     professors: Sequence[User],
     sarc_data: pd.DataFrame,
     mila_only: bool = True,
@@ -137,8 +159,13 @@ def usage_plot_mila_or_drac(
     is_prof = sarc_data["user.mila.email"].isin(prof_emails)
     is_staff = sarc_data["user.mila_ldap.supervisor"].isna() & ~is_prof
     # sarc_data.loc[is_staff, "user.mila_ldap.supervisor"] = "Staff/Industry/Other"
-
     # TODO: Need to count the compute of profs towards themselves, even though they don't have a supervisor field!
+    for job in sarc_data[is_prof].itertuples():
+        job_index = job.Index
+        sarc_data.at[job_index, "user.mila_ldap.supervisor"] = sarc_data.at[
+            job_index, "user.mila.email"
+        ]
+
     usage_data = (
         sarc_data.groupby("user.mila_ldap.supervisor", dropna=False)[
             ["gpu_cost", "gpu_equivalent_cost", "rgu_cost", "rgu_equivalent_cost"]
@@ -146,51 +173,25 @@ def usage_plot_mila_or_drac(
         .sum()
         .div(pd.Timedelta(days=1))  # convert from datetime to float (gpu/rgu days).
     )
+
     # TODO: renaming nan in index to something else doesn't seem to work.
     # usage_data = usage_data.rename(index={np.nan: "Staff/Industry/Other"})
-
     usage_data = pd.concat(
         [
-            usage_data[usage_data["user.mila_ldap.supervisor"].isin(CORE_PROF_EMAILS)],
+            usage_data[usage_data.index.isin(CORE_PROF_EMAILS)],
             pd.DataFrame(
-                [
-                    usage_data[
-                        usage_data["user.mila_ldap.supervisor"].notna()
-                        & usage_data["user.mila_ldap.supervisor"].isin(CORE_PROF_EMAILS)
-                    ]
+                usage_data[
+                    usage_data.index.notna() & usage_data.index.isin(CORE_PROF_EMAILS)
                 ],
                 index=["Non-core profs"],
                 columns=usage_data.columns,
             ),
             pd.DataFrame(
-                [usage_data[usage_data["user.mila_ldap.supervisor"].isna()]],
+                usage_data[usage_data.index.isna()],
                 index=["Staff/Industry/Other"],
                 columns=usage_data.columns,
             ),
         ]
-    )
-
-    usage_data = usage_data.reset_index()
-    usage_data = usage_data.assign(
-        core=usage_data["user.mila_ldap.supervisor"].isin(CORE_PROF_EMAILS)
-    )
-    usage_data = usage_data.assign(staff=is_staff)
-
-    total_for_non_core_profs = usage_data[
-        usage_data["core"].notna() & ~(usage_data["core"].fillna(True, inplace=False))
-    ].sum()
-
-    usage_data = pd.concat(
-        [
-            usage_data[
-                usage_data["core"] | usage_data["core"].isna()
-            ],  # core profs and staff/other
-            pd.DataFrame(  # add a single entry for all non-core profs
-                [total_for_non_core_profs],
-                index=["Non-core profs"],
-                columns=usage_data.columns,
-            ),
-        ],
     )
     fig = px.pie(
         usage_data,
