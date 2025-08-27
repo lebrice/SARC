@@ -1,7 +1,7 @@
 import functools
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable
 
 import pandas as pd
 import plotly.express as px
@@ -15,6 +15,8 @@ from sarc.client.users.api import User, get_users
 from sarc.config import MTL
 
 CORE_PROF_EMAILS = Path("core_profs.txt").read_text().splitlines()
+DRAC_CLUSTERS = ["narval", "beluga", "cedar", "graham", "rorqual", "fir", "nibi"]
+PAICE_CLUSTERS = ["tamia", "killarney", "vulcan"]
 
 
 @functools.cache
@@ -78,6 +80,12 @@ def is_core_prof(user: User, all_users: Iterable[User]) -> bool:
 
 
 def main():
+    """
+    Simplifying for now: attributing all the compute usage to only the supervisor instead of:
+    a) splitting between supervisor and co-supervisor, or
+    b) duplicating the values by counting it for both the supervisor or co-supervisor.
+    """
+
     _setup_logging(verbose=1)
     # 1er avril 2025 au 31 juillet 2025
     filter = FilteringOptions(start=datetime(2025, 4, 1), end=datetime(2025, 7, 31))
@@ -97,83 +105,133 @@ def main():
     ]
     sarc_data = get_clean_sarc_data(filter)
 
-    # Simplifying for now: attributing all the compute usage to only the supervisor instead of:
-    # a) splitting between supervisor and co-supervisor, or
-    # b) duplicating the values by counting it for both the supervisor or co-supervisor.
-    usage_data, fig = usage_plot_mila_or_drac(
-        filter=filter,
-        professors=professors,
-        sarc_data=sarc_data,
-        mila_only=True,
-    )
-    print(usage_data.to_markdown())
-    fig.show(renderer="browser")
-
-    usage_data, fig = usage_plot_mila_or_drac(
-        filter=filter,
-        professors=professors,
-        sarc_data=sarc_data,
-        mila_only=False,
-        drac_only=True,
-    )
-    print(usage_data.to_markdown())
-    fig.show(renderer="browser")
-
-    usage_data, fig = usage_plot_mila_or_drac(
-        filter=filter,
-        professors=professors,
-        sarc_data=sarc_data,
-        mila_only=False,
-        drac_only=False,
-    )
-    print(usage_data.to_markdown())
-    fig.show(renderer="browser")
-
-    fig.write_image("usage_per_prof_on_mila_cluster.png")
-    # plt.show(block=True)
-
-
-def usage_plot_mila_or_drac(
-    filter: FilteringOptions,
-    professors: Sequence[User],
-    sarc_data: pd.DataFrame,
-    mila_only: bool = True,
-    drac_only: bool = False,
-):
-    sarc_data = sarc_data.copy()
-    if mila_only:
-        sarc_data = sarc_data.query("cluster_name=='mila'")
-    elif drac_only:
-        sarc_data = sarc_data.query("cluster_name!='mila'")
-        sarc_data = sarc_data[
-            ~sarc_data["cluster_name"].isin(["tamia", "killarney", "vulcan"])
-        ]
-    else:
-        # PAICE only.
-        sarc_data = sarc_data[
-            sarc_data["cluster_name"].isin(["tamia", "killarney", "vulcan"])
-        ]
-    # For jobs where users don't have a supervisor, and the user itself is not a prof, we set the "supervisor" to "Staff/Industry/Other
+    # For jobs where users don't have a supervisor, and the user itself is not a prof,
+    # we set the "supervisor" to "Staff/Industry/Other"
     prof_emails = {prof.mila.email for prof in professors}
+    supervisor_key = "user.mila_ldap.supervisor"
 
+    is_student = sarc_data[supervisor_key].notna()
     is_prof = sarc_data["user.mila.email"].isin(prof_emails)
-    is_staff = sarc_data["user.mila_ldap.supervisor"].isna() & ~is_prof
-
-    # TODO: Need to count the compute of profs towards themselves, even though they don't have a supervisor field!
-    sarc_data.loc[is_prof, "user.mila_ldap.supervisor"] = sarc_data.loc[
-        is_prof, "user.mila.email"
-    ]
-    sarc_data.loc[is_staff, "user.mila_ldap.supervisor"] = "Staff/Industry/Other"
-
-    usage_data = (
-        sarc_data.groupby("user.mila_ldap.supervisor")[
-            ["gpu_cost", "gpu_equivalent_cost", "rgu_cost", "rgu_equivalent_cost"]
-        ]
-        .sum()
-        .div(pd.Timedelta(days=1))  # convert from datetime to float (gpu/rgu days).
+    is_staff = sarc_data[supervisor_key].isna() & ~is_prof
+    # Need to be in exactly one of these three categories.
+    assert (_t := (is_student ^ is_prof ^ is_staff)).all(), (
+        sarc_data[_t]["user.mila.email"].unique().tolist()
     )
 
-    # TODO: renaming nan in index to something else doesn't seem to work.
+    sarc_data = sarc_data.assign(user_type="")
+    sarc_data.loc[is_student, "user_type"] = "student"
+    sarc_data.loc[is_prof, "user_type"] = "prof"
+    sarc_data.loc[is_staff, "user_type"] = "other"
+
+    # Mark profs as their own supervisor to make it easier to count their compute towards their own group.
+    sarc_data.loc[is_prof, supervisor_key] = sarc_data.loc[is_prof, "user.mila.email"]
+    sarc_data.loc[is_staff, supervisor_key] = "No supervisor"
+
+    is_core = (is_student | is_prof) & sarc_data["user.mila_ldap.supervisor"].isin(
+        CORE_PROF_EMAILS
+    )
+    sarc_data = sarc_data.assign(prof_type="")
+    sarc_data.loc[is_core, "prof_type"] = "core prof"
+    sarc_data.loc[~is_staff & ~is_core, "prof_type"] = "non-core prof"
+    sarc_data.loc[is_staff, "prof_type"] = "Staff/Industry/Other"
+
+    sarc_data = sarc_data.assign(
+        cluster_type=sarc_data["cluster_name"].map(
+            {
+                "mila": "mila",
+                **{c: "drac" for c in DRAC_CLUSTERS},
+                **{c: "paice" for c in PAICE_CLUSTERS},
+            }
+        )
+    )
+
+    plot_data = sarc_data.groupby(
+        ["cluster_type", "prof_type", supervisor_key, "user.mila.email"]
+    ).aggregate(
+        dict(
+            **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
+            **{
+                c: "mean"
+                for c in sarc_data.columns
+                if c.endswith("_mean") or "utilization" in c
+            },
+            job_id="count",
+        )
+    )
+    plot_data = plot_data.assign(
+        **{
+            c: plot_data[c].div(pd.Timedelta(days=1))
+            for c in plot_data.columns
+            if c.endswith("_cost")
+        }
+    )
+    # import numpy as np
+    # import plotly.express as px
+
+    # df = px.data.gapminder().query("year == 2007")
+    # fig = px.sunburst(
+    #     df,
+    #     path=["continent", "country"],
+    #     values="pop",
+    #     color="lifeExp",
+    #     hover_data=["iso_alpha"],
+    #     color_continuous_scale="RdBu",
+    #     color_continuous_midpoint=np.average(df["lifeExp"], weights=df["pop"]),
+    # )
+    # fig.show("browser")
+
+    mila_plot_data = plot_data.xs("mila", level="cluster_type").reset_index()
+
+    fig = px.sunburst(
+        # names=supervisor_key,
+        mila_plot_data,
+        path=["prof_type", supervisor_key, "user.mila.email"],
+        values="rgu_equivalent_cost",
+        color="gpu_utilization",
+        hover_data=[
+            "gpu_equivalent_cost",
+            "rgu_equivalent_cost",
+            "cpu_equivalent_cost",
+            "gpu_utilization",
+            "cpu_utilization",
+        ],
+        color_continuous_scale="RdBu",
+        # color_continuous_scale=[
+        #     [0.0, "rgb(255, 0, 0)"],  # Red at the start
+        #     [1.0, "rgb(0, 255, 0)"],  # Green at the end
+        # ],
+        color_continuous_midpoint=0.5,
+        branchvalues="total",
+    )
+    # https://community.plotly.com/t/labeling-percentage-on-each-sector-in-sunburst-chart/32129/4
+    fig.update_traces(textinfo="label+percent root+percent parent")
+    fig.show("browser")
+
+    # mila_data = sarc_data.query("cluster_type=='mila'")
+    # drac_data = sarc_data.query("cluster_type=='drac'")
+    # paice_data = sarc_data.query("cluster_type=='paice'")
+
+    # _, fig = usage_plot_mila_or_drac(mila_data)
+    # fig.show("browser")
+
+
+def usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
+    """Make a pie chart of the resource usage for different categories of users/groups.
+
+    Groups the data for profs that are not "core" profs in a single entry.
+    Same for all users that aren't profs or students, we assume they are staff/industry/other
+    and place them in a single entry.
+    """
+
+    usage_data = sarc_data.groupby("user.mila_ldap.supervisor").aggregate(
+        dict(
+            **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
+            **{c: "mean" for c in sarc_data.columns if c.endswith("_mean")},
+        )
+    )
+
+    # Note: Seems like renaming np.nan in index to something else doesn't work.
+    # This is why we opt for setting the supervisor to "Staff/Industry/Other" above instead of keeping NaNs.
     # usage_data = usage_data.rename(index={np.nan: "Staff/Industry/Other"})
     is_non_core_prof = ~(
         usage_data.index.isin(CORE_PROF_EMAILS)
@@ -181,20 +239,23 @@ def usage_plot_mila_or_drac(
     )
     usage_data = pd.concat(
         [
-            usage_data[~is_non_core_prof],
             pd.DataFrame(
-                usage_data[is_non_core_prof].sum(axis=0),
+                [usage_data[is_non_core_prof].sum(axis=0)],
                 index=["Non-core profs"],
                 columns=usage_data.columns,
             ),
+            usage_data[~is_non_core_prof],
         ]
     )
     print(usage_data.to_markdown())
+    clusters = sarc_data["cluster_name"].unique().tolist()
+    start_date = sarc_data["start_time"].min().date()
+    end_date = sarc_data["end_time"].max().date()
     fig = px.pie(
         usage_data,
         values="rgu_equivalent_cost",
         names=usage_data.index.values,
-        title=f"Usage on {'Mila' if mila_only else 'DRAC' if drac_only else 'PAICE'} cluster between {filter.start.date()} and {filter.end.date()}",
+        title=(f"Usage on {clusters} cluster(s) between {start_date} and {end_date}"),
     )
 
     return usage_data, fig
