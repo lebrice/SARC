@@ -14,6 +14,7 @@ from examples.waste_monitor.sarc_patches import (
 from sarc.client.users.api import User, get_users
 from sarc.config import MTL
 
+# Need to have this secret file with the emails of the core profs.
 CORE_PROF_EMAILS = Path("core_profs.txt").read_text().splitlines()
 DRAC_CLUSTERS = ["narval", "beluga", "cedar", "graham", "rorqual", "fir", "nibi"]
 PAICE_CLUSTERS = ["tamia", "killarney", "vulcan"]
@@ -182,10 +183,15 @@ def make_awesome_sunburst_plot(
         }
     )
     s = "s" if len(clusters) > 1 else ""
+    total_compute_values = (
+        sarc_data[["rgu_equivalent_cost", "gpu_equivalent_cost", "cpu_equivalent_cost"]]
+        .div(pd.Timedelta(days=1))
+        .sum()
+    )
+    days_in_period = (filter.end - filter.start).days
 
     # TODO: Add a table in the hover instead of badly formatted floats.
     fig = px.sunburst(
-        # names=supervisor_key,
         plot_data.reset_index(),
         path=(["cluster_name"] if multiple_clusters else [])
         + ["prof_type", supervisor_key, "user.mila.email"],
@@ -199,24 +205,49 @@ def make_awesome_sunburst_plot(
             "cpu_utilization",
         ],
         title=(
-            f"Usage on {clusters[0] if len(clusters) == 1 else clusters} cluster{s} between {filter.start.date()} and {filter.end.date()}"
+            f"Usage on {clusters[0] if len(clusters) == 1 else clusters} cluster{s} "
+            f"between {filter.start.date()} and {filter.end.date()} ({days_in_period} days)"
         ),
         subtitle=(
-            "Compute is expressed in GPU/RGU days (1 GPU*day := a GPU used for a full day)\n"
-            f"SARC shows {sarc_data['job_id'].nunique()} jobs between {data_start_date} and {data_end_date}."
+            "Compute is expressed in GPU/RGU days (1 GPU*day := a GPU used for a full day)<br>"
+            "(RGU are a unit or GPU power. A100-80G --> 4.8 RGUs, H100 --> 12.2 RGUs)<br>"
+            f"SARC shows {sarc_data['job_id'].nunique()} jobs between {data_start_date} and {data_end_date}.<br>"
+            # TODO: would be nice to show the maximum possible number of GPUs available full-time during this period.
+            f"Number of days in period: {days_in_period}<br>"
+            + (
+                f"Total compute used: "
+                f"{total_compute_values['rgu_equivalent_cost']:.0f} RGU days, "
+                f"{total_compute_values['gpu_equivalent_cost']:.0f} GPU days, "
+                f"{total_compute_values['cpu_equivalent_cost']:.0f} CPU days, "
+                "<br>"
+            )
+            + (
+                f"Equivalent to "
+                f"{total_compute_values['gpu_equivalent_cost'] / days_in_period:.0f} GPUs, "
+                f"{total_compute_values['rgu_equivalent_cost'] / days_in_period:.0f} RGUs, and "
+                f"{total_compute_values['cpu_equivalent_cost'] / days_in_period:.0f} CPUs "
+                f"used full time during this period.<br>"
+            )
         ),
-        color_continuous_scale="RdBu",
-        # color_continuous_scale=[  # a bit ugly, but playing around with it.
-        #     [0.0, "rgb(255, 0, 0)"],  # Red at the start
-        #     [1.0, "rgb(0, 255, 0)"],  # Green at the end
-        # ],
+        # color_continuous_scale="RdBu",
+        color_continuous_scale=[
+            [0.0, "rgb(255, 0, 0)"],
+            [0.5, "rgb(255, 255, 255)"],
+            [1.0, "rgb(0, 255, 0)"],
+        ],
         color_continuous_midpoint=0.5,
         branchvalues="total",
     )
     # https://community.plotly.com/t/labeling-percentage-on-each-sector-in-sunburst-chart/32129/4
     fig.update_traces(
+        secondary_y=False,
         textinfo="label+text+value+percent root+percent parent",
         # texttemplate="%{y:.1f} days",
+        texttemplate=(
+            "%{label}<br>"
+            "%{value:.2s} RGU days<br>"
+            "%{percentParent:.0%} of parent, %{percentRoot:.0%} of total<br>"
+        ),
     )
     fig.show("browser")
 
