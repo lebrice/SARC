@@ -157,9 +157,12 @@ def make_awesome_sunburst_plot(
     filter: FilteringOptions,
 ):
     sarc_data = sarc_data[sarc_data["cluster_type"] == cluster_type_to_show]
-
+    clusters = sarc_data["cluster_name"].unique().tolist()
+    data_start_date = sarc_data["start_time"].min().date()
+    data_end_date = sarc_data["end_time"].max().date()
+    multiple_clusters = len(clusters) > 1
     plot_data = sarc_data.groupby(
-        ["prof_type", supervisor_key, "user.mila.email"]
+        ["cluster_name", "prof_type", supervisor_key, "user.mila.email"]
     ).aggregate(
         dict(
             **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
@@ -178,14 +181,14 @@ def make_awesome_sunburst_plot(
             if c.endswith("_cost")
         }
     )
-    clusters = sarc_data["cluster_name"].unique().tolist()
-    data_start_date = sarc_data["start_time"].min().date()
-    data_end_date = sarc_data["end_time"].max().date()
     s = "s" if len(clusters) > 1 else ""
+
+    # TODO: Add a table in the hover instead of badly formatted floats.
     fig = px.sunburst(
         # names=supervisor_key,
         plot_data.reset_index(),
-        path=["prof_type", supervisor_key, "user.mila.email"],
+        path=(["cluster_name"] if multiple_clusters else [])
+        + ["prof_type", supervisor_key, "user.mila.email"],
         values="rgu_equivalent_cost",
         color="gpu_utilization",
         hover_data=[
