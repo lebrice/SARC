@@ -1,7 +1,7 @@
 import functools
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import pandas as pd
 import plotly.express as px
@@ -79,6 +79,9 @@ def is_core_prof(user: User, all_users: Iterable[User]) -> bool:
     return is_prof(user, all_users) and user.mila.email in CORE_PROF_EMAILS
 
 
+supervisor_key = "user.mila_ldap.supervisor"
+
+
 def main():
     """
     Simplifying for now: attributing all the compute usage to only the supervisor instead of:
@@ -104,11 +107,10 @@ def main():
         if user.mila is not None and user.mila.email in all_profs_emails
     ]
     sarc_data = get_clean_sarc_data(filter)
-
+    assert isinstance(sarc_data, pd.DataFrame)
     # For jobs where users don't have a supervisor, and the user itself is not a prof,
     # we set the "supervisor" to "Staff/Industry/Other"
     prof_emails = {prof.mila.email for prof in professors}
-    supervisor_key = "user.mila_ldap.supervisor"
 
     is_student = sarc_data[supervisor_key].notna()
     is_prof = sarc_data["user.mila.email"].isin(prof_emails)
@@ -144,9 +146,20 @@ def main():
             }
         )
     )
+    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="mila", filter=filter)
+    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="drac", filter=filter)
+    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="paice", filter=filter)
+
+
+def make_awesome_sunburst_plot(
+    sarc_data: pd.DataFrame,
+    cluster_type_to_show: Literal["mila", "drac", "paice"],
+    filter: FilteringOptions,
+):
+    sarc_data = sarc_data[sarc_data["cluster_type"] == cluster_type_to_show]
 
     plot_data = sarc_data.groupby(
-        ["cluster_type", "prof_type", supervisor_key, "user.mila.email"]
+        ["prof_type", supervisor_key, "user.mila.email"]
     ).aggregate(
         dict(
             **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
@@ -165,26 +178,13 @@ def main():
             if c.endswith("_cost")
         }
     )
-    # import numpy as np
-    # import plotly.express as px
-
-    # df = px.data.gapminder().query("year == 2007")
-    # fig = px.sunburst(
-    #     df,
-    #     path=["continent", "country"],
-    #     values="pop",
-    #     color="lifeExp",
-    #     hover_data=["iso_alpha"],
-    #     color_continuous_scale="RdBu",
-    #     color_continuous_midpoint=np.average(df["lifeExp"], weights=df["pop"]),
-    # )
-    # fig.show("browser")
-
-    mila_plot_data = plot_data.xs("mila", level="cluster_type").reset_index()
-
+    clusters = sarc_data["cluster_name"].unique().tolist()
+    data_start_date = sarc_data["start_time"].min().date()
+    data_end_date = sarc_data["end_time"].max().date()
+    s = "s" if len(clusters) > 1 else ""
     fig = px.sunburst(
         # names=supervisor_key,
-        mila_plot_data,
+        plot_data.reset_index(),
         path=["prof_type", supervisor_key, "user.mila.email"],
         values="rgu_equivalent_cost",
         color="gpu_utilization",
@@ -195,8 +195,15 @@ def main():
             "gpu_utilization",
             "cpu_utilization",
         ],
+        title=(
+            f"Usage on {clusters[0] if len(clusters) == 1 else clusters} cluster{s} between {filter.start.date()} and {filter.end.date()}"
+        ),
+        subtitle=(
+            "Compute is expressed in GPU/RGU days (1 GPU*day := a GPU used for a full day)\n"
+            f"SARC shows {sarc_data['job_id'].nunique()} jobs between {data_start_date} and {data_end_date}."
+        ),
         color_continuous_scale="RdBu",
-        # color_continuous_scale=[
+        # color_continuous_scale=[  # a bit ugly, but playing around with it.
         #     [0.0, "rgb(255, 0, 0)"],  # Red at the start
         #     [1.0, "rgb(0, 255, 0)"],  # Green at the end
         # ],
@@ -204,7 +211,10 @@ def main():
         branchvalues="total",
     )
     # https://community.plotly.com/t/labeling-percentage-on-each-sector-in-sunburst-chart/32129/4
-    fig.update_traces(textinfo="label+percent root+percent parent")
+    fig.update_traces(
+        textinfo="label+text+value+percent root+percent parent",
+        # texttemplate="%{y:.1f} days",
+    )
     fig.show("browser")
 
     # mila_data = sarc_data.query("cluster_type=='mila'")
@@ -215,7 +225,7 @@ def main():
     # fig.show("browser")
 
 
-def usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
+def _usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
     """Make a pie chart of the resource usage for different categories of users/groups.
 
     Groups the data for profs that are not "core" profs in a single entry.
@@ -247,6 +257,7 @@ def usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
             usage_data[~is_non_core_prof],
         ]
     )
+    s = "s" if len(usage_data) > 1 else ""
     print(usage_data.to_markdown())
     clusters = sarc_data["cluster_name"].unique().tolist()
     start_date = sarc_data["start_time"].min().date()
@@ -255,7 +266,9 @@ def usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
         usage_data,
         values="rgu_equivalent_cost",
         names=usage_data.index.values,
-        title=(f"Usage on {clusters} cluster(s) between {start_date} and {end_date}"),
+        title=(
+            f"Usage on {clusters[0] if len(clusters) == 1 else clusters} cluster{s} between {start_date} and {end_date}"
+        ),
     )
 
     return usage_data, fig
