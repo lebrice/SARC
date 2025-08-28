@@ -147,6 +147,7 @@ def main():
             }
         )
     )
+    # make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="all", filter=filter)
     make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="mila", filter=filter)
     make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="drac", filter=filter)
     make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="paice", filter=filter)
@@ -154,7 +155,7 @@ def main():
 
 def make_awesome_sunburst_plot(
     sarc_data: pd.DataFrame,
-    cluster_type_to_show: Literal["mila", "drac", "paice"],
+    cluster_type_to_show: Literal["mila", "drac", "paice", "all"],
     filter: FilteringOptions,
 ):
     sarc_data = sarc_data[sarc_data["cluster_type"] == cluster_type_to_show]
@@ -193,8 +194,17 @@ def make_awesome_sunburst_plot(
     # TODO: Add a table in the hover instead of badly formatted floats.
     fig = px.sunburst(
         plot_data.reset_index(),
-        path=(["cluster_name"] if multiple_clusters else [])
-        + ["prof_type", supervisor_key, "user.mila.email"],
+        path=(
+            [
+                # "cluster_type",
+                "prof_type",
+                "cluster_name",
+                supervisor_key,
+                "user.mila.email",
+            ]
+            if multiple_clusters
+            else ["prof_type", supervisor_key, "user.mila.email"]
+        ),
         values="rgu_equivalent_cost",
         color="gpu_utilization",
         hover_data=[
@@ -216,8 +226,8 @@ def make_awesome_sunburst_plot(
             f"Number of days in period: {days_in_period}<br>"
             + (
                 f"Total compute used: "
-                f"{total_compute_values['rgu_equivalent_cost']:.0f} RGU days, "
                 f"{total_compute_values['gpu_equivalent_cost']:.0f} GPU days, "
+                f"{total_compute_values['rgu_equivalent_cost']:.0f} RGU days, "
                 f"{total_compute_values['cpu_equivalent_cost']:.0f} CPU days, "
                 "<br>"
             )
@@ -246,7 +256,14 @@ def make_awesome_sunburst_plot(
         texttemplate=(
             "%{label}<br>"
             "%{value:.2s} RGU days<br>"
-            "%{percentParent:.0%} of parent, %{percentRoot:.0%} of total<br>"
+            + (
+                "%{percentParent:.0%} of parent, %{percentRoot:.0%} of total compute<br>"
+                if not multiple_clusters
+                else (
+                    "%{percentParent:.0%} of parent / %{percentEntry:.0%} of selection<br>"
+                    "%{percentRoot:.0%} of total compute"
+                )
+            )
         ),
     )
     fig.show("browser")
