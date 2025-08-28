@@ -366,7 +366,37 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         end=options.end.astimezone(MTL),
     )
     df = cache_results_to_file(get_raw_sarc_data)(options)
-    return clean_sarc_data(df, options)
+
+    # FIXME: Seems to be causing issues with DRAC data being dropped?
+    # Switching to a new version for now..
+    cleaned_df = clean_sarc_data(df, options)
+
+    df = update_job_series_rgu(df)
+
+    # Remove lost jobs (like job id 16 on the Mila cluster).
+    df = _fix_lost_jobs(df)
+    jobs_to_remove = df[df["end_time"] < options.start]
+    df = df.drop(jobs_to_remove.index)
+
+    # TODO: This one doesn't seem to work, raises an error.
+    # df = _fix_missing_gpu_type(df)
+    df = _fix_allocated_gres_gpu_billing_drac(df)
+    df = _fix_allocated_cpus_drac(df)
+    df = _fix_requested_allocated_gres_gpu(df)
+
+    # Convert the elapsed_time col to timedelta, makes it nicer to work with the cost values.
+    df = df.assign(
+        elapsed_time=pd.to_timedelta(df["elapsed_time"], unit="s"),
+    )
+    df = compute_cost_and_waste(df)
+    df = df.assign(
+        rgu_equivalent_cost=df["gpu_equivalent_cost"]
+        * df["allocated.gres_rgu"]
+        / df["allocated.gres_gpu"]
+    )
+
+    return df
+    # return clean_sarc_data(df, options)
 
 
 def get_raw_sarc_data(options: FilteringOptions) -> pd.DataFrame:

@@ -147,24 +147,39 @@ def main():
             }
         )
     )
-    # make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="all", filter=filter)
-    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="mila", filter=filter)
-    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="drac", filter=filter)
-    make_awesome_sunburst_plot(sarc_data, cluster_type_to_show="paice", filter=filter)
+    make_awesome_sunburst_plot(
+        sarc_data, cluster_type_to_show="mila", filter=filter, show_rgu=True
+    )
+    make_awesome_sunburst_plot(
+        sarc_data, cluster_type_to_show="drac", filter=filter, show_rgu=True
+    )
+    # make_awesome_sunburst_plot(
+    #     sarc_data, cluster_type_to_show="drac", filter=filter, show_rgu=False
+    # )
+    # make_awesome_sunburst_plot(
+    #     sarc_data, cluster_type_to_show="paice", filter=filter, show_rgu=False
+    # )
+    # make_awesome_sunburst_plot(
+    #     sarc_data, cluster_type_to_show="all", filter=filter, show_rgu=False
+    # )
 
 
 def make_awesome_sunburst_plot(
     sarc_data: pd.DataFrame,
     cluster_type_to_show: Literal["mila", "drac", "paice", "all"],
     filter: FilteringOptions,
+    show_rgu: bool = False,
 ):
-    sarc_data = sarc_data[sarc_data["cluster_type"] == cluster_type_to_show]
+    all_clusters = cluster_type_to_show == "all"
+    if not all_clusters:
+        sarc_data = sarc_data[sarc_data["cluster_type"] == cluster_type_to_show]
     clusters = sarc_data["cluster_name"].unique().tolist()
     data_start_date = sarc_data["start_time"].min().date()
     data_end_date = sarc_data["end_time"].max().date()
     multiple_clusters = len(clusters) > 1
+
     plot_data = sarc_data.groupby(
-        ["cluster_name", "prof_type", supervisor_key, "user.mila.email"]
+        ["cluster_type", "cluster_name", "prof_type", supervisor_key, "user.mila.email"]
     ).aggregate(
         dict(
             **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
@@ -178,6 +193,7 @@ def make_awesome_sunburst_plot(
     )
     plot_data = plot_data.assign(
         **{
+            # Divide by 1 day to avoid overflow erro
             c: plot_data[c].div(pd.Timedelta(days=1))
             for c in plot_data.columns
             if c.endswith("_cost")
@@ -189,6 +205,7 @@ def make_awesome_sunburst_plot(
         .div(pd.Timedelta(days=1))
         .sum()
     )
+    print(total_compute_values.to_markdown())
     days_in_period = (filter.end - filter.start).days
 
     # TODO: Add a table in the hover instead of badly formatted floats.
@@ -197,15 +214,16 @@ def make_awesome_sunburst_plot(
         path=(
             [
                 # "cluster_type",
-                "prof_type",
                 "cluster_name",
                 supervisor_key,
                 "user.mila.email",
             ]
+            if all_clusters
+            else ["prof_type", "cluster_name", supervisor_key, "user.mila.email"]
             if multiple_clusters
             else ["prof_type", supervisor_key, "user.mila.email"]
         ),
-        values="rgu_equivalent_cost",
+        values="rgu_equivalent_cost" if show_rgu else "gpu_equivalent_cost",
         color="gpu_utilization",
         hover_data=[
             "gpu_equivalent_cost",
@@ -255,7 +273,7 @@ def make_awesome_sunburst_plot(
         # texttemplate="%{y:.1f} days",
         texttemplate=(
             "%{label}<br>"
-            "%{value:.2s} RGU days<br>"
+            + ("%{value:.2s} " + ("RGU" if show_rgu else "GPU") + " days<br>")
             + (
                 "%{percentParent:.0%} of parent, %{percentRoot:.0%} of total compute<br>"
                 if not multiple_clusters
