@@ -606,7 +606,7 @@ def compute_time_frames(
     columns: list[str] | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
-    frame_size: timedelta = timedelta(days=7),
+    frame_size: str | timedelta = timedelta(days=7),
 ) -> DataFrame:
     """Slice jobs into time frames and adjust columns to fit the time frames.
 
@@ -630,7 +630,7 @@ def compute_time_frames(
         Start of the time frame. If None, use the first job start time.
     end: datetime, optional
         End of the time frame. If None, use the last job end time.
-    frame_size: timedelta, optional
+    frame_size: str | timedelta, optional
         Size of the time frames used to compute histograms. Default to 7 days.
 
     Examples
@@ -664,13 +664,12 @@ def compute_time_frames(
 
     if end is None:
         end = jobs[col_end].max()
-
     data_frames = []
 
     total_durations = (jobs[col_end] - jobs[col_start]).dt.total_seconds()
-    for frame_start in pandas.date_range(start, end, freq=frame_size):
-        frame_end = frame_start + frame_size
-
+    timestamps = pandas.date_range(start, end, freq=frame_size, inclusive="both")
+    # for frame_start in pd.date_range(start, end, freq=f"MS"):
+    for frame_start, frame_end in zip(timestamps, timestamps[1:]):
         mask = (jobs[col_start] < frame_end) * (jobs[col_end] > frame_start)
         frame = jobs[mask].copy()
         total_durations_in_frame = total_durations[mask]
