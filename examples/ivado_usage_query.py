@@ -326,6 +326,11 @@ def make_awesome_sunburst_plot(
             )
         ),
     )
+    fig.write_html(
+        f"compute_usage_{clusters[0] if len(clusters) == 1 else '-'.join(clusters)}_interactive.html",
+        include_plotlyjs="cdn",
+        include_mathjax="cdn",
+    )
     fig.show("browser")
 
     # mila_data = sarc_data.query("cluster_type=='mila'")
