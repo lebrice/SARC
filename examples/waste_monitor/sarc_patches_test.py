@@ -7,11 +7,10 @@ import rich
 import rich.pretty
 
 from examples.waste_monitor.sarc_patches import (
-    clean_sarc_data,
-    get_clean_sarc_data,
+    clean_sarc_data_v1,
     get_raw_sarc_data,
 )
-from sarc.client.series import load_job_series, update_job_series_rgu
+from sarc.client.series import update_job_series_rgu
 from sarc.config import MTL
 
 from .common_utils import FilteringOptions, cache_results_to_file, midnight
@@ -44,7 +43,7 @@ def sarc_data_with_rgus(load_job_series_data: pd.DataFrame):
 
 @pytest.fixture(scope="module")
 def cleaned_sarc_data(load_job_series_data: pd.DataFrame, period: FilteringOptions):
-    return clean_sarc_data(load_job_series_data.copy(), period)
+    return clean_sarc_data_v1(load_job_series_data.copy(), period)
 
 
 def show_first_entry(df: pd.DataFrame):
@@ -108,7 +107,7 @@ class BaseTests:
             )
         assert (
             t := gpu_jobs.query(
-                f"(elapsed_time.dt.seconds > 5) & gpu_utilization.isna()"
+                "(elapsed_time.dt.seconds > 5) & gpu_utilization.isna()"
             )
         ).empty, show_first_entry(t)
 

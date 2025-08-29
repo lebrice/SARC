@@ -43,14 +43,17 @@ def _setup_logging(verbose: int):
         force=True,
     )
     logging.getLogger("sarc").setLevel(logging.WARNING)
-    logging.getLogger("examples").setLevel(logging.WARNING)
+    this_logger = logging.getLogger("examples")
 
     if verbose == 0:
         logger.setLevel("WARNING")
+        this_logger.setLevel("WARNING")
     elif verbose == 1:
         logger.setLevel("INFO")
+        this_logger.setLevel("INFO")
     else:
         logger.setLevel("DEBUG")
+        this_logger.setLevel("DEBUG")
 
 
 _setup_logging(verbose=2)

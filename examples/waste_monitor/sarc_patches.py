@@ -58,6 +58,10 @@ def _fix_allocated_gres_gpu_billing_drac(df: pd.DataFrame) -> pd.DataFrame:
         "(`allocated.gres_gpu` == `allocated.billing`) & "
         "(`allocated.billing` > 100)"
     )
+    logger.debug(
+        f"Fix {_fix_allocated_gres_gpu_billing_drac.__name__} affects "
+        f"{target_jobs.shape[0] / df.shape[0] if df.shape[0] > 0 else 0:.2%} of jobs in given dataframe"
+    )
     target_jobs = target_jobs.assign(
         **{"allocated.gres_gpu": target_jobs["requested.gres_gpu"]}
     )
@@ -95,10 +99,15 @@ def _fix_requested_allocated_gres_gpu(df: pd.DataFrame) -> pd.DataFrame:
     # )
 
     # If allocated.gres_gpu == 0 but requested.gres_gpu > 0, set it to requested.gres_gpu.
-    allocated_gres_gpu = allocated_gres_gpu.mask(
-        (allocated_gres_gpu == 0) & (requested_gres_gpu > 0), requested_gres_gpu
+    target_mask = (allocated_gres_gpu == 0) & (requested_gres_gpu > 0)
+    logger.debug(
+        f"Fix {_fix_requested_allocated_gres_gpu.__name__} affects "
+        f"{target_mask.mean():.2%} of jobs in given dataframe."
     )
+
+    allocated_gres_gpu = allocated_gres_gpu.mask(target_mask, requested_gres_gpu)
     # If allocated.gres_gpu < requested.gres_gpu, set it to requested.gres_gpu.
+    # TODO: Removing this, apparently it's possible to get less than requested... MIG gpus? Not sure!
     # allocated_gres_gpu = allocated_gres_gpu.mask(
     #     allocated_gres_gpu < requested_gres_gpu,
     #     requested_gres_gpu,
@@ -203,6 +212,9 @@ def _fix_missing_gpu_type(df: pd.DataFrame):
 
     Some jobs (example `16462412` on Narval) have `requested.gres_gpu`>0
     but have `allocated.gpu_type` of None.
+
+    TODO: This one doesn't seem to work, raises an error. I don't think it's actually
+    needed if we can get RGUs reliably with `update_job_series_rgu`.
     """
 
     target_jobs = df.query("(`requested.gres_gpu` > 0) & `allocated.gpu_type`.isna()")
@@ -366,68 +378,65 @@ def get_clean_sarc_data(options: FilteringOptions) -> pd.DataFrame:
         end=options.end.astimezone(MTL),
     )
     df = cache_results_to_file(get_raw_sarc_data)(options)
+    # FIXME: Seems to be causing issues with lots of DRAC data being dropped?
+    # Switching to a new, simpler version for now..
+    # cleaned_df = clean_sarc_data_v1(df, options)
+    df = clean_sarc_data_v2(df)
 
-    # FIXME: Seems to be causing issues with DRAC data being dropped?
-    # Switching to a new version for now..
-    cleaned_df = clean_sarc_data(df, options)
+    return df
 
-    df = update_job_series_rgu(df)
 
+def clean_sarc_data_v2(df: pd.DataFrame) -> pd.DataFrame:
     # Remove lost jobs (like job id 16 on the Mila cluster).
     df = _fix_lost_jobs(df)
-    jobs_to_remove = df[df["end_time"] < options.start]
-    df = df.drop(jobs_to_remove.index)
-
-    # TODO: This one doesn't seem to work, raises an error.
-    # df = _fix_missing_gpu_type(df)
     df = _fix_allocated_gres_gpu_billing_drac(df)
     df = _fix_allocated_cpus_drac(df)
     df = _fix_requested_allocated_gres_gpu(df)
 
-    # Convert the elapsed_time col to timedelta, makes it nicer to work with the cost values.
-    df = df.assign(
-        elapsed_time=pd.to_timedelta(df["elapsed_time"], unit="s"),
-    )
+    # Would be nice to convert the elapsed_time col to timedelta, makes it nicer to work with the cost values.
+    # However, it can lead to `ValueError: overflow in timedelta operation` when summing them up :(
+    # df = df.assign(
+    #     elapsed_time=pd.to_timedelta(df["elapsed_time"], unit="s"),
+    # )
+    # This function will then compute the cost / waste / overbilling stats as timedeltas,
+    # which makes sense (GPU days, CPU days, etc).
     df = compute_cost_and_waste(df)
-    df = df.assign(
-        rgu_equivalent_cost=df["gpu_equivalent_cost"]
-        * df["allocated.gres_rgu"]
-        / df["allocated.gres_gpu"]
-    )
 
+    # Add RGU information to jobs.
+    df = update_job_series_rgu(df)
+
+    rgu_per_gpu = df["allocated.gres_rgu"] / df["allocated.gres_gpu"]
+    df = df.assign(
+        rgu_cost=df["gpu_cost"] * rgu_per_gpu,
+        rgu_waste=df["gpu_waste"] * rgu_per_gpu,
+        rgu_equivalent_cost=df["gpu_equivalent_cost"] * rgu_per_gpu,
+        rgu_equivalent_waste=df["gpu_equivalent_waste"] * rgu_per_gpu,
+        rgu_overbilling_cost=df["gpu_overbilling_cost"] * rgu_per_gpu,
+    )
     return df
-    # return clean_sarc_data(df, options)
 
 
 def get_raw_sarc_data(options: FilteringOptions) -> pd.DataFrame:
-    logger.debug(
-        f"Looking up for data between {options.start} and {options.end} for all users on all clusters."
-    )
-
-    # In SARC we currently can't query by user.mila.email, so we query with all
-    # usernames and filter by user.mila.email after.
-    # IDEA: Instead, we could filter through all usernames that each user has!
-    # Cache results of SARC query to a file.
-
-    all_users = get_mila_users_in_period(options.start, options.end)
-
-    query_mila_emails = set(options.get_users(assume_mila_email=True))
-    usernames_to_query = []
-    for student in all_users:
-        if student.mila.email in query_mila_emails:
-            # If the user has a mila email, we can query by it.
-            usernames_to_query.append(student.mila.username)
-            if student.drac:
-                usernames_to_query.append(student.drac.username)
-    if not usernames_to_query:
-        usernames_to_query = [u.removesuffix("@mila.quebec") for u in query_mila_emails]
+    logger.debug(f"Looking up for data between {options.start} and {options.end}.")
     query_kwargs = {}
-    if options.clusters:
-        clusters = sorted(set(options.clusters))
+
+    if clusters := sorted(set(options.clusters)):
         query_kwargs["cluster"] = (
             clusters[0] if len(clusters) == 1 else {"$in": clusters}
         )
-    if usernames_to_query:
+
+    # In SARC we currently can't query by user.mila.email, so we query with all
+    # usernames and filter by user.mila.email after.
+    if mila_emails := set(options.get_users(assume_mila_email=True)):
+        usernames_to_query = []
+        for student in get_mila_users_in_period(options.start, options.end):
+            if student.mila.email in mila_emails:
+                # If the user has a mila email, we can query by it.
+                usernames_to_query.append(student.mila.username)
+                if student.drac:
+                    usernames_to_query.append(student.drac.username)
+        if not usernames_to_query:
+            usernames_to_query = [u.removesuffix("@mila.quebec") for u in mila_emails]
         query_kwargs["user"] = (
             usernames_to_query[0]
             if len(usernames_to_query) == 1
@@ -437,7 +446,7 @@ def get_raw_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     df = load_job_series(
         start=options.start,
         end=options.end,
-        clip_time=False,
+        clip_time=True,  # Clip the `elapsed_time` of jobs
         **query_kwargs,
     )
     if df.empty:
@@ -446,7 +455,7 @@ def get_raw_sarc_data(options: FilteringOptions) -> pd.DataFrame:
     return df
 
 
-def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame:
+def clean_sarc_data_v1(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame:
     options = dataclasses.replace(
         options,
         start=options.start.astimezone(MTL),
@@ -465,9 +474,6 @@ def clean_sarc_data(df: pd.DataFrame, options: FilteringOptions) -> pd.DataFrame
 
     df = df.fillna({"requested.gres_gpu": 0.0, "allocated.gres_gpu": 0.0})
     df = _fix_lost_jobs(df)
-    # Actually remove the lost jobs (e.g. job id 16 on the Mila cluster) after we fix their end time.
-    jobs_to_remove = df[df["end_time"] < options.start]
-    df = df.drop(jobs_to_remove.index)
     df = _fix_unaligned_cache(df, options.start, options.end)
     df = _remove_old_nodes(df)
     df = _replace_outlier_stats_with_na(df)
@@ -679,10 +685,26 @@ def _fill_missing_metrics_using_means(
 
 
 def _fix_lost_jobs(df: pd.DataFrame):
+    """Removes weird jobs that are supposedly running since a very very long time.
+
+    For example, job id 16 on the Mila cluster that is always returned as a "current" job.
+    """
+
     _28_days = timedelta(days=28)
-    lost_jobs = df["elapsed_time"] > _28_days.total_seconds()
-    df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
-    df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + _28_days
+    if "unclipped_start" in df.columns:
+        elapsed_time = df["unclipped_end"] - df["unclipped_start"]
+    else:
+        elapsed_time = df["elapsed_time"]
+
+    if elapsed_time.dtype != np.dtype("timedelta64[ns]"):
+        lost_jobs = elapsed_time > _28_days.total_seconds()
+    else:
+        lost_jobs = elapsed_time > _28_days
+
+    # df.loc[lost_jobs, "elapsed_time"] = _28_days.total_seconds()
+    # df.loc[lost_jobs, "end_time"] = df.loc[lost_jobs, "start_time"] + _28_days
+    # jobs_to_remove = df[df["end_time"] < options.start]
+    df = df[~lost_jobs]
     return df
 
 
@@ -809,28 +831,36 @@ def _fix_allocated_cpus_drac(df: pd.DataFrame):
         & (df["start_time"] >= datetime(2024, 4, 1, tzinfo=MTL))
         & (df["elapsed_time"] > 0)
     )
+    # TODO: Should we also check if it's a multiple of 1000?
+    target_mask = slice_during_rgu_time & (df["allocated.cpu"] >= 1000)
+
+    logger.debug(
+        f"Fix {_fix_allocated_cpus_drac.__name__} affects "
+        f"{target_mask.sum() / df.shape[0] if df.shape[0] > 0 else 0:.2%} of jobs."
+    )
+
     allocated_cpu = df["allocated.cpu"]
     df = df.assign(
         **{
             "allocated.cpu": allocated_cpu.mask(
-                # TODO: Should we also check if it's a multiple of 1000 before dividing?
-                slice_during_rgu_time & (allocated_cpu >= 1000),
+                target_mask,
                 allocated_cpu / 1000,
             )
         }
     )
 
-    # df.loc[df["job_id"] == 48738025, "allocated.cpu"] /= 1000
-    # is_narval = df["cluster_name"] == "narval"
-
     # Here we do it again but for all timeframes.
-    # TODO: Why not just do it once?
-    allocated_cpu = df["allocated.cpu"]
-    outrageous_num_of_cpus = allocated_cpu >= 1000
+    # TODO: Why not just do it once then?
+    outrageous_num_of_cpus = is_drac & (df["allocated.cpu"] >= 1000)
+    logger.debug(
+        f"Fix {_fix_allocated_cpus_drac.__name__} (part two?) affects "
+        f"{outrageous_num_of_cpus.sum() / df.shape[0] if df.shape[0] > 0 else 0:.2%} "
+        f"of jobs in given dataframe."
+    )
     df = df.assign(
         **{
-            "allocated.cpu": allocated_cpu.mask(
-                is_drac & outrageous_num_of_cpus, allocated_cpu / 1000
+            "allocated.cpu": df["allocated.cpu"].mask(
+                outrageous_num_of_cpus, df["allocated.cpu"] / 1000
             )
         }
     )
