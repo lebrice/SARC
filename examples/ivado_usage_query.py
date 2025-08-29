@@ -1,11 +1,13 @@
+import dataclasses
 import functools
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 import pandas as pd
 import plotly.express as px
+import simple_parsing
 
 from examples.waste_monitor.__main__ import _setup_logging
 from examples.waste_monitor.sarc_patches import (
@@ -86,6 +88,17 @@ def is_core_prof(user: User, all_users: Iterable[User]) -> bool:
 supervisor_key = "user.mila_ldap.supervisor"
 
 
+@dataclasses.dataclass(frozen=True)
+class Args:
+    filter: FilteringOptions = FilteringOptions(
+        start=datetime(2025, 4, 1, tzinfo=MTL),
+        end=datetime(2025, 7, 31, tzinfo=MTL),
+    )
+    compute_type: Literal["cpu", "gpu", "rgu"] = "rgu"
+    show_prof_type: bool = True
+    cluster_type_to_show: Literal["mila", "drac", "paice", "all"] = "all"
+
+
 def main():
     """
     Simplifying for now: attributing all the compute usage to only the supervisor instead of:
@@ -96,12 +109,26 @@ def main():
     _setup_logging(verbose=2)
     logger.setLevel(logging.DEBUG)
     # 1er avril 2025 au 31 juillet 2025
-    filter = FilteringOptions(
-        start=datetime(2025, 4, 1, tzinfo=MTL), end=datetime(2025, 7, 31, tzinfo=MTL)
+    args = simple_parsing.parse(
+        Args,
+        default=Args(
+            filter=FilteringOptions(
+                start=datetime(2025, 4, 1, tzinfo=MTL),
+                end=datetime(2025, 7, 31, tzinfo=MTL),
+            )
+        ),
     )
+    filter = dataclasses.replace(
+        args.filter,
+        start=args.filter.start.replace(tzinfo=MTL),
+        end=args.filter.end.replace(tzinfo=MTL),
+    )
+    logger.debug(f"Parsed Args: {args}")
 
     sarc_data = get_clean_sarc_data(filter)
-    assert sarc_data.query("job_id == 16").empty
+    assert (
+        job_id_16 := sarc_data.query("(cluster_name=='mila') & (job_id == 16)")
+    ).empty, job_id_16
     # Chop up into monthly frames to keep the portion of jobs
     # that started before the start or ended after the end.
     sarc_data = sarc_data.assign(
@@ -109,14 +136,11 @@ def main():
         end_time=sarc_data["end_time"].dt.tz_convert(MTL),
     )
 
-    # TODO: Jobs that started before the start, or ended before the end are also included in the output.
-    # Ideally we'd like to split them into sections to only consider their usage during the period.
-    # clip_time here (instead of as an argument to `load_job_series`).
-    jobs_that_will_be_clipped = sarc_data.query(
+    _jobs_outside_window = sarc_data.query(
         "((start_time < @filter.start) & (end_time > @filter.start)) | "
         "((start_time < @filter.end) & (end_time > @filter.end))"
     )
-    assert jobs_that_will_be_clipped.empty
+    assert _jobs_outside_window.empty
 
     _users_in_period = get_active_mila_user_records_during_period(
         start=filter.start, end=filter.end
@@ -132,9 +156,9 @@ def main():
         for user in _users_in_period
         if user.mila is not None and user.mila.email in _profs_emails
     ]
-    prof_emails = {prof.mila.email for prof in _professors}
+    _prof_emails = {prof.mila.email for prof in _professors}
 
-    is_prof = sarc_data["user.mila.email"].isin(prof_emails)
+    is_prof = sarc_data["user.mila.email"].isin(_prof_emails)
     is_student = sarc_data[supervisor_key].notna()
     is_staff = sarc_data[supervisor_key].isna() & ~is_prof
     # Need to be in exactly one of these three categories.
@@ -176,7 +200,7 @@ def main():
             **{
                 c: "mean"
                 for c in sarc_data.columns
-                if c.endswith("_mean") or "utilization" in c
+                if c.endswith("_mean") or "utilization" in c or "occupancy" in c
             },
         ),
     )
@@ -206,17 +230,25 @@ def main():
     plot_data.to_csv(f"compute_usage_{filter.start.date()}_{filter.end.date()}.csv")
 
     make_awesome_sunburst_plot(
-        plot_data.xs("mila", level="cluster_type"),
-        # cluster_type_to_show="mila",
+        plot_data.xs(args.cluster_type_to_show, level="cluster_type")
+        if args.cluster_type_to_show != "all"
+        else plot_data,
         filter=filter,
-        show_rgu=True,
+        compute_type=args.compute_type,
+        show_prof_type=args.show_prof_type,
     )
-    make_awesome_sunburst_plot(
-        plot_data.xs("drac", level="cluster_type"),
-        # cluster_type_to_show="drac",
-        filter=filter,
-        show_rgu=True,
-    )
+    # make_awesome_sunburst_plot(
+    #     plot_data.xs("drac", level="cluster_type"),
+    #     filter=filter,
+    #     compute_type="rgu",
+    #     show_prof_type=True,
+    # )
+    # make_awesome_sunburst_plot(
+    #     plot_data,
+    #     filter=filter,
+    #     compute_type="rgu",
+    #     show_prof_type=False,
+    # )
     # make_awesome_sunburst_plot(
     #     sarc_data, cluster_type_to_show="drac", filter=filter, show_rgu=False
     # )
@@ -231,7 +263,8 @@ def main():
 def make_awesome_sunburst_plot(
     plot_data: pd.DataFrame | pd.Series,
     filter: FilteringOptions,
-    show_rgu: bool = False,
+    compute_type: Literal["cpu", "gpu", "rgu"] = "rgu",
+    show_prof_type: bool = True,
 ):
     # all_clusters = cluster_type_to_show == "all"
     # if not all_clusters:
@@ -254,12 +287,13 @@ def make_awesome_sunburst_plot(
     # TODO: Add a table in the hover instead of badly formatted floats.
     fig = px.sunburst(
         plot_data.reset_index(),
-        path=(
-            ["prof_type", "cluster_name", supervisor_key, "user.mila.email"]
+        path=(["prof_type"] if show_prof_type else [])
+        + (
+            ["cluster_name", supervisor_key, "user.mila.email"]
             if multiple_clusters
-            else ["prof_type", supervisor_key, "user.mila.email"]
+            else [supervisor_key, "user.mila.email"]
         ),
-        values="rgu_equivalent_days" if show_rgu else "gpu_equivalent_days",
+        values=f"{compute_type}_equivalent_days",
         color="gpu_utilization",
         hover_data=[
             "gpu_equivalent_days",
@@ -315,7 +349,7 @@ def make_awesome_sunburst_plot(
         textinfo="label+text+value+percent root+percent parent",
         texttemplate=(
             "%{label}<br>"
-            + ("%{value:.2s} " + ("RGU" if show_rgu else "GPU") + " days<br>")
+            + ("%{value:.2s} " + compute_type.upper() + " days<br>")
             + (
                 "%{percentParent:.0%} of parent / %{percentRoot:.0%} of total compute"
                 if not multiple_clusters
@@ -327,7 +361,7 @@ def make_awesome_sunburst_plot(
         ),
     )
     fig.write_html(
-        f"compute_usage_{clusters[0] if len(clusters) == 1 else '-'.join(clusters)}_interactive.html",
+        f"compute_usage_{clusters[0] if len(clusters) == 1 else '-'.join(clusters)}_{filter.start.date()}_{filter.end.date()}.html",
         include_plotlyjs="cdn",
         include_mathjax="cdn",
     )
