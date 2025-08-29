@@ -122,13 +122,15 @@ def main():
     sarc_data.loc[is_prof, supervisor_key] = sarc_data.loc[is_prof, "user.mila.email"]
     sarc_data.loc[is_staff, supervisor_key] = "No supervisor"
 
-    is_core = (is_student | is_prof) & sarc_data["user.mila_ldap.supervisor"].isin(
-        CORE_PROF_EMAILS
-    )
-    sarc_data = sarc_data.assign(prof_type="")
-    sarc_data.loc[is_core, "prof_type"] = "core prof"
-    sarc_data.loc[~is_staff & ~is_core, "prof_type"] = "non-core prof"
-    sarc_data.loc[is_staff, "prof_type"] = "Staff/Industry/Other"
+    sarc_data = sarc_data.assign(prof_type="unknown")
+    if CORE_PROF_EMAILS:
+        is_core = (is_student | is_prof) & sarc_data["user.mila_ldap.supervisor"].isin(
+            CORE_PROF_EMAILS
+        )
+        sarc_data.loc[is_core, "prof_type"] = "core prof"
+        sarc_data.loc[~is_staff & ~is_core, "prof_type"] = "non-core prof"
+        # FIXME: Those are not profs! We just want to show them separately.
+        sarc_data.loc[is_staff, "prof_type"] = "Staff/Industry/Other"
 
     sarc_data = sarc_data.assign(
         cluster_type=sarc_data["cluster_name"].map(
