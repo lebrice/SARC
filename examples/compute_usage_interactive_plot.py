@@ -3,7 +3,7 @@ import functools
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 import pandas as pd
 import plotly.express as px
@@ -25,66 +25,6 @@ DRAC_CLUSTERS = ["narval", "beluga", "cedar", "graham", "rorqual", "fir", "nibi"
 PAICE_CLUSTERS = ["tamia", "killarney", "vulcan"]
 
 
-@functools.cache
-# @cache_results_to_file
-def get_active_mila_user_records_during_period(
-    start: datetime, end: datetime
-) -> tuple[User, ...]:
-    # NOTE: Might be multiple records for the same student if they changed status or something during the period!
-    students = get_users(latest=False)
-    students_in_period: list[User] = []
-    for student in students:
-        if student.mila is None or student.mila.email is None:
-            continue
-        r_start = student.record_start
-        r_end = student.record_end
-        if not (r_start is None or r_start.astimezone(MTL) <= end.astimezone(MTL)):
-            continue  # record starts after `end`, ignore.
-        if not (r_end is None or r_end.astimezone(MTL) >= start.astimezone(MTL)):
-            continue  # record ends before `start`, ignore.
-        students_in_period.append(student)
-    return tuple(students_in_period)
-
-
-# @cache_results_to_file
-def get_group_students(
-    prof_email: str,
-    start: datetime,
-    end: datetime,
-) -> list[User]:
-    """Get list of student emails supervised by a professor."""
-    student_records = get_active_mila_user_records_during_period(start=start, end=end)
-
-    return sorted(
-        [
-            s
-            for s in student_records
-            if any(
-                s.mila_ldap.get(k) == prof_email
-                for k in ["supervisor", "co_supervisor"]
-            )
-        ],
-        key=lambda v: v.name,
-    )
-
-
-def is_prof(user: User, all_users: Iterable[User]) -> bool:
-    """A user is considered a professor if they don't have a supervisor (and no co-supervisor) and at least one student."""
-    if any(user.mila_ldap.get(k) for k in ["supervisor", "co_supervisor"]):
-        return False
-    user_email = user.mila.email
-    return any(
-        other_user.mila_ldap.get("supervisor") == user_email
-        or other_user.mila_ldap.get("co_supervisor") == user_email
-        for other_user in all_users
-    )
-
-
-def is_core_prof(user: User, all_users: Iterable[User]) -> bool:
-    """A user is considered a professor if they don't have a supervisor (and no co-supervisor) and at least one student."""
-    return is_prof(user, all_users) and user.mila.email in CORE_PROF_EMAILS
-
-
 supervisor_key = "user.mila_ldap.supervisor"
 
 
@@ -94,7 +34,6 @@ class Args:
         start=datetime(2025, 4, 1, tzinfo=MTL),
         end=datetime(2025, 7, 31, tzinfo=MTL),
     )
-    compute_type: Literal["cpu", "gpu", "rgu"] = "rgu"
     show_prof_type: bool = True
     cluster_type_to_show: Literal["mila", "drac", "paice", "all"] = "all"
 
@@ -129,8 +68,7 @@ def main():
     assert (
         job_id_16 := sarc_data.query("(cluster_name=='mila') & (job_id == 16)")
     ).empty, job_id_16
-    # Chop up into monthly frames to keep the portion of jobs
-    # that started before the start or ended after the end.
+    # Convert everything to Montreal time.
     sarc_data = sarc_data.assign(
         start_time=sarc_data["start_time"].dt.tz_convert(MTL),
         end_time=sarc_data["end_time"].dt.tz_convert(MTL),
@@ -142,7 +80,7 @@ def main():
     )
     assert _jobs_outside_window.empty
 
-    _users_in_period = get_active_mila_user_records_during_period(
+    _users_in_period = _get_active_mila_user_records_during_period(
         start=filter.start, end=filter.end
     )
     _profs_emails = set(
@@ -227,16 +165,25 @@ def main():
     )
 
     # plot_data = plot_data.sort_values("rgu_equivalent_cost_days", ascending=False)
-    plot_data.to_csv(f"compute_usage_{filter.start.date()}_{filter.end.date()}.csv")
+    for compute_type in ("rgu", "gpu", "cpu"):
+        plot_data.to_csv(
+            f"compute_usage_{compute_type}_{filter.start.date()}_{filter.end.date()}.csv"
+        )
+        fig = make_awesome_sunburst_plot(
+            plot_data.xs(args.cluster_type_to_show, level="cluster_type")
+            if args.cluster_type_to_show != "all"
+            else plot_data,
+            filter=filter,
+            compute_type=compute_type,
+            show_prof_type=args.show_prof_type,
+        )
+        fig.write_html(
+            f"compute_usage_{args.cluster_type_to_show}_{filter.start.date()}_{filter.end.date()}.html",
+            include_plotlyjs="cdn",
+            include_mathjax="cdn",
+        )
+        fig.show("browser")
 
-    make_awesome_sunburst_plot(
-        plot_data.xs(args.cluster_type_to_show, level="cluster_type")
-        if args.cluster_type_to_show != "all"
-        else plot_data,
-        filter=filter,
-        compute_type=args.compute_type,
-        show_prof_type=args.show_prof_type,
-    )
     # make_awesome_sunburst_plot(
     #     plot_data.xs("drac", level="cluster_type"),
     #     filter=filter,
@@ -360,12 +307,7 @@ def make_awesome_sunburst_plot(
             )
         ),
     )
-    fig.write_html(
-        f"compute_usage_{clusters[0] if len(clusters) == 1 else '-'.join(clusters)}_{filter.start.date()}_{filter.end.date()}.html",
-        include_plotlyjs="cdn",
-        include_mathjax="cdn",
-    )
-    fig.show("browser")
+    return fig
 
     # mila_data = sarc_data.query("cluster_type=='mila'")
     # drac_data = sarc_data.query("cluster_type=='drac'")
@@ -375,54 +317,25 @@ def make_awesome_sunburst_plot(
     # fig.show("browser")
 
 
-def _usage_plot_mila_or_drac(sarc_data: pd.DataFrame):
-    """Make a pie chart of the resource usage for different categories of users/groups.
-
-    Groups the data for profs that are not "core" profs in a single entry.
-    Same for all users that aren't profs or students, we assume they are staff/industry/other
-    and place them in a single entry.
-    """
-
-    usage_data = sarc_data.groupby("user.mila_ldap.supervisor").aggregate(
-        dict(
-            **{c: "sum" for c in sarc_data.columns if c.endswith("_cost")},
-            **{c: "mean" for c in sarc_data.columns if c.endswith("_mean")},
-        )
-    )
-
-    # Note: Seems like renaming np.nan in index to something else doesn't work.
-    # This is why we opt for setting the supervisor to "Staff/Industry/Other" above instead of keeping NaNs.
-    # usage_data = usage_data.rename(index={np.nan: "Staff/Industry/Other"})
-    is_non_core_prof = ~(
-        usage_data.index.isin(CORE_PROF_EMAILS)
-        | (usage_data.index == "Staff/Industry/Other")
-    )
-    usage_data = pd.concat(
-        [
-            pd.DataFrame(
-                [usage_data[is_non_core_prof].sum(axis=0)],
-                index=["Non-core profs"],
-                columns=usage_data.columns,
-            ),
-            usage_data[~is_non_core_prof],
-        ]
-    )
-    s = "s" if len(usage_data) > 1 else ""
-    print(usage_data.to_markdown())
-    clusters = sarc_data["cluster_name"].unique().tolist()
-    start_date = sarc_data["start_time"].min().date()
-    end_date = sarc_data["end_time"].max().date()
-    fig = px.pie(
-        usage_data,
-        values="rgu_equivalent_cost",
-        names=usage_data.index.values,
-        title=(
-            f"Usage on {clusters[0] if len(clusters) == 1 else clusters} cluster{s} between {start_date} and {end_date}"
-        ),
-    )
-
-    return usage_data, fig
-    # sarc_data =
+@functools.cache
+# @cache_results_to_file
+def _get_active_mila_user_records_during_period(
+    start: datetime, end: datetime
+) -> tuple[User, ...]:
+    # NOTE: Might be multiple records for the same student if they changed status or something during the period!
+    students = get_users(latest=False)
+    students_in_period: list[User] = []
+    for student in students:
+        if student.mila is None or student.mila.email is None:
+            continue
+        r_start = student.record_start
+        r_end = student.record_end
+        if not (r_start is None or r_start.astimezone(MTL) <= end.astimezone(MTL)):
+            continue  # record starts after `end`, ignore.
+        if not (r_end is None or r_end.astimezone(MTL) >= start.astimezone(MTL)):
+            continue  # record ends before `start`, ignore.
+        students_in_period.append(student)
+    return tuple(students_in_period)
 
 
 if __name__ == "__main__":
