@@ -20,7 +20,7 @@ from sarc.config import MTL
 logger = logging.getLogger(__name__)
 
 # Need to have this secret file with the emails of the core profs.
-CORE_PROF_EMAILS = Path("core_profs.txt").read_text().splitlines()
+CORE_PROF_EMAILS: list[str] = []
 DRAC_CLUSTERS = ["narval", "beluga", "cedar", "graham", "rorqual", "fir", "nibi"]
 PAICE_CLUSTERS = ["tamia", "killarney", "vulcan"]
 
@@ -34,7 +34,7 @@ class Args:
         start=datetime(2025, 4, 1, tzinfo=MTL),
         end=datetime(2025, 7, 31, tzinfo=MTL),
     )
-    show_prof_type: bool = True
+    show_prof_type: bool = False
     cluster_type_to_show: Literal["mila", "drac", "paice", "all"] = "all"
 
 
@@ -63,6 +63,15 @@ def main():
         end=args.filter.end.replace(tzinfo=MTL),
     )
     logger.debug(f"Parsed Args: {args}")
+
+    if args.show_prof_type:
+        core_prof_emails_file = Path("core_profs.txt")
+        if not core_prof_emails_file.exists():
+            raise FileNotFoundError(
+                f"Need to have a text file with the emails of the core profs at {core_prof_emails_file}. "
+                "(We don't want to reveal the gmail address of mila profs since this repo is publicly available.)"
+            )
+        CORE_PROF_EMAILS.extend(core_prof_emails_file.read_text().splitlines())
 
     sarc_data = get_clean_sarc_data(filter)
     assert (
@@ -166,9 +175,10 @@ def main():
 
     # plot_data = plot_data.sort_values("rgu_equivalent_cost_days", ascending=False)
     for compute_type in ("rgu", "gpu", "cpu"):
-        plot_data.to_csv(
-            f"compute_usage_{compute_type}_{filter.start.date()}_{filter.end.date()}.csv"
+        save_path = Path(
+            f"compute_usage_{args.cluster_type_to_show}_{compute_type}_{filter.start.date()}_{filter.end.date()}.csv"
         )
+        plot_data.to_csv(save_path.with_suffix(".csv"))
         fig = make_awesome_sunburst_plot(
             plot_data.xs(args.cluster_type_to_show, level="cluster_type")
             if args.cluster_type_to_show != "all"
@@ -178,7 +188,7 @@ def main():
             show_prof_type=args.show_prof_type,
         )
         fig.write_html(
-            f"compute_usage_{args.cluster_type_to_show}_{filter.start.date()}_{filter.end.date()}.html",
+            save_path.with_suffix(".html"),
             include_plotlyjs="cdn",
             include_mathjax="cdn",
         )
