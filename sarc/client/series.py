@@ -531,7 +531,16 @@ def _compute_rgu_stats_from_scaled_rgu(
     # Get previous job billing, interpreted as GPU count * GPU billing
     col_job_billing = df["allocated.gres_gpu"][slice_rows].copy()
     # Then update columns
-    df.loc[slice_rows, "allocated.gres_gpu"] = col_job_billing / col_gpu_to_billing
+
+    df = df.assign(
+        **{
+            "allocated.gres_gpu": df["allocated.gres_gpu"]
+            .astype(float)
+            .mask(slice_rows, col_job_billing / col_gpu_to_billing)
+        }
+    )
+    # df.loc[slice_rows, "allocated.gres_gpu"] = col_job_billing / col_gpu_to_billing
+
     df.loc[slice_rows, "allocated.gres_rgu"] = (
         col_job_billing / col_gpu_to_billing
     ) * col_gpu_to_rgu
