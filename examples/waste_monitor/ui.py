@@ -59,7 +59,7 @@ from .common_utils import (
     midnight,
     run_subprocess,
 )
-from .sarc_patches import get_clean_sarc_data, show_first_entry
+from .sarc_patches import get_clean_sarc_data
 
 logger = logging.getLogger(__name__)
 
@@ -507,8 +507,8 @@ class ScratchMonitorWidget(Widget):
             self.max_val = max(times)
         else:
             assert self.min_val is not None and self.max_val is not None
-            self.min_val = min(min(times), self.min_val)
-            self.max_val = max(max(times), self.max_val)
+            self.min_val = min(*times, self.min_val)
+            self.max_val = max(*times, self.max_val)
         # todo: unsure if it is a good idea to do this for every new value.
         # self.vals = self.vals.copy()
 
@@ -647,8 +647,6 @@ async def setup_torch_import_time_project(
 async def get_torch_import_time(
     hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
 ) -> float | None:
-    # TODO: Can't for the life of me figure out how to make a login shell work over ssh with async.
-    # The best I can do atm is to assume that UV is at ~/.local/bin/uv and check that it is.
     uv = await get_uv_path(hostname)
     if not uv:
         logger.warning(
@@ -656,6 +654,16 @@ async def get_torch_import_time(
             "Please ensure that UV is installed and available in the PATH."
         )
         return None
+    preventive_cleanup_command = (
+        f"ssh {hostname} 'pkill --echo -u $USER -f \"import torch\"'"
+    )
+    result = await run_subprocess(preventive_cleanup_command, check=False)
+    output = result.stdout.strip()
+    if output:
+        logger.warning(f"Killed leftover zombie processes: {output}")
+    else:
+        logger.info("No leftover zombie `uv` processes found.")
+
     command = (
         f"ssh {hostname} '{uv} run --project={remote_dir} --directory={remote_dir} "
         'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''

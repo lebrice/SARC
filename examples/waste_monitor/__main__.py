@@ -35,11 +35,12 @@ from .ui import (
 def _setup_logging(verbose: int):
     logging.basicConfig(
         handlers=[
+            logging.FileHandler("waste_monitor.log"),
             rich.logging.RichHandler(show_time=False),
             textual.logging.TextualHandler(stderr=False),
         ],
-        format="%(message)s",
-        level=logging.ERROR,
+        format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+        level=logging.WARNING,
         force=True,
     )
     logging.getLogger("sarc").setLevel(logging.WARNING)
