@@ -8,6 +8,7 @@ import rich.pretty
 
 from examples.waste_monitor.sarc_patches import (
     clean_sarc_data_v1,
+    clean_sarc_data_v2,
     get_raw_sarc_data,
 )
 from sarc.client.series import update_job_series_rgu
@@ -23,17 +24,19 @@ def cluster(request: pytest.FixtureRequest) -> str | Sequence[str] | None:
 
 @pytest.fixture(scope="module")
 def period(cluster: str | Sequence[str] | None):
-    today_eod = midnight(datetime.datetime.now()) + datetime.timedelta(days=1)
+    today_eod = midnight(datetime.datetime.now(tz=MTL)) + datetime.timedelta(days=1)
     return FilteringOptions(
         start=today_eod - datetime.timedelta(days=7),
         end=today_eod,
-        clusters=[cluster] if isinstance(cluster, str) else cluster,
+        clusters=[cluster] if isinstance(cluster, str) else cluster or [],
     )
 
 
 @pytest.fixture(scope="module")
-def load_job_series_data(period: FilteringOptions):
-    return cache_results_to_file(get_raw_sarc_data)(period)
+def sarc_data(period: FilteringOptions):
+    data = cache_results_to_file(get_raw_sarc_data)(period)
+    data = update_job_series_rgu(data)
+    return data
 
 
 @pytest.fixture(scope="module")
@@ -42,8 +45,15 @@ def sarc_data_with_rgus(load_job_series_data: pd.DataFrame):
 
 
 @pytest.fixture(scope="module")
-def cleaned_sarc_data(load_job_series_data: pd.DataFrame, period: FilteringOptions):
-    return clean_sarc_data_v1(load_job_series_data.copy(), period)
+def cleaned_sarc_data_v1(period: FilteringOptions):
+    data = cache_results_to_file(get_raw_sarc_data)(period)
+    return clean_sarc_data_v1(data, period)
+
+
+@pytest.fixture(scope="module")
+def cleaned_sarc_data_v2(period: FilteringOptions):
+    data = cache_results_to_file(get_raw_sarc_data)(period)
+    return clean_sarc_data_v2(data)
 
 
 def show_first_entry(df: pd.DataFrame):
@@ -51,7 +61,7 @@ def show_first_entry(df: pd.DataFrame):
 
 
 class BaseTests:
-    data: ...  # to be overridden by subclasses
+    data = ...
 
     def test_data_fits_period(self, data: pd.DataFrame, period: FilteringOptions):
         """Test that the data fits the period."""
@@ -69,6 +79,8 @@ class BaseTests:
             data = data.assign(
                 elapsed_time=pd.to_timedelta(data["elapsed_time"], unit="s")
             )
+        weird_gap = (data["submit_time"] - data["start_time"]).dt.days > 30
+        assert (t := data[weird_gap]).empty, show_first_entry(t)
         assert (t := data.query("elapsed_time.dt.days > 28")).empty, show_first_entry(t)
 
     @pytest.fixture(scope="class")
@@ -111,46 +123,25 @@ class BaseTests:
             )
         ).empty, show_first_entry(t)
 
-
-class TestLoadJobSeries(BaseTests):
-    """Test the loading of job series data."""
-
-    data = staticmethod(load_job_series_data)
-
-    # IDEA: Add a scrict xfail to some tests to ensure they fail if this job is in the data.
-    # Also, could run the tests twice, before and after removing these known problematic jobs from the data.
-    known_failures = [{"cluster_name": "mila", "job_id": 16}]
-
-    @pytest.mark.xfail(
-        reason="This currently fails! For example, job id 16 on the Mila cluster.",
-        strict=True,
-    )
-    def test_allocated_gpu_type_is_set(self, gpu_jobs: pd.DataFrame):
-        super().test_allocated_gpu_type_is_set(gpu_jobs)
-
-    @pytest.mark.xfail(
-        reason="This currently fails! For example, job id 16 on the Mila cluster.",
-        strict=True,
-    )
-    def test_no_lost_jobs(self, data: pd.DataFrame, period: FilteringOptions):
-        """Test that there are no weird lost jobs that lasted years."""
-        super().test_no_lost_jobs(data, period)
-
-    @pytest.mark.xfail(
-        reason="This currently fails! For example, job id 16 on the Mila cluster.",
-        strict=True,
-    )
-    def test_gpu_util_isnt_nan(self, gpu_jobs: pd.DataFrame):
-        super().test_gpu_util_isnt_nan(gpu_jobs)
-
-
-class TestUpdateJobSeriesRgu(TestLoadJobSeries):
-    """Test the loading of job series data."""
-
-    data = staticmethod(sarc_data_with_rgus)
+    def test_each_gpu_has_same_rgu(self, gpu_jobs: pd.DataFrame):
+        """Test that each GPU type maps to a single RGU type."""
+        gpu_and_rgu = gpu_jobs[
+            ["allocated.gpu_type", "allocated.gpu_type_rgu"]
+        ].drop_duplicates()
+        mapping = (
+            gpu_and_rgu.groupby("allocated.gpu_type")["allocated.gpu_type_rgu"]
+            .nunique()
+            .reset_index()
+        )
+        assert mapping["allocated.gpu_type_rgu"].max() == 1, (
+            "Some GPU types map to multiple RGU values!",
+            mapping,
+        )
 
     def test_rgu_type_rgu_is_set(self, gpu_jobs: pd.DataFrame):
-        assert (t := gpu_jobs.query("gpu_type_rgu.isna()")).empty, show_first_entry(t)
+        assert (t := gpu_jobs.query("`allocated.gpu_type_rgu`.isna()")).empty, (
+            show_first_entry(t)
+        )
 
     def test_allocated_gres_rgu_is_positive(self, gpu_jobs: pd.DataFrame):
         assert (t := gpu_jobs.query("`allocated.gres_rgu` <= 0")).empty, (
@@ -158,7 +149,28 @@ class TestUpdateJobSeriesRgu(TestLoadJobSeries):
         )
 
 
-class TestPatchedSarcData(BaseTests):
+@pytest.mark.xfail(strict=False, reason="sarc data is dirty")
+class TestSarcData(BaseTests):
     """Test the loading of job series data."""
 
-    data = staticmethod(cleaned_sarc_data)
+    data = staticmethod(sarc_data)
+
+
+class TestCleanedSarcDataV1(BaseTests):
+    """Test the loading of job series data."""
+
+    data = staticmethod(cleaned_sarc_data_v1)
+
+    # IDEA: Add a scrict xfail to some tests to ensure they fail if this job is in the data.
+    # Also, could run the tests twice, before and after removing these known problematic jobs from the data.
+    known_failures = [{"cluster_name": "mila", "job_id": 16}]
+
+
+class TestCleanedSarcDataV2(BaseTests):
+    """Test the loading of job series data."""
+
+    data = staticmethod(cleaned_sarc_data_v2)
+
+    # IDEA: Add a scrict xfail to some tests to ensure they fail if this job is in the data.
+    # Also, could run the tests twice, before and after removing these known problematic jobs from the data.
+    known_failures = [{"cluster_name": "mila", "job_id": 16}]
