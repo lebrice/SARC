@@ -28,7 +28,6 @@ from .ui import (
     get_data,
     logger,
     setup_multiplexed_ssh_conection,
-    setup_torch_import_time_project,
 )
 
 
@@ -110,7 +109,6 @@ async def async_main():
     _setup_logging(verbose=2)
     await setup_connections()
     get_data([cluster.cluster_name for cluster in get_available_clusters()])
-    await setup_torch_import_time_project("mila")
     app = WasteMonitor()
     await app.run_async()
 

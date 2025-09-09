@@ -621,37 +621,13 @@ async def get_running_job_ids(username: str, cluster: str = "mila") -> list[int]
     return [int(job_id) for job_id in job_ids]
 
 
-async def setup_torch_import_time_project(
-    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-):
-    uv = await get_uv_path(hostname)
-    if not uv:
+async def get_torch_import_time(hostname: str) -> float | None:
+    uvx = await get_uvx_path(hostname)
+    if not uvx:
         logger.warning(
-            f"Could not find the `uv` executable on {hostname}. "
+            f"Could not find the `uvx` executable on {hostname}. "
             "Please ensure that UV is installed and available in the PATH."
-        )
-        return
-    proc = await run_subprocess(
-        f"ssh {hostname} '{uv} init {remote_dir} --python=3.12'", check=False
-    )
-    if proc.returncode != 0:
-        if "Project is already initialized" in proc.stderr:
-            logger.info(f"Project {remote_dir} already exists on {hostname}.")
-        else:
-            raise _CalledProcessError.from_completed(proc)
-    await run_subprocess(
-        f"ssh {hostname} '{uv} add --project={remote_dir} torch numpy'", check=False
-    )
-
-
-async def get_torch_import_time(
-    hostname: str, remote_dir: str = "$SCRATCH/torch_import_test"
-) -> float | None:
-    uv = await get_uv_path(hostname)
-    if not uv:
-        logger.warning(
-            f"Could not find the `uv` executable on {hostname}. "
-            "Please ensure that UV is installed and available in the PATH."
+            f"Follow instructions at https://docs.astral.sh/uv/getting-started/installation/"
         )
         return None
     preventive_cleanup_command = (
@@ -663,27 +639,28 @@ async def get_torch_import_time(
         logger.warning(f"Killed leftover zombie processes: {output}")
     else:
         logger.info("No leftover zombie `uv` processes found.")
-
+    await run_subprocess(f"ssh {hostname} 'mkdir -p $SCRATCH/.cache'")
     command = (
-        f"ssh {hostname} '{uv} run --project={remote_dir} --directory={remote_dir} "
+        f"ssh {hostname} "
+        f"'{uvx} --python=3.13 --with=torch,numpy --cache-dir=$SCRATCH/.cache/uvx "
         'python -c "import time; start=time.time(); import torch; print(time.time()-start)"\''
     )
     result = await run_subprocess(command)
     return float(result.stdout.strip())
 
 
-async def get_uv_path(hostname: str) -> str | None:
+async def get_uvx_path(hostname: str) -> str | None:
     with tempfile.TemporaryFile(mode="w+") as temp_file:
-        logger.info(f"Finding the `uv` executable on {hostname}")
+        logger.info(f"Finding the `uvx` executable on {hostname}")
         _proc = await asyncio.create_subprocess_shell(
-            f"ssh {hostname} bash -l which uv", stdout=temp_file
+            f"ssh {hostname} bash -l which uvx", stdout=temp_file
         )
-        uv = await _proc.communicate()
+        uvx = await _proc.communicate()
         temp_file.seek(0)
-        uv = temp_file.read().splitlines()[-1].strip()
-    if "uv" not in uv:  # some weird output produced by ~/.bashrc or similar.
+        uvx = temp_file.read().strip().splitlines()[-1]
+    if not uvx.endswith("uvx"):  # some weird output produced by ~/.bashrc or similar?
         return None
-    return uv
+    return uvx
 
 
 def get_data(
@@ -894,12 +871,13 @@ def datetime_str(td: float | pd.Timedelta) -> str:
         td = pd.to_timedelta(td, unit="seconds")
     if pd.isna(td):
         return "N/A"
+    assert isinstance(td, pd.Timedelta)
     if td.days > 0:
         hours = td.seconds // 3600
         hours_as_fraction = round(10 * hours / 24)
         return f"{td.days}.{hours_as_fraction} days"
     hours = td.seconds / 3600
-    if (rounded_hours := round(hours)) > 1:
+    if (_rounded_hours := round(hours)) > 1:
         return f"{hours:.1f}h"
     return f"{round(td.seconds / 60)} min"
 
