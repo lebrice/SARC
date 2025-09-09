@@ -674,14 +674,15 @@ async def get_torch_import_time(
 
 async def get_uv_path(hostname: str) -> str | None:
     with tempfile.TemporaryFile(mode="w+") as temp_file:
-        logger.info("Finding the `uv` executable on %s", hostname)
+        logger.info(f"Finding the `uv` executable on {hostname}")
         _proc = await asyncio.create_subprocess_shell(
             f"ssh {hostname} bash -l which uv", stdout=temp_file
         )
         uv = await _proc.communicate()
         temp_file.seek(0)
-        uv = temp_file.read().strip()
-
+        uv = temp_file.read().splitlines()[-1].strip()
+    if "uv" not in uv:  # some weird output produced by ~/.bashrc or similar.
+        return None
     return uv
 
 
