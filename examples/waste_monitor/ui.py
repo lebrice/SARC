@@ -888,7 +888,9 @@ def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     # return table
 
 
-def datetime_str(td: pd.Timedelta) -> str:
+def datetime_str(td: float | pd.Timedelta) -> str:
+    if isinstance(td, float | np.ndarray):
+        td = pd.to_timedelta(td, unit="seconds")
     if pd.isna(td):
         return "N/A"
     if td.days > 0:
@@ -941,6 +943,7 @@ def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
         pct_of_mila_users = mila_users / total_mila_users
 
         gpudays_per_user_here = gpus_per_user.xs(cluster)["gpu_equivalent_cost"]
+        gpudays_per_user_here = pd.to_timedelta(gpudays_per_user_here, unit="seconds")
         gpus_per_user_str = (
             # f"[{gpus_per_user_here['min'].days} {gpus_per_user_here['max'].days}] "
             f"({gpudays_per_user_here['mean'].days:.1f}±{gpudays_per_user_here['std'].days:.1f})"
@@ -1169,13 +1172,16 @@ async def get_submit_line(job_id: int | str, cluster_name: str) -> str:
 @cache_results_to_file
 def get_mila_students_in_period(start: datetime, end: datetime) -> int:
     students = get_users(latest=True)
+    start = start.astimezone(MTL)
+    end = end.astimezone(MTL)
+
     return len(
         set(
             user.mila.email
             for user in students
             if user.mila and user.mila.email
-            if (user.record_start and user.record_start <= end)
-            and (user.record_end is None or user.record_end >= start)
+            if (user.record_start and user.record_start.astimezone(MTL) <= end)
+            and (user.record_end is None or user.record_end.astimezone(MTL) >= start)
         )
     )
 
