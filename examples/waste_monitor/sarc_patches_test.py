@@ -1,6 +1,7 @@
 import datetime
 from typing import Sequence
 
+import numpy as np
 import pandas as pd
 import pytest
 import rich
@@ -128,11 +129,34 @@ class BaseTests:
         gpu_and_rgu = gpu_jobs[
             ["allocated.gpu_type", "allocated.gpu_type_rgu"]
         ].drop_duplicates()
+        if gpu_jobs["rgu_equivalent_cost"].dtype != np.dtype("timedelta64[ns]"):
+            gpu_jobs = gpu_jobs.assign(
+                rgu_equivalent_cost=pd.to_timedelta(
+                    gpu_jobs["rgu_equivalent_cost"], unit="s"
+                )
+            )
+
+        mig_gpu_jobs = gpu_jobs[
+            gpu_jobs["allocated.gpu_type"].isin(
+                [
+                    "A100-SXM4-80GB : 2g.20gb",
+                    "A100-SXM4-80GB : 4g.40gb",
+                    "A100-SXM4-80GB : 3g.40gb",
+                ]
+            )
+        ]
+
+        fraction_of_compute = (
+            mig_gpu_jobs["rgu_equivalent_cost"].dt.days.sum()
+            / gpu_jobs["rgu_equivalent_cost"].dt.days.sum()
+        )
+        assert False, fraction_of_compute
         mapping = (
             gpu_and_rgu.groupby("allocated.gpu_type")["allocated.gpu_type_rgu"]
             .nunique()
             .reset_index()
         )
+        assert False, mapping
         assert mapping["allocated.gpu_type_rgu"].max() == 1, (
             "Some GPU types map to multiple RGU values!",
             mapping,

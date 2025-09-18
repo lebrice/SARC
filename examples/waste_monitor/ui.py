@@ -221,7 +221,7 @@ class WasteMonitor(App):
         self.update_jobs_dataframe()
         self.measure_scratch_torch_import_time()
         # self.populate_ui()
-        self.set_interval(60, self.measure_scratch_torch_import_time)
+        self.set_interval(5 * 60, self.measure_scratch_torch_import_time)
         self.set_interval(5 * 60, self.update_jobs_dataframe)
         # assert self.full_data is not None
         # self.populate_ui(self.full_data)
@@ -946,7 +946,9 @@ def fill_jobs_view_datatable(
     # Running jobs don't have a gpu utilization, so we filter them out.
     data = data.query("gpu_utilization.notna()")
     assert data.query("gpu_equivalent_waste.isna()").empty
-
+    data = data.assign(
+        elapsed_time=pd.to_timedelta(data["elapsed_time"], unit="seconds")
+    )
     if reverse:
         jobs = data.nsmallest(
             n=n_to_show,
