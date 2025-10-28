@@ -331,7 +331,8 @@ class WasteMonitor(App):
 
         best_jobs_table = self.query_exactly_one("#best_jobs_table", DataTable)
         best_jobs_table.cursor_type = "row"
-        fill_jobs_view_datatable(best_jobs_table, data, reverse=True)
+        good_jobs_data = data[data["elapsed_time"] > 3600]  # only consider jobs > 1h
+        fill_jobs_view_datatable(best_jobs_table, good_jobs_data, reverse=True)
         for row_key, row in list(best_jobs_table.rows.items()):
             if row_key.value:
                 cluster, _, job_id = row_key.value.partition("_")
