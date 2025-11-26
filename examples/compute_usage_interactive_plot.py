@@ -54,10 +54,10 @@ def main():
     args = simple_parsing.parse(
         Args,
         default=Args(
-            # filter=FilteringOptions(
-            #     start=datetime(2025, 4, 1, tzinfo=MTL),
-            #     end=datetime(2025, 7, 31, tzinfo=MTL),
-            # )
+            filter=FilteringOptions(
+                start=datetime(2024, 4, 1, tzinfo=MTL),
+                end=datetime(2025, 3, 31, tzinfo=MTL),
+            )
         ),
     )
     if args.users_file:
@@ -156,9 +156,9 @@ def main():
     save_path = Path(f"compute_usage_{filter.start.date()}_{filter.end.date()}.csv")
     sarc_data.groupby(["user.mila.email", "user.mila_ldap.supervisor"])[
         [f"{compute_type}_equivalent_cost" for compute_type in ("cpu", "gpu", "rgu")]
-    ].sum().div(timedelta(days=1).total_seconds()).rename(
+    ].sum().div(timedelta(days=365.25).total_seconds()).rename(
         columns={
-            f"{compute_type}_equivalent_cost": f"{compute_type}_days"
+            f"{compute_type}_equivalent_cost": f"{compute_type}_years"
             for compute_type in ("cpu", "gpu", "rgu")
         }
     ).to_csv(save_path)
@@ -179,8 +179,8 @@ def main():
     plot_data = plot_data.assign(
         # Add columns with the total compute in days.
         **{
-            f"{c.removesuffix('_cost')}_days": (
-                grouped_data[c].sum().div(timedelta(days=1).total_seconds())
+            f"{c.removesuffix('_cost')}_years": (
+                grouped_data[c].sum().div(timedelta(days=365.25).total_seconds())
             )
             for c in sarc_data.columns
             if c.endswith("_cost")
@@ -259,9 +259,9 @@ def make_awesome_sunburst_plot(
     s = "s" if len(clusters) > 1 else ""
     total_compute_values = plot_data[
         [
-            "rgu_equivalent_days",
-            "gpu_equivalent_days",
-            "cpu_equivalent_days",
+            "rgu_equivalent_years",
+            "gpu_equivalent_years",
+            "cpu_equivalent_years",
         ]
     ].sum()
     print(total_compute_values.to_markdown())
@@ -276,15 +276,15 @@ def make_awesome_sunburst_plot(
             if multiple_clusters
             else [supervisor_key, "user.mila.email"]
         ),
-        values=f"{compute_type}_equivalent_days",
+        values=f"{compute_type}_equivalent_years",
         color="gpu_utilization",
         hover_data=[
-            "gpu_equivalent_days",
-            "rgu_equivalent_days",
-            "cpu_equivalent_days",
-            "gpu_days",
-            "rgu_days",
-            "cpu_days",
+            "gpu_equivalent_years",
+            "rgu_equivalent_years",
+            "cpu_equivalent_years",
+            "gpu_years",
+            "rgu_years",
+            "cpu_years",
             "gpu_utilization",
             "cpu_utilization",
             "number_of_jobs",
@@ -305,16 +305,16 @@ def make_awesome_sunburst_plot(
             f"Number of days in period: {days_in_period}<br>"
             + (
                 f"Total compute used: "
-                f"{total_compute_values['gpu_equivalent_days']:.0f} GPU days, "
-                f"{total_compute_values['rgu_equivalent_days']:.0f} RGU days, "
-                f"{total_compute_values['cpu_equivalent_days']:.0f} CPU days, "
+                f"{total_compute_values['gpu_equivalent_years']:.0f} GPU years, "
+                f"{total_compute_values['rgu_equivalent_years']:.0f} RGU years, "
+                f"{total_compute_values['cpu_equivalent_years']:.0f} CPU years, "
                 "<br>"
             )
             + (
                 f"Equivalent to "
-                f"{total_compute_values['gpu_equivalent_days'] / days_in_period:.0f} GPUs, "
-                f"{total_compute_values['rgu_equivalent_days'] / days_in_period:.0f} RGUs, and "
-                f"{total_compute_values['cpu_equivalent_days'] / days_in_period:.0f} CPUs "
+                f"{total_compute_values['gpu_equivalent_years']:.0f} GPUs, "
+                f"{total_compute_values['rgu_equivalent_years']:.0f} RGUs, and "
+                f"{total_compute_values['cpu_equivalent_years']:.0f} CPUs "
                 f"used full time during this period.<br>"
             )
         ),
@@ -332,7 +332,7 @@ def make_awesome_sunburst_plot(
         textinfo="label+text+value+percent root+percent parent",
         texttemplate=(
             "%{label}<br>"
-            + ("%{value:.2s} " + compute_type.upper() + " days<br>")
+            + ("%{value:.2s} " + compute_type.upper() + " years<br>")
             + (
                 "%{percentParent:.0%} of parent / %{percentRoot:.0%} of total compute"
                 if not multiple_clusters

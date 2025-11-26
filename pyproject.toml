@@ -40,6 +40,7 @@ dependencies = [
 [project.scripts]
 sarc = "sarc.cli:main"
 waste_monitor = "examples.waste_monitor.__main__:main"
+compute_interactive_plot = "examples.compute_usage_interactive_plot:main"
 
 [dependency-groups]
 dev = [
