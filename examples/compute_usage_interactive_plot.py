@@ -31,11 +31,14 @@ supervisor_key = "user.mila_ldap.supervisor"
 @dataclasses.dataclass(frozen=True)
 class Args:
     filter: FilteringOptions = FilteringOptions(
-        start=datetime(2025, 4, 1, tzinfo=MTL),
-        end=datetime(2025, 7, 31, tzinfo=MTL),
+        start=datetime.today()
+        - timedelta(days=31),  # datetime(2025, 4, 1, tzinfo=MTL),
+        end=datetime.today(),  # datetime(2025, 7, 31, tzinfo=MTL),
     )
     show_prof_type: bool = False
     cluster_type_to_show: Literal["mila", "drac", "paice", "all"] = "all"
+    users_file: Path | None = None
+    # profs_file: Path | None = None
 
 
 def main():
@@ -51,12 +54,20 @@ def main():
     args = simple_parsing.parse(
         Args,
         default=Args(
-            filter=FilteringOptions(
-                start=datetime(2025, 4, 1, tzinfo=MTL),
-                end=datetime(2025, 7, 31, tzinfo=MTL),
-            )
+            # filter=FilteringOptions(
+            #     start=datetime(2025, 4, 1, tzinfo=MTL),
+            #     end=datetime(2025, 7, 31, tzinfo=MTL),
+            # )
         ),
     )
+    if args.users_file:
+        args = dataclasses.replace(
+            args,
+            filter=dataclasses.replace(
+                args.filter, user=sorted(set(args.users_file.read_text().splitlines()))
+            ),
+            users_file=None,  # to not affect the caching below.
+        )
     filter = dataclasses.replace(
         args.filter,
         start=args.filter.start.replace(tzinfo=MTL),
@@ -141,6 +152,17 @@ def main():
             }
         )
     )
+
+    save_path = Path(f"compute_usage_{filter.start.date()}_{filter.end.date()}.csv")
+    sarc_data.groupby(["user.mila.email", "user.mila_ldap.supervisor"])[
+        [f"{compute_type}_equivalent_cost" for compute_type in ("cpu", "gpu", "rgu")]
+    ].sum().div(timedelta(days=1).total_seconds()).rename(
+        columns={
+            f"{compute_type}_equivalent_cost": f"{compute_type}_days"
+            for compute_type in ("cpu", "gpu", "rgu")
+        }
+    ).to_csv(save_path)
+
     grouped_data = sarc_data.groupby(
         ["cluster_type", "cluster_name", "prof_type", supervisor_key, "user.mila.email"]
     )
@@ -174,13 +196,15 @@ def main():
         # When they stopped using compute.
         compute_end_time=grouped_data["end_time"].max(),
     )
-
+    save_path = Path(
+        f"compute_usage_{args.cluster_type_to_show}_{filter.start.date()}_{filter.end.date()}.csv"
+    )
+    plot_data.to_csv(save_path.with_suffix(".csv"))
     # plot_data = plot_data.sort_values("rgu_equivalent_cost_days", ascending=False)
     for compute_type in ("rgu", "gpu", "cpu"):
         save_path = Path(
             f"compute_usage_{args.cluster_type_to_show}_{compute_type}_{filter.start.date()}_{filter.end.date()}.csv"
         )
-        plot_data.to_csv(save_path.with_suffix(".csv"))
         fig = make_awesome_sunburst_plot(
             plot_data.xs(args.cluster_type_to_show, level="cluster_type")
             if args.cluster_type_to_show != "all"

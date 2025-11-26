@@ -23,7 +23,7 @@ import paramiko.config
 import simple_parsing
 import yaml
 from simple_parsing.helpers.serialization.serializable import from_dict
-from typing_extensions import Self, Sequence
+from typing_extensions import Self
 
 from sarc.client.users.api import User
 from sarc.config import MTL, ClientConfig
@@ -264,10 +264,10 @@ class FilteringOptions:
     )
     """ End date. """
 
-    user: Sequence[str] = dataclasses.field(default_factory=tuple)
+    user: tuple[str, ...] = dataclasses.field(default_factory=tuple)
     """ Which user(s) to query information for. Leave blank to get a global compute profile."""
 
-    clusters: Sequence[str] = dataclasses.field(default_factory=tuple)
+    clusters: tuple[str, ...] = dataclasses.field(default_factory=tuple)
     """ Which clusters to query information for. Leave blank to get data from all clusters."""
 
     cache_dir: Path = dataclasses.field(
