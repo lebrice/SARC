@@ -560,6 +560,22 @@ class ScratchMonitorWidget(Widget):
     @work(exclusive=True, group="popup")
     async def make_popup(self, now: datetime, import_torch_time: float):
         worst_offender_uid = await get_uid_of_worst_scratch_user()
+        if worst_offender_uid is None:
+            logger.error("Could not get worst SCRATCH offender UID.")
+            self.app.query_exactly_one(RichLog).write(
+                f"[{now}] - [yellow]$SCRATCH is slow on the Mila cluster! "
+                f"{import_torch_time:.1f} s vs min of {self.min_val:.1f} s.[/yellow] "
+            )
+            self.notify(
+                title="$SCRATCH is slow!",
+                message=(
+                    f"$SCRATCH on Mila cluster is slower than usual: "
+                    f"{import_torch_time:.1f} s. vs {self.min_val:.1f} s!\n"
+                ),
+                severity="warning",
+                timeout=300,
+            )
+            return
         worst_offender_username = await get_username_from_uid(
             worst_offender_uid, cluster="mila"
         )
@@ -600,7 +616,11 @@ async def get_uid_of_worst_scratch_user():
     params = {"db": "beegfs_mon", "q": query}
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(INFLUX_URL, params=params)
+        try:
+            response = await client.get(INFLUX_URL, params=params)
+        except httpx.HTTPError as err:
+            logger.error(f"Error querying db: {err}")
+            return None
         uid = response.json()["results"][0]["series"][0]["values"][0][2]
         assert isinstance(uid, str)
         return int(uid)
