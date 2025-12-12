@@ -32,9 +32,10 @@ from sarc.client.series import (
     load_job_series,
     update_job_series_rgu,
 )
-from sarc.client.users.api import User, get_users
 from sarc.config import MTL, ClusterConfig
+from sarc.core.models.users import UserData
 from sarc.jobs.node_gpu_mapping import get_node_to_gpu
+from sarc.users.db import get_users
 
 from .common_utils import (
     FilteringOptions,
@@ -347,7 +348,7 @@ def _fix_missing_gpu_type(df: pd.DataFrame):
 
 @functools.cache
 @cache_results_to_file
-def get_mila_users_in_period(start: datetime, end: datetime) -> tuple[User, ...]:
+def get_mila_users_in_period(start: datetime, end: datetime) -> tuple[UserData, ...]:
     students = get_users(latest=False)
     return tuple(
         user

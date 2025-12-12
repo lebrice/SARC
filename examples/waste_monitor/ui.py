@@ -29,7 +29,7 @@ from textual.containers import (
     HorizontalScroll,
     Vertical,
     VerticalScroll,
-)  # noqa
+)
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import (
@@ -45,8 +45,8 @@ from textual.worker import Worker
 from textual_plotext import PlotextPlot
 
 from sarc.client.job import SlurmState
-from sarc.client.users.api import get_users
 from sarc.config import MTL
+from sarc.users.db import get_users
 
 from .common_utils import (
     CACHE_DIR,

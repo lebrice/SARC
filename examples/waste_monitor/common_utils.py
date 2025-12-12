@@ -25,8 +25,8 @@ import yaml
 from simple_parsing.helpers.serialization.serializable import from_dict
 from typing_extensions import Self, Sequence
 
-from sarc.client.users.api import User
 from sarc.config import MTL, ClientConfig
+from sarc.core.models.users import UserData
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +170,8 @@ def _get_cache_file_name[**P](
                 return d.strftime("%Y-%m-%d")
             case datetime() as v:
                 return v.strftime("%Y-%m-%dT%H:%M:%S%z")
-            case [User(), *_]:
-                return _hash(sorted([student.mila.username for student in v]))
+            case [UserData(), *_]:
+                return _hash(sorted([student.username for student in v]))
             case [str(), *_] if len(v) > 2:
                 # If there are more than 3 strings, hash them together.
                 return hashlib.md5("+".join(sorted(v)).encode()).hexdigest()[:12]
