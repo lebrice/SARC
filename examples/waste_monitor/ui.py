@@ -711,8 +711,6 @@ def _cached_get_data(
     )
     # This is cached as well:
     data = cache_results_to_file(get_clean_sarc_data)(options)
-    # if users:
-    #     data = data[data["user.mila.email"].isin(users)]
     return data
 
 
@@ -779,7 +777,7 @@ def fill_alerts_table(
         if jobs.empty:
             continue
 
-        for user_email, group in jobs.groupby("user.mila.email"):
+        for user_email, group in jobs.groupby("user.email"):
             # TODO: Check Jira for existing tickets about this user / job.
             # TODO: Group alerts by user, then sort by alert time (newest first?)
             alert_first_posted_time = datetime.now() - timedelta(hours=12)
@@ -822,7 +820,7 @@ def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     n_to_show = 50
     data = data.query("gpu_utilization.notna()")
 
-    data_by_user = data.groupby(["user.mila.email"]).aggregate(
+    data_by_user = data.groupby(["user.email"]).aggregate(
         {
             "job_id": "nunique",
             "job_state": lambda v: (v == SlurmState.COMPLETED).mean(),
@@ -842,7 +840,7 @@ def fill_user_view_datatable(table: DataTable, data: pd.DataFrame) -> None:
     ordered_by_waste = data_by_user.nlargest(
         columns="gpu_equivalent_waste", n=n_to_show
     )
-    gpu_util_stats = data.groupby(["user.mila.email"]).aggregate(
+    gpu_util_stats = data.groupby(["user.email"]).aggregate(
         {"gpu_utilization": "describe"}
     )
 
@@ -910,15 +908,14 @@ def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
         start=midnight(datetime.now()) - timedelta(days=7),
         end=midnight(datetime.now()),
     )
-    # total_mila_users = int(data["user.mila.email"].nunique())
     grouped_data = data.groupby("cluster_name").aggregate(
         {
             "job_id": "nunique",
-            "user.mila.email": "nunique",
+            "user.email": "nunique",
             "gpu_utilization": ["mean", "std"],
         }
     )
-    gpu_cost_per_user_per_cluster = data.groupby(["cluster_name", "user.mila.email"])[
+    gpu_cost_per_user_per_cluster = data.groupby(["cluster_name", "user.email"])[
         ["gpu_equivalent_cost", "allocated.gres_gpu"]
     ].sum()
     # TODO: look into naganuma.hiroki@mila.quebec on Mila (800 gpus*days)
@@ -935,7 +932,7 @@ def fill_cluster_overview_table(table: DataTable, data: pd.DataFrame) -> None:
     for index, row in grouped_data.iterrows():
         assert isinstance(index, str)
         cluster = index
-        mila_users = int(row["user.mila.email"]["nunique"])
+        mila_users = int(row["user.email"]["nunique"])
         # used_gpus_pct = avail_gpu / total_gpu
         num_jobs = row["job_id"]["nunique"]
         gpu_util_mean = row["gpu_utilization"]["mean"]
@@ -1037,8 +1034,8 @@ def fill_jobs_view_datatable(
             for k in requested_cols
         }
         mila_user = (
-            row["user.mila.email"].removesuffix("@mila.quebec")
-            if isinstance(row["user.mila.email"], str)
+            row["user.email"].removesuffix("@mila.quebec")
+            if isinstance(row["user.email"], str)
             else f"[red]{row['user']} (missing mila email)[/red]"
         )
         # TODO: Only fetch the submit line on a keypress event instead!
