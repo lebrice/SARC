@@ -1173,17 +1173,13 @@ async def get_submit_line(job_id: int | str, cluster_name: str) -> str:
 @functools.cache
 @cache_results_to_file
 def get_mila_students_in_period(start: datetime, end: datetime) -> int:
-    students = get_users(latest=True)
-    start = start.astimezone(MTL)
-    end = end.astimezone(MTL)
-
+    students = get_users()
     return len(
         set(
-            user.mila.email
+            user.uuid
             for user in students
-            if user.mila and user.mila.email
-            if (user.record_start and user.record_start.astimezone(MTL) <= end)
-            and (user.record_end is None or user.record_end.astimezone(MTL) >= start)
+            if "mila" in user.associated_accounts
+            and len(user.associated_accounts["mila"].values_in_range(start, end)) != 0
         )
     )
 
