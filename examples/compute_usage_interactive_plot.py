@@ -8,14 +8,16 @@ from typing import Literal
 import pandas as pd
 import plotly.express as px
 import simple_parsing
+from pydantic import UUID4
 
 from examples.waste_monitor.__main__ import _setup_logging
 from examples.waste_monitor.sarc_patches import (
     FilteringOptions,
     get_clean_sarc_data,
 )
-from sarc.client.users.api import User, get_users
 from sarc.config import MTL
+from sarc.core.models.users import UserData
+from sarc.users.db import get_users
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +54,18 @@ def main():
         Args,
         default=Args(
             filter=FilteringOptions(
-                start=datetime(2025, 4, 1, tzinfo=MTL),
-                end=datetime(2025, 7, 31, tzinfo=MTL),
+                start=datetime.today()
+                .astimezone(MTL)
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                - timedelta(days=90),
+                end=datetime.today()
+                .astimezone(MTL)
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                + timedelta(days=1),
             )
         ),
     )
+    assert args.filter.end > args.filter.start, "End date must be after start date"
     filter = dataclasses.replace(
         args.filter,
         start=args.filter.start.replace(tzinfo=MTL),
@@ -72,11 +81,13 @@ def main():
                 "(We don't want to reveal the gmail address of mila profs since this repo is publicly available.)"
             )
         CORE_PROF_EMAILS.extend(core_prof_emails_file.read_text().splitlines())
+    # df = load_job_series(start=filter.start, end=filter.end)
 
     sarc_data = get_clean_sarc_data(filter)
     assert (
         job_id_16 := sarc_data.query("(cluster_name=='mila') & (job_id == 16)")
     ).empty, job_id_16
+
     # Convert everything to Montreal time.
     sarc_data = sarc_data.assign(
         start_time=sarc_data["start_time"].dt.tz_convert(MTL),
@@ -92,25 +103,51 @@ def main():
     _users_in_period = _get_active_mila_user_records_during_period(
         start=filter.start, end=filter.end
     )
-    _profs_emails = set(
-        supervisor
-        for key in ["supervisor", "co_supervisor"]
-        for user in _users_in_period
-        if (supervisor := user.mila_ldap.get(key))
-    )
-    _professors = [
-        user
-        for user in _users_in_period
-        if user.mila is not None and user.mila.email in _profs_emails
-    ]
-    _prof_emails = {prof.mila.email for prof in _professors}
+    users = {user.uuid: user for user in _users_in_period}
 
-    is_prof = sarc_data["user.mila.email"].isin(_prof_emails)
-    is_student = sarc_data[supervisor_key].notna()
-    is_staff = sarc_data[supervisor_key].isna() & ~is_prof
+    prof_uuids: set[UUID4] = set()
+    for user in _users_in_period:
+        supervisors = user.supervisor.values_in_range(filter.start, filter.end)
+        prof_uuids.update(supervisors)
+        co_supervisors = user.co_supervisors.values_in_range(filter.start, filter.end)
+        for co_supervisors_set in co_supervisors:
+            prof_uuids.update(co_supervisors_set)
+
+    professors = get_users({"uuid": {"$in": list(prof_uuids)}})
+    _prof_emails = {prof.email for prof in professors}
+    logger.debug(f"Prof emails: {_prof_emails}")
+
+    user_ids = sarc_data["user.uuid"].unique()
+    # is_student, is_prof, is_staff
+    user_status = {user_id: (False, False, False) for user_id in user_ids}
+    for prof in professors:
+        user_status[prof.uuid] = (False, True, False)
+    for user in _users_in_period:
+        student_supervisors = user.supervisor.values_in_range(filter.start, filter.end)
+        is_student = bool(student_supervisors)
+        is_prof = user.uuid in prof_uuids
+        is_staff = not is_student and not is_prof
+        user_status[user.uuid] = (is_student, is_prof, is_staff)
+
+    assert (_df := sarc_data.query("`user.uuid`.isna()")).empty, _df
+
+    is_student = sarc_data["user.uuid"].map(lambda uid: user_status[uid][0])
+    is_prof = sarc_data["user.uuid"].map(lambda uid: user_status[uid][1])
+    is_staff = sarc_data["user.uuid"].map(lambda uid: user_status[uid][2])
+    job_user_supervisor = []
+    for index, row in sarc_data.iterrows():
+        user_uuid: UUID4 = row["user.uuid"]
+        user = users[user_uuid]
+
+        supervisor_at_the_time_uuid = users[user_uuid].supervisor.get_value(
+            row.start_time
+        )
+        supervisor = users[supervisor_at_the_time_uuid]
+        job_user_supervisor.append(supervisor.email)
+
     # Need to be in exactly one of these three categories.
     assert (_t := (is_student ^ is_prof ^ is_staff)).all(), (
-        sarc_data[_t]["user.mila.email"].unique().tolist()
+        sarc_data[_t]["user.email"].unique().tolist()
     )
 
     sarc_data = sarc_data.assign(user_type="other")
@@ -119,7 +156,7 @@ def main():
     sarc_data.loc[is_staff, "user_type"] = "other"
 
     # Mark profs as their own supervisor to make it easier to count their compute towards their own group.
-    sarc_data.loc[is_prof, supervisor_key] = sarc_data.loc[is_prof, "user.mila.email"]
+    sarc_data.loc[is_prof, supervisor_key] = sarc_data.loc[is_prof, "user.email"]
     sarc_data.loc[is_staff, supervisor_key] = "No supervisor"
 
     sarc_data = sarc_data.assign(prof_type="unknown")
@@ -142,7 +179,7 @@ def main():
         )
     )
     grouped_data = sarc_data.groupby(
-        ["cluster_type", "cluster_name", "prof_type", supervisor_key, "user.mila.email"]
+        ["cluster_type", "cluster_name", "prof_type", supervisor_key, "user.email"]
     )
     plot_data = grouped_data.aggregate(
         dict(
@@ -248,9 +285,9 @@ def make_awesome_sunburst_plot(
         plot_data.reset_index(),
         path=(["prof_type"] if show_prof_type else [])
         + (
-            ["cluster_name", supervisor_key, "user.mila.email"]
+            ["cluster_name", supervisor_key, "user.email"]
             if multiple_clusters
-            else [supervisor_key, "user.mila.email"]
+            else [supervisor_key, "user.email"]
         ),
         values=f"{compute_type}_equivalent_days",
         color="gpu_utilization",
@@ -333,21 +370,15 @@ def make_awesome_sunburst_plot(
 # @cache_results_to_file
 def _get_active_mila_user_records_during_period(
     start: datetime, end: datetime
-) -> tuple[User, ...]:
-    # NOTE: Might be multiple records for the same student if they changed status or something during the period!
-    students = get_users(latest=False)
-    students_in_period: list[User] = []
-    for student in students:
-        if student.mila is None or student.mila.email is None:
-            continue
-        r_start = student.record_start
-        r_end = student.record_end
-        if not (r_start is None or r_start.astimezone(MTL) <= end.astimezone(MTL)):
-            continue  # record starts after `end`, ignore.
-        if not (r_end is None or r_end.astimezone(MTL) >= start.astimezone(MTL)):
-            continue  # record ends before `start`, ignore.
-        students_in_period.append(student)
-    return tuple(students_in_period)
+) -> tuple[UserData, ...]:
+    users = get_users()
+    mila_users = [
+        user
+        for user in users
+        if "mila" in user.associated_accounts
+        and len(user.associated_accounts["mila"].values_in_range(start, end)) != 0
+    ]
+    return tuple(mila_users)
 
 
 if __name__ == "__main__":

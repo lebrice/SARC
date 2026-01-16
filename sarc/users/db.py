@@ -289,3 +289,7 @@ def get_users(
 
 def get_user(email: str) -> UserData | None:
     return get_user_collection().find_one_by({"email": email})
+
+
+def get_user_by_uuid(uuid: UUID4) -> UserData | None:
+    return get_user_collection().find_one_by({"uuid": uuid})
