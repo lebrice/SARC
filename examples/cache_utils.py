@@ -9,7 +9,7 @@ import tempfile
 import typing
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import simple_parsing
@@ -45,13 +45,13 @@ class FilteringOptions:
         default=_midnight(datetime.now(tz=MTL)),
         type=lambda d: datetime.fromisoformat(d).astimezone(MTL),
     )
-    """ End date. """
+    """End date."""
 
-    user: Sequence[str] = dataclasses.field(default_factory=tuple)
-    """ Which user(s) to query information for. Leave blank to get a global compute profile."""
+    user: tuple[str, ...] = dataclasses.field(default_factory=tuple)
+    """Which user(s) to query information for. Leave blank to get data for all users."""
 
-    clusters: Sequence[str] = dataclasses.field(default_factory=tuple)
-    """ Which clusters to query information for. Leave blank to get data from all clusters."""
+    clusters: tuple[str, ...] = dataclasses.field(default_factory=tuple)
+    """Which clusters to query information for. Leave blank to get data for all clusters."""
 
     cache_dir: Path = dataclasses.field(
         default=(

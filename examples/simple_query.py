@@ -1,8 +1,10 @@
 import datetime
+import logging
 from datetime import timedelta
 from pathlib import Path
 
 import gifnoc
+import rich.logging
 import simple_parsing
 from cache_utils import FilteringOptions, cache_results_to_file
 
@@ -18,11 +20,30 @@ args = simple_parsing.parse(
     ),
 )
 
+logging.basicConfig(
+    level=logging.INFO if args.verbose else logging.WARNING,
+    handlers=[rich.logging.RichHandler()],
+    force=True,
+    format="%(message)s",
+)
+logger = logging.getLogger(__name__)
+logger.setLevel(
+    logging.DEBUG
+    if args.verbose > 1
+    else logging.INFO
+    if args.verbose
+    else logging.WARNING
+)
 # Ugly, but we need to tell SARC which config to use (doesn't default to the client one).
 gifnoc.set_sources(Path(__file__).parent.parent / "config/sarc-client.yaml")
 
 seconds_in_year = timedelta(days=365.25).total_seconds()
-df = cache_results_to_file(load_job_series)(start=args.start, end=args.end)
+kwargs: dict = dict(start=args.start, end=args.end)
+assert not args.user and not args.clusters, "no filtering by user or cluster for now"
+logger.info(f"Querying job series with the following filters: {kwargs}")
+
+df = cache_results_to_file(load_job_series)(**kwargs)
+logger.debug(f"Number of entries: {len(df)}")
 df = compute_cost_and_waste(df)
 
 # Group jobs by user
