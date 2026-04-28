@@ -48,7 +48,7 @@ class FilteringOptions:
     """End date."""
 
     user: tuple[str, ...] = dataclasses.field(default_factory=tuple)
-    """Which user(s) to query information for. Leave blank to get data for all users."""
+    """Which user(s) (mila email) to query information for. Leave blank to get data for all users."""
 
     clusters: tuple[str, ...] = dataclasses.field(default_factory=tuple)
     """Which clusters to query information for. Leave blank to get data for all clusters."""
