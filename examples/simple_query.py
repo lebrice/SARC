@@ -11,8 +11,11 @@ import pandas as pd
 import plotly.express as px
 import rich.logging
 import rich.pretty
+import rich.progress
+import rich.progress_bar
 import simple_parsing
 import tqdm
+import tqdm.rich
 from cache_utils import FilteringOptions, cache_results_to_file
 
 from sarc.client.series import (
@@ -20,6 +23,7 @@ from sarc.client.series import (
     load_job_series,
     update_job_series_rgu,
 )
+from sarc.core.models.users import UserData
 from sarc.core.models.validators import DateMatchError
 from sarc.users.db import get_users
 
@@ -78,48 +82,78 @@ def main():
     )
 
     kwargs: dict = dict(start=args.start, end=args.end)
-    user_emails = args.get_users()
-    assert not args.user and not args.clusters, (
-        "no filtering by user or cluster for now"
-    )
+    if args.clusters:
+        kwargs["cluster_name"] = {"$in": args.clusters}
+
     logger.info(f"Querying job series with the following filters: {kwargs}")
 
+    # NOTE: we get the data from all users and then filter by user email.
+    # This is better then trying to filter by cluster username (can't filter by user email directly).
     df = cache_results_to_file(load_job_series)(**kwargs)
 
-    if user_emails_to_query := args.get_users():
-        df = df[df["user.email"].isin(user_emails_to_query)]
-
-    # df = df[df["user.email"].isin(users_to_query)]  # would ignore profs submitting jobs themselves.
-    # profs_not_in_query = set(email_to_user_or_prof) - set(users_to_query)
-    # if profs_not_in_query:
-    #     rich.print(
-    #         "NOTE: The following users (probably profs) will also have their compute usage shown, "
-    #         "even if they were not in the list of emails to query for (they supervised one or more "
-    #         "researchers in the provided list of emails)."
-    #     )
-    #     rich.pretty.pprint(profs_not_in_query)
-    # logger.debug(f"Number of users in the query: {len(email_to_user_or_prof)}")
+    user_emails = args.get_users()
+    # TODO: Re-enable if we want to filter the results by user email.
+    if user_emails := args.get_users():
+        df = df[df["user.email"].isin(user_emails)]
+    if args.clusters:
+        assert df["cluster_name"].isin(args.clusters).all(), (
+            "Some clusters in the dataframe are not in the provided list of clusters to query for. This should not happen since we filter by cluster name in the query, but just in case..."
+        )
 
     df = compute_cost_and_waste(df)
     df = update_job_series_rgu(df)
-
     df = _add_cost_waste_rgu(df)
 
-    # Show a pie chart of the number of unique clusters.
-    # We want to know how many users use 1 cluster, 2 clusters, etc.
+    # Show a two pie charts:
+    # - One with the number of unique clusters used by users overall, for example
+    #   37% of users use one cluster, 21 % used 2 clusters, etc etc.
+    # - Another with the number of users that are using each cluster.
+
+    # temporarily overwrite the user.email column.
+    df = temporarily_overwrite_user_email(args, df)
+
     num_clusters_used_plot_data = (
         df.groupby("user.email")["cluster_name"].nunique().value_counts().sort_index()
     )
-    fig = px.pie(
+    # Create a figure with two plots side by side.
+
+    # TODO: To show the users that used '0' clusters, we have to use the
+    # get_users() function, since they won't have entries in the job dataframe!
+    # all_users = get_users()
+    # user_ids_in_dataframe = df["user.uuid"].unique()
+    # active_users = [u for u in all_users if user_is_active(u, args.start, args.end)]
+    # print(f"{len(active_users)=}, {len(user_ids_in_dataframe)=}")
+    # active_users_without_jobs = [
+    #     u for u in active_users if u.uuid not in user_ids_in_dataframe
+    # ]
+    # num_clusters_used_plot_data[0] = len(active_users_without_jobs)
+    # num_clusters_used_plot_data = num_clusters_used_plot_data.sort_index()
+
+    fig1 = px.pie(
         num_clusters_used_plot_data,
         values=num_clusters_used_plot_data.values,
-        names=num_clusters_used_plot_data.index,
-        title="Number of clusters used per user",
+        names=[f"{v} clusters" for v in num_clusters_used_plot_data.index],
+        title="Number of unique clusters used per user",
     )
-    fig.show()
+    fig1.show()
+
+    num_users_per_cluster_used_plot_data = (
+        df.groupby("cluster_name")["user.email"].nunique().sort_index()
+    )
+    # num_clusters_used_plot_data["other/none"] = len(active_users_without_jobs)
+
+    fig2 = px.pie(
+        num_users_per_cluster_used_plot_data,
+        values=num_users_per_cluster_used_plot_data.values,
+        names=num_users_per_cluster_used_plot_data.index,
+        title="Number of users using each cluster",
+    )
+    fig2.show()
 
     df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
-
+    make_awesome_sunburst_plot(
+        df, filter=args, compute_type="rgu", supervisor_key="supervisor.email"
+    ).show()
     # Group jobs by user, supervisor, and cluster.
     grouped_by_user = df.groupby(["supervisor.email", "user.email", "cluster_name"])
     stats = grouped_by_user.aggregate(
@@ -137,9 +171,57 @@ def main():
     result.to_csv(f"query_{date.today()}.csv")
 
 
-# Have the same ordering as in the USER_EMAILS list.
-# users = sorted(users, key=lambda u: USER_EMAILS.index(u.email))
-# email_to_user = dict(zip(USER_EMAILS, users))
+def temporarily_overwrite_user_email(
+    args: FilteringOptions, df: pd.DataFrame
+) -> pd.DataFrame:
+    all_users = get_users()
+    mila_username_to_user: dict[str, UserData] = {}
+    drac_username_to_user: dict[str, UserData] = {}
+    for user in all_users:
+        if mila_creds := user.associated_accounts.get("mila"):
+            if accounts := mila_creds.values_in_range(args.start, args.end):
+                mila_username_to_user[accounts[0]] = user
+        if drac_creds := user.associated_accounts.get("drac"):
+            if accounts := drac_creds.values_in_range(args.start, args.end):
+                drac_username_to_user[accounts[0]] = user
+    user_emails: list[str | None] = []
+    warned = set()
+    for _key, row in tqdm.rich.tqdm(
+        df.iterrows(),
+        total=len(df),
+        disable=not sys.stdout.isatty(),
+        leave=False,
+        unit="rows",
+    ):
+        username = row["user"]
+        cluster = row["cluster_name"]
+        # Find the UserData with this username on that cluster.
+        if cluster == "mila":
+            user = mila_username_to_user.get(username)
+        else:
+            user = drac_username_to_user.get(username)
+        if user is None:
+            job_id = row["job_id"]
+            if username not in warned:
+                logger.warning(
+                    f"No data for user with username {username} on cluster {cluster} (job id {job_id})!"
+                )
+                warned.add(username)
+            user_emails.append(None)
+        else:
+            user_emails.append(user.email)
+    df = df.assign(**{"user.email": user_emails})
+    return df
+
+
+def user_is_active(
+    user: UserData, start_date: datetime.datetime, end_date: datetime.datetime
+) -> bool:
+    """Whether this user has an active account during this period."""
+    for credentials in user.associated_accounts.values():
+        if credentials.values_in_range(start_date, end_date):
+            return True
+    return False
 
 
 def add_responsible_for_compute_column(
