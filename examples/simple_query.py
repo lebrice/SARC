@@ -118,19 +118,19 @@ def main():
     )
 
     # Show, for users that only use 1 cluster, which clusters they use.
-    for i in range(1, 3):
-        single_cluster_users_data = (
-            clusters_used_by_user.query(f"num_clusters == {i}")["clusters"]
+    for i in range(1, 4):
+        at_least_i_clusters_data = (
+            clusters_used_by_user.query(f"num_clusters >= {i}")["clusters"]
             .explode()
             .value_counts()
         )
         s = "s" if i > 1 else ""
-        print(single_cluster_users_data.to_markdown())
+        print(at_least_i_clusters_data.to_markdown())
         fig = px.pie(
-            single_cluster_users_data,
-            values=single_cluster_users_data.values,
-            names=single_cluster_users_data.index,
-            title=f"Cluster{s} used by users that used exactly {i} cluster{s}",
+            at_least_i_clusters_data,
+            values=at_least_i_clusters_data.values,
+            names=at_least_i_clusters_data.index,
+            title=f"Cluster{s} used by users that used at least {i} cluster{s}",
         )
         fig.show()
 
