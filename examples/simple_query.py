@@ -112,10 +112,44 @@ def main():
     # temporarily overwrite the user.email column.
     df = temporarily_overwrite_user_email(args, df)
 
+    clusters_used_by_user = df.groupby("user.email").aggregate(
+        num_clusters=pd.NamedAgg("cluster_name", "nunique"),
+        clusters=pd.NamedAgg("cluster_name", lambda x: set(x.unique())),
+    )
+
+    # Show, for users that only use 1 cluster, which clusters they use.
+    for i in range(1, 3):
+        single_cluster_users_data = (
+            clusters_used_by_user.query(f"num_clusters == {i}")["clusters"]
+            .explode()
+            .value_counts()
+        )
+        s = "s" if i > 1 else ""
+        print(single_cluster_users_data.to_markdown())
+        fig = px.pie(
+            single_cluster_users_data,
+            values=single_cluster_users_data.values,
+            names=single_cluster_users_data.index,
+            title=f"Cluster{s} used by users that used exactly {i} cluster{s}",
+        )
+        fig.show()
+
+    # Show, for users that only use 2 clusters, which pairs of clusters they use.
     num_clusters_used_plot_data = (
         df.groupby("user.email")["cluster_name"].nunique().value_counts().sort_index()
     )
     # Create a figure with two plots side by side.
+
+    # Display a table showing users using 1+ clusters, 2+ clusters, etc.
+    # Cumulative sum of users using at least x clusters.
+    total_users = num_clusters_used_plot_data.sum()
+    for i in range(1, num_clusters_used_plot_data.index.max() + 1):
+        num_users_using_at_least_i_clusters = num_clusters_used_plot_data[
+            num_clusters_used_plot_data.index >= i
+        ].sum()
+        logger.info(
+            f"{num_users_using_at_least_i_clusters} users used at least {i} cluster(s) ({num_users_using_at_least_i_clusters / total_users:.1%})"
+        )
 
     # TODO: To show the users that used '0' clusters, we have to use the
     # get_users() function, since they won't have entries in the job dataframe!
@@ -149,7 +183,7 @@ def main():
         title="Number of users using each cluster",
     )
     fig2.show()
-
+    return
     df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
     make_awesome_sunburst_plot(
         df, filter=args, compute_type="rgu", supervisor_key="supervisor.email"
@@ -175,6 +209,7 @@ def temporarily_overwrite_user_email(
     args: FilteringOptions, df: pd.DataFrame
 ) -> pd.DataFrame:
     all_users = get_users()
+    user_id_to_user = {u.uuid: u for u in all_users}
     mila_username_to_user: dict[str, UserData] = {}
     drac_username_to_user: dict[str, UserData] = {}
     for user in all_users:
@@ -185,7 +220,7 @@ def temporarily_overwrite_user_email(
             if accounts := drac_creds.values_in_range(args.start, args.end):
                 drac_username_to_user[accounts[0]] = user
     user_emails: list[str | None] = []
-    warned = set()
+    _warned = set()
     for _key, row in tqdm.rich.tqdm(
         df.iterrows(),
         total=len(df),
@@ -193,20 +228,27 @@ def temporarily_overwrite_user_email(
         leave=False,
         unit="rows",
     ):
+        # Userid is in the dataframe, use it.
+        user_id = row["user.uuid"]
+        if user_id and (user := user_id_to_user.get(user_id)):
+            user_emails.append(user.email)
+            continue
+
         username = row["user"]
         cluster = row["cluster_name"]
+
         # Find the UserData with this username on that cluster.
         if cluster == "mila":
             user = mila_username_to_user.get(username)
         else:
             user = drac_username_to_user.get(username)
         if user is None:
-            job_id = row["job_id"]
-            if username not in warned:
-                logger.warning(
-                    f"No data for user with username {username} on cluster {cluster} (job id {job_id})!"
-                )
-                warned.add(username)
+            # if username not in warned:
+            #     job_id = row["job_id"]
+            #     logger.warning(
+            #         f"No data for user with username {username} on cluster {cluster} (job id {job_id})!"
+            #     )
+            #     warned.add(username)
             user_emails.append(None)
         else:
             user_emails.append(user.email)
