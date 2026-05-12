@@ -17,6 +17,7 @@ import simple_parsing
 import tqdm
 import tqdm.rich
 from cache_utils import FilteringOptions, _get_cache_file_name, cache_results_to_file
+from pydantic import UUID4
 
 from sarc.client.series import (
     compute_cost_and_waste,
@@ -104,7 +105,8 @@ def main():
     df = update_job_series_rgu(df)
     df = _add_cost_waste_rgu(df)
     # temporarily repair the user.email column (because most of it is None).
-    df = temporarily_repair_user_email_column(args, df)
+    df = temporarily_repair_user_email_and_user_uuid_columns(args, df)
+    breakpoint()
     df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
 
     unique_file_name = _get_cache_file_name(load_job_series, **kwargs)
@@ -213,11 +215,33 @@ def make_some_plots(df: pd.DataFrame):
     # result.to_csv(f"query_{date.today()}.csv")
 
 
-def temporarily_repair_user_email_column(
+def temporarily_repair_user_email_and_user_uuid_columns(
     args: FilteringOptions, df: pd.DataFrame
 ) -> pd.DataFrame:
     all_users = get_users()
     user_id_to_user = {u.uuid: u for u in all_users}
+    df = temporarily_repair_user_email_column(
+        args, df, user_id_to_user=user_id_to_user, all_users=all_users
+    )
+    df = temporarily_repair_user_uuid_column(df, all_users=all_users)
+    assert (_t := df.query("`user.email`.isna()")).empty, _t
+    assert (_t := df.query("`user.uuid`.isna()")).empty, _t
+    return df
+
+
+def temporarily_repair_user_email_column(
+    args: FilteringOptions,
+    df: pd.DataFrame,
+    user_id_to_user: dict[UUID4, UserData],
+    all_users: list[UserData],
+) -> pd.DataFrame:
+    missing_user_email_frac = df["user.email"].isna().mean()
+    if missing_user_email_frac == 0.0:
+        logger.info("'user.email' is present in all rows.")
+        return df
+    logger.info(
+        f"user.email is missing in {missing_user_email_frac:.1%} of rows. Trying to repair it using the user.uuid and cluster username..."
+    )
     mila_username_to_user: dict[str, UserData] = {}
     drac_username_to_user: dict[str, UserData] = {}
     for user in all_users:
@@ -260,8 +284,25 @@ def temporarily_repair_user_email_column(
             user_emails.append(None)
         else:
             user_emails.append(user.email)
-    df = df.assign(**{"user.email": user_emails})
+    df = df.assign(**{"user.email": user_emails})  # type: ignore
     return df
+
+
+def temporarily_repair_user_uuid_column(
+    df: pd.DataFrame, all_users: list[UserData]
+) -> pd.DataFrame:
+    # construct a map from user.email to user.uuid for all the users in the dataframe.
+    missing_user_uuid = df["user.uuid"].isna()
+    if not missing_user_uuid.any():
+        logger.info("'user.uuid' is present in all rows.")
+        return df
+    logger.info(f"user.uuid is missing in {missing_user_uuid.mean():.1%} of rows.")
+    assert df["user.email"].notna().all(), (
+        "Can't repair user.uuid if user.email is missing!"
+    )
+    return df.assign(
+        **{"user.uuid": df["user.email"].map({u.email: u.uuid for u in all_users})}
+    )
 
 
 def user_is_active(
@@ -311,6 +352,7 @@ def add_responsible_for_compute_column(
         job_start = job_row["start_time"]
         assert isinstance(job_start, datetime.datetime) and job_start.tzinfo is not None
         user_id = job_row["user.uuid"]
+
         user = uuid_to_user[user_id]
 
         # Might get a DateMatchError if the user doesn't have a known supervisor at that time.
