@@ -103,14 +103,10 @@ def main():
     df = compute_cost_and_waste(df)
     df = update_job_series_rgu(df)
     df = _add_cost_waste_rgu(df)
-    # temporarily repair the user.email column (because most of it was None before).
-    df = temporarily_overwrite_user_email(args, df)
+    # temporarily repair the user.email column (because most of it is None).
+    df = temporarily_repair_user_email_column(args, df)
     df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
 
-    # Show a two pie charts:
-    # - One with the number of unique clusters used by users overall, for example
-    #   37% of users use one cluster, 21 % used 2 clusters, etc etc.
-    # - Another with the number of users that are using each cluster.
     unique_file_name = _get_cache_file_name(load_job_series, **kwargs)
     pickle_file = Path(f"query_{unique_file_name}.pkl")
     df.to_pickle(pickle_file)
@@ -121,6 +117,10 @@ def main():
 
 
 def make_some_plots(df: pd.DataFrame):
+    # Show two pie charts:
+    # - One with the number of unique clusters used by users overall, for example
+    #   37% of users use one cluster, 21 % used 2 clusters, etc etc.
+    # - Another with the number of users that are using each cluster.
     clusters_used_by_user = df.groupby("user.email").aggregate(
         num_clusters=pd.NamedAgg("cluster_name", "nunique"),
         clusters=pd.NamedAgg("cluster_name", lambda x: set(x.unique())),
@@ -213,7 +213,7 @@ def make_some_plots(df: pd.DataFrame):
     # result.to_csv(f"query_{date.today()}.csv")
 
 
-def temporarily_overwrite_user_email(
+def temporarily_repair_user_email_column(
     args: FilteringOptions, df: pd.DataFrame
 ) -> pd.DataFrame:
     all_users = get_users()
@@ -284,6 +284,9 @@ def add_responsible_for_compute_column(
     - If a student doesn't have a supervisor, but has a co-supervisor, one of the co-supervisors' email is used.
     - If a user doesn't have a supervisor or co-supervisor at the time of the job (e.g. a prof or staff), their email is used.
     """
+    assert new_column_name not in df.columns, (
+        f"Column {new_column_name} already exists in the dataframe!"
+    )
     # This is tricky to compute:
     #     We have to go job by job, and find the supervisor of the associated user
     #     at the time the job started.
@@ -302,7 +305,7 @@ def add_responsible_for_compute_column(
     #         supervisor = uuid_to_user[supervisor_uuid]
     #         email_to_user[supervisor.email] = supervisor
 
-    for index, job_row in tqdm.tqdm(
+    for _index, job_row in tqdm.tqdm(
         df.iterrows(), total=len(df), disable=not sys.stdout.isatty()
     ):
         job_start = job_row["start_time"]
