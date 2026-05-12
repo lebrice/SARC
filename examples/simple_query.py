@@ -10,9 +10,6 @@ import gifnoc
 import pandas as pd
 import plotly.express as px
 import rich.logging
-import rich.pretty
-import rich.progress
-import rich.progress_bar
 import simple_parsing
 import tqdm
 import tqdm.rich
@@ -46,13 +43,13 @@ seconds_in_year = timedelta(days=365.25).total_seconds()
 
 
 def _add_cost_waste_rgu(df: pd.DataFrame) -> pd.DataFrame:
-    gpu_rgu_ratio = df["allocated.gres_rgu"] / df["allocated.gres_gpu"]
+    rgu_to_gpu_ratio = df["allocated.gres_rgu"] / df["allocated.gres_gpu"]
     return df.assign(
-        rgu_cost=df["gpu_cost"] * gpu_rgu_ratio,
-        rgu_waste=df["gpu_waste"] * gpu_rgu_ratio,
-        rgu_equivalent_cost=df["gpu_equivalent_cost"] * gpu_rgu_ratio,
-        rgu_equivalent_waste=df["gpu_equivalent_waste"] * gpu_rgu_ratio,
-        rgu_overbilling_cost=df["gpu_overbilling_cost"] * gpu_rgu_ratio,
+        rgu_cost=df["gpu_cost"] * rgu_to_gpu_ratio,
+        rgu_waste=df["gpu_waste"] * rgu_to_gpu_ratio,
+        rgu_equivalent_cost=df["gpu_equivalent_cost"] * rgu_to_gpu_ratio,
+        rgu_equivalent_waste=df["gpu_equivalent_waste"] * rgu_to_gpu_ratio,
+        rgu_overbilling_cost=df["gpu_overbilling_cost"] * rgu_to_gpu_ratio,
     )
 
 
@@ -106,7 +103,6 @@ def main():
     df = _add_cost_waste_rgu(df)
     # temporarily repair the user.email column (because most of it is None).
     df = temporarily_repair_user_email_and_user_uuid_columns(args, df)
-    breakpoint()
     df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
 
     unique_file_name = _get_cache_file_name(load_job_series, **kwargs)
@@ -224,8 +220,8 @@ def temporarily_repair_user_email_and_user_uuid_columns(
         args, df, user_id_to_user=user_id_to_user, all_users=all_users
     )
     df = temporarily_repair_user_uuid_column(df, all_users=all_users)
-    assert (_t := df.query("`user.email`.isna()")).empty, _t
-    assert (_t := df.query("`user.uuid`.isna()")).empty, _t
+    # assert (_t := df.query("`user.email`.isna()")).empty, _t
+    # assert (_t := df.query("`user.uuid`.isna()")).empty, _t
     return df
 
 
@@ -251,6 +247,7 @@ def temporarily_repair_user_email_column(
         if drac_creds := user.associated_accounts.get("drac"):
             if accounts := drac_creds.values_in_range(args.start, args.end):
                 drac_username_to_user[accounts[0]] = user
+
     user_emails: list[str | None] = []
     _warned = set()
     for _key, row in tqdm.rich.tqdm(
@@ -262,7 +259,8 @@ def temporarily_repair_user_email_column(
     ):
         # Userid is in the dataframe, use it.
         user_id = row["user.uuid"]
-        if user_id and (user := user_id_to_user.get(user_id)):
+        # IF user.email is Nan, then user.uuid is also NaN!
+        if user_id and not pd.isna(user_id) and (user := user_id_to_user.get(user_id)):
             user_emails.append(user.email)
             continue
 
@@ -274,17 +272,28 @@ def temporarily_repair_user_email_column(
             user = mila_username_to_user.get(username)
         else:
             user = drac_username_to_user.get(username)
+
         if user is None:
-            # if username not in warned:
+            # if username not in _warned:
             #     job_id = row["job_id"]
             #     logger.warning(
             #         f"No data for user with username {username} on cluster {cluster} (job id {job_id})!"
             #     )
-            #     warned.add(username)
+            #     _warned.add(username)
             user_emails.append(None)
         else:
             user_emails.append(user.email)
+
     df = df.assign(**{"user.email": user_emails})  # type: ignore
+    still_missing = df["user.email"].isna()
+    if still_missing.any():
+        logger.warning(
+            f"`user.email` is still missing in {still_missing.mean():.1%} of rows!"
+        )
+    else:
+        logger.info(
+            "Successfully repaired `user.email` for all rows using the user.uuid and cluster username!"
+        )
     return df
 
 
@@ -297,12 +306,20 @@ def temporarily_repair_user_uuid_column(
         logger.info("'user.uuid' is present in all rows.")
         return df
     logger.info(f"user.uuid is missing in {missing_user_uuid.mean():.1%} of rows.")
-    assert df["user.email"].notna().all(), (
-        "Can't repair user.uuid if user.email is missing!"
-    )
-    return df.assign(
+
+    df = df.assign(
         **{"user.uuid": df["user.email"].map({u.email: u.uuid for u in all_users})}
     )
+    still_missing = df["user.uuid"].isna()
+    if still_missing.any():
+        logger.warning(
+            f"'user.uuid' is still missing in {still_missing.mean():.1%} of rows."
+        )
+    else:
+        logger.info(
+            "Successfully repaired `user.uuid` for all rows using the `user.email`!"
+        )
+    return df
 
 
 def user_is_active(
@@ -352,6 +369,14 @@ def add_responsible_for_compute_column(
         job_start = job_row["start_time"]
         assert isinstance(job_start, datetime.datetime) and job_start.tzinfo is not None
         user_id = job_row["user.uuid"]
+
+        if pd.isna(user_id):
+            # This shouldn't happen since we should have repaired all the user.uuid using the user.email, but just in case.
+            logger.warning(
+                f"Job with missing user.uuid (index {_index}, job id {job_row['job_id']}). This job will be billed to an 'unknown' user."
+            )
+            job_supervisor_email.append(None)
+            continue
 
         user = uuid_to_user[user_id]
 
