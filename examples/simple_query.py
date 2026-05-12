@@ -1,7 +1,7 @@
 import datetime
 import logging
 import sys
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -16,7 +16,7 @@ import rich.progress_bar
 import simple_parsing
 import tqdm
 import tqdm.rich
-from cache_utils import FilteringOptions, cache_results_to_file
+from cache_utils import FilteringOptions, _get_cache_file_name, cache_results_to_file
 
 from sarc.client.series import (
     compute_cost_and_waste,
@@ -103,15 +103,24 @@ def main():
     df = compute_cost_and_waste(df)
     df = update_job_series_rgu(df)
     df = _add_cost_waste_rgu(df)
+    # temporarily repair the user.email column (because most of it was None before).
+    df = temporarily_overwrite_user_email(args, df)
+    df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
 
     # Show a two pie charts:
     # - One with the number of unique clusters used by users overall, for example
     #   37% of users use one cluster, 21 % used 2 clusters, etc etc.
     # - Another with the number of users that are using each cluster.
+    unique_file_name = _get_cache_file_name(load_job_series, **kwargs)
+    pickle_file = Path(f"query_{unique_file_name}.pkl")
+    df.to_pickle(pickle_file)
+    print(f"Saved dataframe to {pickle_file}")
 
-    # temporarily overwrite the user.email column.
-    df = temporarily_overwrite_user_email(args, df)
+    # Examples:
+    # make_some_plots(df, args)
 
+
+def make_some_plots(df: pd.DataFrame):
     clusters_used_by_user = df.groupby("user.email").aggregate(
         num_clusters=pd.NamedAgg("cluster_name", "nunique"),
         clusters=pd.NamedAgg("cluster_name", lambda x: set(x.unique())),
@@ -183,26 +192,25 @@ def main():
         title="Number of users using each cluster",
     )
     fig2.show()
-    return
-    df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
-    make_awesome_sunburst_plot(
-        df, filter=args, compute_type="rgu", supervisor_key="supervisor.email"
-    ).show()
-    # Group jobs by user, supervisor, and cluster.
-    grouped_by_user = df.groupby(["supervisor.email", "user.email", "cluster_name"])
-    stats = grouped_by_user.aggregate(
-        {
-            "cpu_cost": lambda c: c.sum() / seconds_in_year,
-            "gpu_cost": lambda c: c.sum() / seconds_in_year,
-            "rgu_cost": lambda c: c.sum() / seconds_in_year,
-        }
-    )
 
-    # Compute the total amount of compute time used, wasted and overbilled by user.
-    # Print from worst offender to best usage.
-    result = stats.sort_values(ascending=False, by="rgu_cost")
-    print(result.to_markdown())
-    result.to_csv(f"query_{date.today()}.csv")
+    # df = add_responsible_for_compute_column(df, new_column_name="supervisor.email")
+    # make_awesome_sunburst_plot(
+    #     df, filter=args, compute_type="rgu", supervisor_key="supervisor.email"
+    # ).show()
+    # Group jobs by user, supervisor, and cluster.
+    # grouped_by_user = df.groupby(["supervisor.email", "user.email", "cluster_name"])
+    # stats = grouped_by_user.aggregate(
+    #     {
+    #         "cpu_cost": lambda c: c.sum() / seconds_in_year,
+    #         "gpu_cost": lambda c: c.sum() / seconds_in_year,
+    #         "rgu_cost": lambda c: c.sum() / seconds_in_year,
+    #     }
+    # )
+    # # Compute the total amount of compute time used, wasted and overbilled by user.
+    # # Print from worst offender to best usage.
+    # result = stats.sort_values(ascending=False, by="rgu_cost")
+    # print(result.to_markdown())
+    # result.to_csv(f"query_{date.today()}.csv")
 
 
 def temporarily_overwrite_user_email(
