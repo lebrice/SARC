@@ -350,7 +350,7 @@ def add_responsible_for_compute_column(
     #     at the time the job started.
 
     # This is the list of supervisor emails for each job that we will add as a column to the dataframe.
-    job_supervisor_email: list[str] = []
+    job_supervisor_email: list[str | None] = []
     # job_co_supervisor_email: list[str] = []
 
     uuid_to_user = {u.uuid: u for u in get_users()}
@@ -372,9 +372,9 @@ def add_responsible_for_compute_column(
 
         if pd.isna(user_id):
             # This shouldn't happen since we should have repaired all the user.uuid using the user.email, but just in case.
-            logger.warning(
-                f"Job with missing user.uuid (index {_index}, job id {job_row['job_id']}). This job will be billed to an 'unknown' user."
-            )
+            # logger.warning(
+            #     f"Job with missing user.uuid (index {_index}, job id {job_row['job_id']}). This job will be billed to an 'unknown' user."
+            # )
             job_supervisor_email.append(None)
             continue
 
